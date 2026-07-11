@@ -1,0 +1,25 @@
+{
+  "name": "ai-drawing-workbench",
+  "version": "0.1.0",
+  "description": "纯前端、零后端的 AI 绘画工作台,支持任意 OpenAI/NewAPI 兼容接口",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "idb": "^8.0.0",
+    "jszip": "^3.10.1",
+    "pinia": "^2.2.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.1.0",
+    "fake-indexeddb": "^6.2.5",
+    "vite": "^5.4.0",
+    "vitest": "^2.1.0"
+  }
+}
