@@ -11,11 +11,14 @@ import { putAsset } from '../lib/assetRepo.js'
 const RES_MAP = { '1k': 1024, '2k': 2048, '4k': 4096 }
 const QUALITY_MAP = { '1k': '', '2k': ', high detail, sharp focus', '4k': ', ultra detailed, 4k, ultra sharp, intricate details' }
 const RATIOS = [
-  { key: '1:1', label: '方形' },
-  { key: '16:9', label: '横屏' },
-  { key: '9:16', label: '竖屏' },
-  { key: '4:3', label: '横屏' },
-  { key: '3:4', label: '竖屏' },
+  { key: 'auto', label: 'Auto' },
+  { key: '1:1', label: '1:1' },
+  { key: '16:9', label: '16:9' },
+  { key: '9:16', label: '9:16' },
+  { key: '4:3', label: '4:3' },
+  { key: '3:4', label: '3:4' },
+  { key: '3:2', label: '3:2' },
+  { key: '2:3', label: '2:3' },
 ]
 const RESOLUTIONS = [
   { key: '1k', label: '1K' },
@@ -24,6 +27,7 @@ const RESOLUTIONS = [
 ]
 
 function computeSize(r, res) {
+  if (r === 'auto') return null
   const base = RES_MAP[res]
   const [w, h] = r.split(':').map(Number)
   if (w === h) return `${base}x${base}`
@@ -34,11 +38,10 @@ function computeSize(r, res) {
 const store = useWorkbenchStore()
 
 const prompt = ref('')
-const ratio = ref('1:1')
+const ratio = ref('auto')
 const resolution = ref('1k')
 const n = ref(1)
 const refImageIds = ref([])
-const showParams = ref(false)
 const showPromptLib = ref(false)
 const savedPrompts = ref([])
 const promptLibToast = ref(null)
@@ -160,6 +163,10 @@ function applyPrefill(prefill) {
         ratio.value = `${parts[0] / g}:${parts[1] / g}`
       }
     }
+  } else if (prefill.params?.ratio === 'auto') {
+    // 新格式 Auto:无 size,直接还原为 auto
+    ratio.value = 'auto'
+    if (prefill.params.resolution) resolution.value = prefill.params.resolution
   }
   if (prefill.params?.n) n.value = prefill.params.n
   refImageIds.value = Array.isArray(prefill.refImageIds) ? [...prefill.refImageIds] : []
@@ -224,6 +231,32 @@ function autogrow(e) {
 
     <!-- 主输入框 -->
     <div class="composer" :class="{ disabled: !store.activePreset }">
+      <!-- 生成参数:常驻输入框上方,一点即选(design D2/D3) -->
+      <div class="params-tags">
+        <div class="params-row">
+          <span class="params-tag-label">比例</span>
+          <div class="tag-group">
+            <button
+              v-for="r in RATIOS" :key="r.key"
+              class="tag" :class="{ active: ratio === r.key }"
+              @click="ratio = r.key"
+            >{{ r.label }}</button>
+          </div>
+        </div>
+        <div class="params-row">
+          <span class="params-tag-label">画质</span>
+          <div class="tag-group">
+            <button
+              v-for="r in RESOLUTIONS" :key="r.key"
+              class="tag" :class="{ active: resolution === r.key }"
+              @click="resolution = r.key"
+            >{{ r.label }}</button>
+          </div>
+          <span class="params-tag-label params-tag-label-n">数量</span>
+          <input class="tnum" type="number" min="1" max="4" v-model="n" />
+        </div>
+      </div>
+
       <textarea
         v-model="prompt" rows="1" class="composer-input"
         :placeholder="isChat ? '描述你想画的,或把图设为参考再改图…' : '描述你想画的,或把图设为参考改图…'"
@@ -233,36 +266,6 @@ function autogrow(e) {
       />
 
       <div class="composer-bar">
-        <!-- 参数(折叠,默认收起,保持干净) -->
-        <button class="chip" @click="showParams = !showParams" :aria-expanded="showParams">
-          <AppIcon name="settings" :size="13" /> {{ computeSize(ratio, resolution) }} · ×{{ n }}
-        </button>
-        <div v-if="showParams" class="params-pop">
-          <div class="params-section">
-            <span class="params-label">宽高比</span>
-            <div class="btn-group">
-              <button
-                v-for="r in RATIOS" :key="r.key"
-                class="btn-group-item" :class="{ active: ratio === r.key }"
-                @click="ratio = r.key"
-              >{{ r.label }}</button>
-            </div>
-          </div>
-          <div class="params-section">
-            <span class="params-label">分辨率</span>
-            <div class="btn-group">
-              <button
-                v-for="r in RESOLUTIONS" :key="r.key"
-                class="btn-group-item" :class="{ active: resolution === r.key }"
-                @click="resolution = r.key"
-              >{{ r.label }}</button>
-            </div>
-          </div>
-          <label>数量
-            <input class="tnum" type="number" min="1" max="4" v-model="n" />
-          </label>
-        </div>
-
         <span v-if="!isChat" class="proto-tip">images 协议 · 改图</span>
         <span v-else class="proto-tip">chat 协议 · 可参考图</span>
 
@@ -361,21 +364,29 @@ function autogrow(e) {
   transition: background var(--dur) var(--ease);
 }
 .chip:hover { background: var(--color-surface-2); }
-.params-pop {
-  position: absolute; bottom: 40px; left: 0; z-index: 20;
-  display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3);
-  background: var(--color-elevated); border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius); box-shadow: var(--shadow-2); min-width: 200px;
+
+/* 生成参数:常驻输入框上方(design D2/D3) */
+.params-tags {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  margin-bottom: var(--space-2); padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
 }
-.params-section { display: flex; flex-direction: column; gap: var(--space-1); }
-.params-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-fg-subtle); }
-.btn-group { display: flex; gap: 1px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--color-border); }
-.btn-group-item { flex: 1; padding: 4px 6px; font-size: 11px; text-align: center; color: var(--color-fg-muted); background: var(--color-surface); transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
-.btn-group-item + .btn-group-item { border-left: 1px solid var(--color-border); }
-.btn-group-item:hover { background: var(--color-surface-2); }
-.btn-group-item.active { background: var(--color-primary); color: var(--color-on-primary); }
-.params-pop label { font-size: 11px; display: flex; flex-direction: column; gap: 4px; }
-.params-pop select, .params-pop input { min-width: 90px; }
+.params-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.params-tag-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--color-fg-subtle); flex-shrink: 0;
+}
+.params-tag-label-n { margin-left: var(--space-3); }
+.tag-group { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag {
+  padding: 4px 10px; font-size: 12px; border-radius: 999px;
+  border: 1px solid var(--color-border); color: var(--color-fg-muted);
+  background: var(--color-surface);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.tag:hover { background: var(--color-surface-2); }
+.tag.active { background: var(--color-primary); color: var(--color-on-primary); border-color: var(--color-primary); }
+.tnum { width: 52px; }
 .proto-tip { font-size: 11px; color: var(--color-fg-subtle); }
 .spacer { flex: 1; }
 

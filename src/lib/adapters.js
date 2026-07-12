@@ -17,8 +17,9 @@ async function generateViaImages({ preset, prompt, params, signal }) {
     model: preset.model || params.model,
     prompt,
     n: params.n || 1,
-    size: params.size || '1024x1024',
   }
+  // size 有值才发;Auto 宽高比时 params.size 为 null,交由服务端自适应
+  if (params.size) body.size = params.size
   // 部分接口支持 response_format;优先要 b64 以便直接落库,不依赖外链。
   if (params.responseFormat) body.response_format = params.responseFormat
 
@@ -41,7 +42,8 @@ async function generateViaImagesEdit({ preset, prompt, refImages, params, signal
   form.append('model', preset.model || params.model)
   form.append('prompt', prompt)
   form.append('n', String(params.n || 1))
-  form.append('size', params.size || '1024x1024')
+  // size 有值才发;Auto 宽高比时省略,交由服务端自适应
+  if (params.size) form.append('size', params.size)
   const ext = (first.mime?.split('/')[1] || 'png').replace('jpeg', 'jpg')
   form.append('image', first.blob, `image.${ext}`)
 
