@@ -44,7 +44,7 @@ const savedPrompts = ref([])
 const promptLibToast = ref(null)
 
 function loadSavedPrompts() {
-  savedPrompts.value = getAllPrompts().slice(0, 50)
+  savedPrompts.value = getAllPrompts(store.activeWorkspaceId).slice(0, 50)
 }
 
 function togglePromptLib() {
@@ -55,7 +55,7 @@ function togglePromptLib() {
 function saveCurrentPrompt() {
   const t = prompt.value.trim()
   if (!t) return
-  const r = addPrompt(t)
+  const r = addPrompt(t, store.activeWorkspaceId)
   if (r.ok) {
     loadSavedPrompts()
     promptLibToast.value = { type: 'success', text: '已收藏 prompt' }
@@ -71,7 +71,7 @@ function fillPrompt(text) {
 }
 
 function deletePrompt(id) {
-  removePrompt(id)
+  removePrompt(id, store.activeWorkspaceId)
   loadSavedPrompts()
 }
 
@@ -105,7 +105,7 @@ const dropActive = ref(false)
 async function uploadRefImage(file) {
   if (!file || !file.type.startsWith('image/')) return
   const blob = file
-  const asset = await putAsset({ blob, mime: blob.type, name: file.name, source: 'reference-uploaded' })
+  const asset = await putAsset({ blob, mime: blob.type, name: file.name, source: 'reference-uploaded', workspaceId: store.activeWorkspaceId })
   addReference(asset.id)
   if (fileInput.value) fileInput.value.value = ''
 }
@@ -169,7 +169,7 @@ function clear() {
   prompt.value = ''
   refImageIds.value = []
 }
-defineExpose({ addReference, applyPrefill, clear })
+defineExpose({ addReference, applyPrefill, clear, fillPrompt })
 
 async function submit() {
   if (!prompt.value.trim() || store.generating || !store.activePreset) return
@@ -198,7 +198,7 @@ function autogrow(e) {
 </script>
 
 <template>
-  <div class="composer-wrap">
+  <div class="composer-wrap" @paste="onPaste">
     <!-- 无接口时的引导条 -->
     <div v-if="!store.activePreset" class="hint">
       <AppIcon name="alert" :size="14" /> 还没有可用接口 —— 点左侧「设置」添加一个,即可开始。
@@ -208,7 +208,6 @@ function autogrow(e) {
     <div
       class="ref-strip" :class="{ 'drop-active': dropActive }"
       @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
-      @paste="onPaste"
     >
       <div v-for="a in refAssets" :key="a.id" class="ref-thumb">
         <AssetImage :asset="a" alt="参考图" />
@@ -320,7 +319,17 @@ function autogrow(e) {
 .hint { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-warning); margin-bottom: var(--space-2); }
 
 .ref-strip { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); flex-wrap: wrap; transition: border-color var(--dur) var(--ease); }
-.ref-strip.drop-active { border: 2px dashed var(--color-primary); border-radius: var(--radius-sm); padding: var(--space-2); margin: calc(-1 * var(--space-2) - 2px); }
+.ref-strip.drop-active {
+  border: 2px dashed var(--color-primary);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  margin-left: calc(-1 * var(--space-2) - 2px);
+  margin-right: calc(-1 * var(--space-2) - 2px);
+  margin-top: calc(-1 * var(--space-2) - 2px);
+  position: relative;
+  z-index: 1;
+  background: var(--color-surface);
+}
 .ref-thumb { position: relative; width: 44px; height: 44px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--color-border-strong); }
 .ref-remove { position: absolute; top: 1px; right: 1px; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.65); color: #fff; border-radius: 999px; }
 .ref-add {

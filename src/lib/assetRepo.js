@@ -4,7 +4,7 @@ import { getDB, newId, STORE_ASSETS } from './db.js'
 // 每条 asset 记录:{ id, blob, mime, width, height, size, createdAt, source }
 //   source: 'generated' | 'imported' | 'reference-uploaded'
 
-export async function putAsset({ blob, mime, width = null, height = null, source = 'generated', id = null, favorite = false }) {
+export async function putAsset({ blob, mime, width = null, height = null, source = 'generated', id = null, favorite = false, workspaceId = null }) {
   const db = await getDB()
   const record = {
     id: id || newId('asset'),
@@ -16,6 +16,7 @@ export async function putAsset({ blob, mime, width = null, height = null, source
     createdAt: Date.now(),
     source,
     favorite,
+    workspaceId: workspaceId || null,
   }
   await db.put(STORE_ASSETS, record)
   return record

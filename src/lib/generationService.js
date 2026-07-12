@@ -19,10 +19,10 @@ const STATUS_MESSAGES = [
   'AI 正在创作',
 ]
 
-export async function runGeneration({ preset, prompt, fullPrompt, refImageIds = [], params = {}, signal, onPending }) {
+export async function runGeneration({ preset, prompt, fullPrompt, refImageIds = [], params = {}, signal, onPending, workspaceId }) {
   // 1. 先落一条 pending 记录(即使失败也留痕,便于诊断)
   const statusMessage = STATUS_MESSAGES[Math.floor(Math.random() * STATUS_MESSAGES.length)]
-  const gen = await createGeneration({ prompt, refImageIds, params: { ...params, prompt: fullPrompt || prompt, model: preset.model, protocol: preset.protocol }, statusMessage })
+  const gen = await createGeneration({ prompt, refImageIds, params: { ...params, prompt: fullPrompt || prompt, model: preset.model, protocol: preset.protocol }, statusMessage, workspaceId })
   // 落库即通知:让 UI 立刻显示"生成中"这一轮,无需等待接口返回
   if (onPending) onPending(gen)
 
@@ -44,7 +44,7 @@ export async function runGeneration({ preset, prompt, fullPrompt, refImageIds = 
     const outputImageIds = []
     for (const img of images) {
       const blob = await toBlob(img)
-      const asset = await putAsset({ blob, mime: blob.type, source: 'generated' })
+      const asset = await putAsset({ blob, mime: blob.type, source: 'generated', workspaceId })
       outputImageIds.push(asset.id)
     }
 

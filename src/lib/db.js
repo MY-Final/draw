@@ -4,16 +4,17 @@ import { openDB } from 'idb'
 // 以稳定 id 相互引用。同一张图只存一份 Blob,可被多条 generation 引用。
 
 export const DB_NAME = 'ai-drawing-workbench'
-export const DB_VERSION = 1
+export const DB_VERSION = 2
 export const STORE_ASSETS = 'assets'
 export const STORE_GENERATIONS = 'generations'
+export const STORE_WORKSPACES = 'workspaces'
 
 let dbPromise = null
 
 export function getDB() {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
+      upgrade(db, oldVersion) {
         if (!db.objectStoreNames.contains(STORE_ASSETS)) {
           const assets = db.createObjectStore(STORE_ASSETS, { keyPath: 'id' })
           assets.createIndex('createdAt', 'createdAt')
@@ -21,6 +22,9 @@ export function getDB() {
         if (!db.objectStoreNames.contains(STORE_GENERATIONS)) {
           const gens = db.createObjectStore(STORE_GENERATIONS, { keyPath: 'id' })
           gens.createIndex('createdAt', 'createdAt')
+        }
+        if (oldVersion < 2 || !db.objectStoreNames.contains(STORE_WORKSPACES)) {
+          db.createObjectStore(STORE_WORKSPACES, { keyPath: 'id' })
         }
       },
     })

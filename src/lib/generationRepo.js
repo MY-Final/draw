@@ -12,7 +12,7 @@ function toPlain(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
-export async function createGeneration({ prompt, refImageIds = [], params = {}, statusMessage }) {
+export async function createGeneration({ prompt, refImageIds = [], params = {}, statusMessage, workspaceId }) {
   const db = await getDB()
   const record = toPlain({
     id: newId('gen'),
@@ -20,6 +20,7 @@ export async function createGeneration({ prompt, refImageIds = [], params = {}, 
     prompt,
     refImageIds,
     params,
+    workspaceId: workspaceId || null,
     statusMessage,
     outputImageIds: [],
     status: 'pending',

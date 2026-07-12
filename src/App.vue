@@ -1,6 +1,6 @@
 <script setup>
 // 对话式布局:左安静栏 · 中(结果流 + 底部固定输入)· 右素材库。低频操作进抽屉。
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useWorkbenchStore } from './stores/workbench.js'
 import SideBar from './components/SideBar.vue'
 import ResultsView from './components/ResultsView.vue'
@@ -10,6 +10,7 @@ import SideDrawer from './components/SideDrawer.vue'
 import PresetManager from './components/PresetManager.vue'
 import BackupTools from './components/BackupTools.vue'
 import ImageLightbox from './components/ImageLightbox.vue'
+import UnifiedSearch from './components/UnifiedSearch.vue'
 import AppIcon from './components/AppIcon.vue'
 
 const store = useWorkbenchStore()
@@ -18,12 +19,44 @@ const preview = ref(null)
 const drawer = ref(null) // 'settings' | 'storage' | null
 const rightOpen = ref(true)
 const theme = ref('dark')
+const searchOpen = ref(false)
 
 onMounted(() => {
   store.init()
   const saved = localStorage.getItem('workbench.theme')
   setTheme(saved || 'dark')
+  document.addEventListener('keydown', onGlobalKeydown)
 })
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', onGlobalKeydown)
+})
+
+function onGlobalKeydown(e) {
+  // ⌘K / Ctrl+K 打开搜索
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault()
+    searchOpen.value = !searchOpen.value
+  }
+}
+
+function onSearchJump(item) {
+  switch (item.type) {
+    case 'workspace':
+      store.switchWorkspace(item.wsId)
+      break
+    case 'conversation':
+      store.switchWorkspace(item.wsId)
+      store.switchConversation(item.convId)
+      break
+    case 'prompt':
+      composer.value?.fillPrompt?.(item.label)
+      break
+    case 'asset':
+      preview.value = item.asset
+      break
+  }
+}
 
 function setTheme(t) {
   theme.value = t
@@ -84,6 +117,8 @@ function onNewCanvas() {
     </SideDrawer>
 
     <ImageLightbox v-if="preview" :asset="preview" @close="preview = null" />
+
+    <UnifiedSearch :visible="searchOpen" @close="searchOpen = false" @jump="onSearchJump" />
   </div>
 </template>
 

@@ -37,17 +37,17 @@ async function deleteSelected() {
         <button v-if="selected.size" class="btn btn-sm btn-danger" @click="deleteSelected">
           <AppIcon name="trash" :size="13" /> {{ selected.size }}
         </button>
-        <span v-else class="lib-count tnum">{{ store.visibleAssets.length }} 张</span>
+        <span v-else class="lib-count tnum">{{ store.workspaceAssets.length }} 张</span>
       </div>
     </div>
 
-    <div v-if="!store.visibleAssets.length" class="lib-empty">
+    <div v-if="!store.workspaceAssets.length" class="lib-empty">
       <AppIcon name="image" :size="28" />
       <p>{{ store.favoritesOnly ? '还没有收藏的素材' : '生成的图片会出现在这里' }}</p>
     </div>
 
     <div v-else class="grid">
-      <div v-for="a in store.visibleAssets" :key="a.id" class="cell" :class="{ selected: selected.has(a.id) }"
+      <div v-for="a in store.workspaceAssets" :key="a.id" class="cell" :class="{ selected: selected.has(a.id) }"
         draggable="true"
         @dragstart="(e) => { e.dataTransfer.setData('application/json', JSON.stringify({ assetId: a.id })) }"
       >
