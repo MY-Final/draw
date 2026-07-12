@@ -3,6 +3,27 @@
   "version": "0.1.0",
   "description": "纯前端、零后端的 AI 绘画工作台,支持任意 OpenAI/NewAPI 兼容接口",
   "type": "module",
+  "license": "MIT",
+  "homepage": "https://120403.xyz/draw/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MY-Final/draw.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MY-Final/draw/issues"
+  },
+  "keywords": [
+    "ai",
+    "text-to-image",
+    "image-generation",
+    "vue3",
+    "openai",
+    "newapi",
+    "dalle",
+    "serverless",
+    "indexeddb",
+    "frontend-only"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
