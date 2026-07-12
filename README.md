@@ -4,6 +4,8 @@
 
 **纯前端、零后端的 AI 绘画工作台 —— 填入你自己的 OpenAI / NewAPI 兼容接口即可画图,数据全留本机。**
 
+**简体中文** · [English](./README.en.md)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![Stars](https://img.shields.io/github/stars/MY-Final/draw?style=social)](https://github.com/MY-Final/draw/stargazers)
 [![Vue 3](https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
