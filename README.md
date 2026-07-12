@@ -36,9 +36,9 @@ npm test         # 运行测试
 
 1. 在 GitHub 仓库 **Settings → Pages → Build and deployment → Source** 选 **GitHub Actions**。
 2. push 到 `main`，等待 Actions 跑完。
-3. 访问 <https://my-final.github.io/draw/>（项目部署在 `/draw/` 子路径，`base: './'` 已适配，资源不会 404）。
+3. 访问 <https://draw.120403.xyz>（已配置自定义域名，`public/CNAME` 随构建发布；`base: './'` 用相对路径，根路径下资源不会 404）。
 
-> **混合内容提醒**：github.io 是 https 站点,浏览器会拦截页面里对 **http** 接口的请求（混合内容）。请确保你填的接口 Base URL 是 **https**;否则请求会被静默拦截。
+> **混合内容提醒**：站点走 https,浏览器会拦截页面里对 **http** 接口的请求（混合内容）。请确保你填的接口 Base URL 是 **https**;否则请求会被静默拦截。
 
 ## 一键部署
 
