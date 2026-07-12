@@ -47,7 +47,10 @@ async function deleteSelected() {
     </div>
 
     <div v-else class="grid">
-      <div v-for="a in store.visibleAssets" :key="a.id" class="cell" :class="{ selected: selected.has(a.id) }">
+      <div v-for="a in store.visibleAssets" :key="a.id" class="cell" :class="{ selected: selected.has(a.id) }"
+        draggable="true"
+        @dragstart="(e) => { e.dataTransfer.setData('application/json', JSON.stringify({ assetId: a.id })) }"
+      >
         <button class="cell-img" @click="emit('preview', a)" aria-label="预览大图">
           <AssetImage :asset="a" />
         </button>

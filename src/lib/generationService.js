@@ -8,9 +8,21 @@ import { createGeneration, updateGeneration } from './generationRepo.js'
 
 // refImageIds:素材库中的 asset id 列表(仅 chat 协议有效)。
 // onPending:pending 记录落库后立即回调,供 store 做乐观上屏(请求即时上屏)。
-export async function runGeneration({ preset, prompt, refImageIds = [], params = {}, signal, onPending }) {
+
+const STATUS_MESSAGES = [
+  '正在排队',
+  '模型正在处理中',
+  '正在生成图片',
+  '即将完成',
+  '正在渲染',
+  '正在优化细节',
+  'AI 正在创作',
+]
+
+export async function runGeneration({ preset, prompt, fullPrompt, refImageIds = [], params = {}, signal, onPending }) {
   // 1. 先落一条 pending 记录(即使失败也留痕,便于诊断)
-  const gen = await createGeneration({ prompt, refImageIds, params: { ...params, model: preset.model, protocol: preset.protocol } })
+  const statusMessage = STATUS_MESSAGES[Math.floor(Math.random() * STATUS_MESSAGES.length)]
+  const gen = await createGeneration({ prompt, refImageIds, params: { ...params, prompt: fullPrompt || prompt, model: preset.model, protocol: preset.protocol }, statusMessage })
   // 落库即通知:让 UI 立刻显示"生成中"这一轮,无需等待接口返回
   if (onPending) onPending(gen)
 
@@ -19,8 +31,9 @@ export async function runGeneration({ preset, prompt, refImageIds = [], params =
     const refAssets = refImageIds.length ? await getAssets(refImageIds) : []
     const refImages = refAssets.map((a) => ({ blob: a.blob, mime: a.mime }))
 
-    // 3. 适配调用
-    const { images, snippet } = await generate({ preset, prompt, refImages, params, signal })
+    // 3. 适配调用(用 fullPrompt 发送,保持 prompt 原始存储)
+    const apiPrompt = fullPrompt || prompt
+    const { images, snippet } = await generate({ preset, prompt: apiPrompt, refImages, params, signal })
 
     // 4. 无输出:标记 empty,保留 snippet(design 无法提取场景)
     if (!images.length) {

@@ -106,7 +106,7 @@ watch(() => [feed.value.length, store.generating], async () => {
               <span v-if="gen.status === 'success'" class="badge badge-ok"><AppIcon name="check" :size="11" /> 已完成</span>
               <span v-else-if="gen.status === 'failed'" class="badge badge-danger">失败</span>
               <span v-else-if="gen.status === 'empty'" class="badge badge-warn">无图片</span>
-              <span v-else class="badge"><AppIcon name="refresh" :size="11" class="spin" /> 生成中</span>
+              <span v-else class="badge"><AppIcon name="refresh" :size="11" class="spin" /> {{ gen.statusMessage || '生成中' }}</span>
               <span v-if="elapsedText(gen)" class="elapsed tnum">{{ elapsedText(gen) }}</span>
             </div>
 

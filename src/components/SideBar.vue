@@ -98,6 +98,9 @@ const vFocus = { mounted: (el) => el.focus() }
       <button class="nav-item" @click="emit('open-settings')">
         <AppIcon name="settings" :size="16" /> 接口设置
       </button>
+      <a class="nav-item nav-link" href="https://github.com/MY-Final/draw" target="_blank" rel="noopener noreferrer">
+        <AppIcon name="github" :size="16" /> GitHub
+      </a>
       <button class="nav-item" @click="emit('toggle-theme')">
         <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="16" />
         {{ theme === 'dark' ? '浅色模式' : '深色模式' }}
@@ -171,5 +174,7 @@ const vFocus = { mounted: (el) => el.focus() }
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .nav-item:hover { background: var(--color-surface-2); color: var(--color-fg); }
+.nav-link { text-decoration: none; }
+.nav-link:visited { color: var(--color-fg-muted); }
 .nav-meta { margin-left: auto; font-size: 11px; color: var(--color-fg-subtle); }
 </style>

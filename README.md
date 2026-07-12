@@ -40,6 +40,15 @@ npm test         # 运行测试
 
 > **混合内容提醒**:github.io 是 https 站点,浏览器会拦截页面里对 **http** 接口的请求(混合内容)。请确保你填的接口 Base URL 是 **https**;否则请求会被静默拦截。
 
+## 一键部署
+
+点击下方按钮,将本仓库 fork 到你的 GitHub 账号后,可直接部署到对应平台:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/MY-Final/draw)
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/MY-Final/draw)
+
+两个平台都提供免费额度,部署后即可获得自己的公开访问地址。
+
 ## 已知约束
 
 - **CORS**:浏览器直连第三方接口受同源策略限制。"支持任何接口"以该接口**允许跨域**为前提;不允许跨域的接口在纯前端下无法直连(错误提示会区分 CORS/网络、鉴权、其他)。

@@ -123,7 +123,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     },
 
     // ── 生成 ──
-    async generate({ prompt, refImageIds = [], params = {} }) {
+    async generate({ prompt, fullPrompt, refImageIds = [], params = {} }) {
       if (!this.activePreset) {
         this.lastError = '请先在左侧添加并选择一个接口预设。'
         return { ok: false }
@@ -134,6 +134,8 @@ export const useWorkbenchStore = defineStore('workbench', {
         // 把当前会话 id 记进这次生成,供会话视图分组与导航。
         const gen = await runGeneration({
           preset: this.activePreset, prompt, refImageIds,
+          fullPrompt: fullPrompt || prompt, // quality 追加后的完整 prompt
+          params: { ...params, conversationId: this.conversationId },
           params: { ...params, conversationId: this.conversationId },
           // 乐观上屏:pending 记录落库后立即插入内存,请求瞬间可见(请求即时上屏)。
           onPending: (pending) => {
@@ -162,8 +164,9 @@ export const useWorkbenchStore = defineStore('workbench', {
       if (!g) return { ok: false }
       return this.generate({
         prompt: g.prompt,
+        fullPrompt: g.fullPrompt,
         refImageIds: [...(g.refImageIds || [])],
-        params: { size: g.params?.size, n: g.params?.n },
+        params: { size: g.params?.size, ratio: g.params?.ratio, resolution: g.params?.resolution, n: g.params?.n },
       })
     },
 
