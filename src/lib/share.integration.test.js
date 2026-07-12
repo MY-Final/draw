@@ -32,7 +32,7 @@ describe('整库 zip 往返', () => {
     await updateGeneration(gen.id, { status: 'success', outputImageIds: [a1.id, a2.id] })
 
     // 导出
-    const zipBlob = await exportLibraryZip()
+    const { blob: zipBlob } = await exportLibraryZip()
     expect(zipBlob.size).toBeGreaterThan(0)
 
     // 清库

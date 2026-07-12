@@ -169,7 +169,7 @@ const vFocus = { mounted: (el) => el.focus() }
 
     <div class="side-bottom">
       <button class="nav-item" @click="emit('open-storage')">
-        <AppIcon name="image" :size="16" /> 存储与备份
+        <AppIcon name="image" :size="16" /> 数据保护
         <span class="nav-meta tnum">{{ store.assets.length }}</span>
       </button>
       <button class="nav-item" @click="emit('open-settings')">

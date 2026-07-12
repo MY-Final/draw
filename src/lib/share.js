@@ -2,9 +2,11 @@ import JSZip from 'jszip'
 import { listAssets, getAsset, getAssets, putAsset } from './assetRepo.js'
 import { listGenerations, putGenerationRecord, createGeneration } from './generationRepo.js'
 import { loadPresets, savePreset } from './presets.js'
+import { listWorkspaces, createWorkspace as repoCreateWs } from './workspaceRepo.js'
+import { loadPrompts, savePrompts } from './promptLibrary.js'
 
-// 导入导出(design D5 / D8)。三类导出物,分享级(A/B)一律剥离 Key。
-export const SCHEMA_VERSION = 1
+// 导入导出。v2 新增 workspace 和 promptLibrary。
+export const SCHEMA_VERSION = 2
 
 const MIME_EXT = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
@@ -27,19 +29,25 @@ export async function exportLibraryZip() {
   const assets = await listAssets()
   const generations = await listGenerations()
   const presets = loadPresets().map(stripKey) // 整库导出也不含 Key
+  const workspaces = await listWorkspaces()
+
+  // 各工作区的 prompt 模板
+  const promptLibrary = {}
+  for (const ws of workspaces) {
+    const prompts = loadPrompts(ws.id)
+    if (prompts.length) promptLibrary[ws.id] = prompts
+  }
 
   const assetsFolder = zip.folder('assets')
   const manifestAssets = []
   for (const a of assets) {
     const ext = extFor(a.mime)
     const filename = `${a.id}.${ext}`
-    // 用 ArrayBuffer 写入:JSZip 对 ArrayBuffer 的支持在浏览器与 Node 下都稳定,
-    // 而 Blob 仅浏览器可靠。
     assetsFolder.file(filename, await a.blob.arrayBuffer())
     manifestAssets.push({
       id: a.id, file: `assets/${filename}`, mime: a.mime,
       width: a.width, height: a.height, size: a.size,
-      createdAt: a.createdAt, source: a.source,
+      createdAt: a.createdAt, source: a.source, workspaceId: a.workspaceId,
     })
   }
 
@@ -48,14 +56,19 @@ export async function exportLibraryZip() {
     schemaVersion: SCHEMA_VERSION,
     exportedAt: Date.now(),
     assets: manifestAssets,
-    generations,
+    generations: generations.map((g) => ({ ...g, workspaceId: g.workspaceId || null })),
     presets,
+    workspaces,
+    promptLibrary,
   }
   zip.file('manifest.json', JSON.stringify(manifest, null, 2))
-  return zip.generateAsync({ type: 'blob' })
+
+  const now = new Date()
+  const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  return { blob: await zip.generateAsync({ type: 'blob' }), filename: `DrawBackup_${dateStr}.zip` }
 }
 
-// ── C. 整库 zip 导入(Task 7.4) ──────────────────────────────────
+// ── C. 整库 zip 导入 ──────────────────────────────────
 export async function importLibraryZip(file) {
   const zip = await JSZip.loadAsync(file).catch(() => null)
   if (!zip) throw new ImportError('文件不是有效的 zip。')
@@ -75,24 +88,42 @@ export async function importLibraryZip(file) {
   for (const a of manifest.assets || []) {
     const entry = zip.file(a.file)
     if (!entry) continue
-    // 读为 ArrayBuffer 再包 Blob:跨环境稳定,且能带回正确 mime。
     const buf = await entry.async('arraybuffer')
     const blob = new Blob([buf], { type: a.mime || 'image/png' })
     await putAsset({
-      id: a.id, blob, mime: a.mime, width: a.width, height: a.height, source: a.source || 'imported',
+      id: a.id, blob, mime: a.mime, width: a.width, height: a.height, source: a.source || 'imported', workspaceId: a.workspaceId || null,
     })
     assetCount++
   }
   let genCount = 0
   for (const g of manifest.generations || []) {
-    await putGenerationRecord(g)
+    await putGenerationRecord({ ...g, workspaceId: g.workspaceId || null })
     genCount++
   }
-  // 预设导入不覆盖已有(避免冲掉本机 Key);导入的预设 Key 为空,待用户填。
+  // 预设导入不覆盖已有
   for (const p of manifest.presets || []) {
     savePreset(stripKey(p))
   }
-  return { assetCount, genCount }
+
+  // 恢复工作区(v2+)
+  let wsCount = 0
+  if (manifest.workspaces) {
+    for (const ws of manifest.workspaces) {
+      await repoCreateWs({ name: ws.name, settings: ws.settings || {} })
+      wsCount++
+    }
+  }
+
+  // 恢复 prompt 模板(v2+)
+  let promptCount = 0
+  if (manifest.promptLibrary) {
+    for (const [wsId, prompts] of Object.entries(manifest.promptLibrary)) {
+      savePrompts(prompts, wsId)
+      promptCount += prompts.length
+    }
+  }
+
+  return { assetCount, genCount, promptCount }
 }
 
 // ── A. 接口预设分享导出/导入(Task 7.5) ─────────────────────────

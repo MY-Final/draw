@@ -16,6 +16,7 @@ import { collectDeletableOutputs } from '../lib/deletion.js'
 import { getDB, STORE_WORKSPACES, STORE_ASSETS } from '../lib/db.js'
 import { listWorkspaces, createWorkspace as repoCreateWs, updateWorkspace, deleteWorkspace as repoDeleteWs } from '../lib/workspaceRepo.js'
 import { migrateLegacyPrompts } from '../lib/promptLibrary.js'
+import { checkReminder } from '../lib/backupReminder.js'
 
 export const useWorkbenchStore = defineStore('workbench', {
   state: () => ({
@@ -374,6 +375,13 @@ export const useWorkbenchStore = defineStore('workbench', {
     },
     setFavoritesOnly(v) {
       this.favoritesOnly = v
+    },
+
+    // ── 备份提醒 ──
+    async checkBackupReminder() {
+      const usage = await getStorageUsage()
+      this.usage = usage
+      return checkReminder(usage.businessBytes)
     },
 
     defaultProtocolLabel() {

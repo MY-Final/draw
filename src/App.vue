@@ -1,6 +1,6 @@
 <script setup>
 // 对话式布局:左安静栏 · 中(结果流 + 底部固定输入)· 右素材库。低频操作进抽屉。
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useWorkbenchStore } from './stores/workbench.js'
 import SideBar from './components/SideBar.vue'
 import ResultsView from './components/ResultsView.vue'
@@ -11,6 +11,7 @@ import PresetManager from './components/PresetManager.vue'
 import BackupTools from './components/BackupTools.vue'
 import ImageLightbox from './components/ImageLightbox.vue'
 import UnifiedSearch from './components/UnifiedSearch.vue'
+import BackupReminderDialog from './components/BackupReminderDialog.vue'
 import AppIcon from './components/AppIcon.vue'
 
 const store = useWorkbenchStore()
@@ -20,13 +21,31 @@ const drawer = ref(null) // 'settings' | 'storage' | null
 const rightOpen = ref(true)
 const theme = ref('dark')
 const searchOpen = ref(false)
+const showBackupReminder = ref(false)
+const reminderBytes = ref(0)
 
-onMounted(() => {
-  store.init()
+onMounted(async () => {
+  await store.init()
   const saved = localStorage.getItem('workbench.theme')
   setTheme(saved || 'dark')
   document.addEventListener('keydown', onGlobalKeydown)
+  // 初始化后检查备份提醒
+  const r = await store.checkBackupReminder()
+  if (r) { showBackupReminder.value = true; reminderBytes.value = store.usage?.businessBytes || 0 }
 })
+
+// 生成完成后检查备份提醒
+watch(() => store.generating, async (val) => {
+  if (!val && store.generations.length > 0) {
+    const r = await store.checkBackupReminder()
+    if (r) { showBackupReminder.value = true; reminderBytes.value = store.usage?.businessBytes || 0 }
+  }
+})
+
+function onReminderClose(action) {
+  showBackupReminder.value = false
+  if (action === 'backup') drawer.value = 'storage'
+}
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onGlobalKeydown)
@@ -112,13 +131,18 @@ function onNewCanvas() {
     <SideDrawer v-if="drawer === 'settings'" title="接口设置" @close="drawer = null">
       <PresetManager />
     </SideDrawer>
-    <SideDrawer v-if="drawer === 'storage'" title="存储与备份" @close="drawer = null">
-      <BackupTools @recipe-imported="onRecipeImported" />
+    <SideDrawer v-if="drawer === 'storage'" title="数据保护" @close="drawer = null">
+      <BackupTools @recipe-imported="onRecipeImported" @close-drawer="drawer = null" />
     </SideDrawer>
 
     <ImageLightbox v-if="preview" :asset="preview" @close="preview = null" />
 
     <UnifiedSearch :visible="searchOpen" @close="searchOpen = false" @jump="onSearchJump" />
+
+    <BackupReminderDialog
+      v-if="showBackupReminder" :business-bytes="reminderBytes"
+      @close="onReminderClose"
+    />
   </div>
 </template>
 
