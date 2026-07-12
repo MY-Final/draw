@@ -46,8 +46,17 @@ npm test         # 运行测试
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/MY-Final/draw)
 [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/MY-Final/draw)
+[![Deploy to Cloudflare Pages](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/MY-Final/draw)
+[![Fork for GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Fork%20%26%20Deploy-121011?logo=github)](https://github.com/MY-Final/draw/fork)
 
-两个平台都提供免费额度,部署后即可获得自己的公开访问地址。
+各平台均提供免费额度,部署后即可获得自己的公开访问地址。构建参数一致:
+
+| 平台 | 构建命令 | 输出目录 | 说明 |
+|------|----------|----------|------|
+| Vercel | `npm run build` | `dist` | 按钮 clone 后自动识别 |
+| Netlify | `npm run build` | `dist` | 按钮 clone 后自动识别 |
+| Cloudflare Pages | `npm run build` | `dist` | 框架预设选 **Vite** 即可 |
+| GitHub Pages | — | — | fork 后参见上文「[GitHub Pages(自动)](#github-pages自动)」,由内置 Actions 自动发布 |
 
 ## 已知约束
 
