@@ -30,15 +30,15 @@ npm test         # 运行测试
 
 `npm run build` 产出的 `dist/` 是纯静态资源,可托管到任意静态服务器、对象存储、GitHub Pages 等。构建已用相对路径(`base: './'`),支持部署到子路径。
 
-### GitHub Pages(自动)
+### GitHub Pages（自动）
 
-仓库已内置 `.github/workflows/deploy.yml`:push 到 `main` 即自动构建并发布(也可在 Actions 页手动触发)。首次启用需一步手动设置:
+仓库已内置 `.github/workflows/deploy.yml`：push 到 `main` 即自动构建并发布（也可在 Actions 页手动触发）。首次启用需一步手动设置：
 
 1. 在 GitHub 仓库 **Settings → Pages → Build and deployment → Source** 选 **GitHub Actions**。
 2. push 到 `main`，等待 Actions 跑完。
-3. 访问 **https://my-final.github.io/draw/**（项目部署在 `/draw/` 子路径，`base: './'` 已适配，资源不会 404）。
+3. 访问 <https://my-final.github.io/draw/>（项目部署在 `/draw/` 子路径，`base: './'` 已适配，资源不会 404）。
 
-> **混合内容提醒**:github.io 是 https 站点,浏览器会拦截页面里对 **http** 接口的请求(混合内容)。请确保你填的接口 Base URL 是 **https**;否则请求会被静默拦截。
+> **混合内容提醒**：github.io 是 https 站点,浏览器会拦截页面里对 **http** 接口的请求（混合内容）。请确保你填的接口 Base URL 是 **https**;否则请求会被静默拦截。
 
 ## 一键部署
 
