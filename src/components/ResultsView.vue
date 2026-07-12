@@ -198,10 +198,12 @@ watch(() => [feed.value.length, store.generating], async () => {
 .model { font-size: 13px; font-weight: 600; color: var(--color-fg); }
 .elapsed { margin-left: auto; font-size: 11px; color: var(--color-fg-subtle); }
 
-.imgs { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); }
+.imgs { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); align-items: start; }
 .imgs.single { grid-template-columns: minmax(0, 380px); }
 .fig { margin: 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--color-border); background: var(--color-surface-2); position: relative; }
-.fig-img { display: block; width: 100%; aspect-ratio: 1; padding: 0; }
+/* 结果图按真实宽高比显示(竖屏不再被裁成正方形);过高时封顶避免撑爆气泡 */
+.fig-img { display: block; width: 100%; padding: 0; }
+.fig-img :deep(.asset-img) { height: auto; max-height: 70vh; object-fit: contain; }
 .fav { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(0,0,0,0.5); color: #fff; transition: color var(--dur) var(--ease), background var(--dur) var(--ease); }
 .fav:hover { background: rgba(0,0,0,0.7); }
 .fav.on { color: #f43f5e; }
