@@ -1,6 +1,6 @@
 // 适配层四象限分派测试(mock fetch)—— 验证协议 × 参考图 选对端点。
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { generate } from './adapters.js'
+import { generate } from '../adapters.js'
 
 // Node 无 FileReader(chat 分支 blobToDataUrl 需要);用 Blob.arrayBuffer 垫一个。
 if (typeof FileReader === 'undefined') {

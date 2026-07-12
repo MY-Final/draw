@@ -12,7 +12,7 @@ vi.stubGlobal('localStorage', {
   clear: () => store.clear(),
 })
 
-const { createGeneration, updateGeneration, getGeneration } = await import('./generationRepo.js')
+const { createGeneration, updateGeneration, getGeneration } = await import('../generationRepo.js')
 
 describe('generation 记录剥离 Vue 响应式 Proxy', () => {
   beforeEach(() => store.clear())

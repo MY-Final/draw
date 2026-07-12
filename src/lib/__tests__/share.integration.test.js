@@ -12,10 +12,10 @@ vi.stubGlobal('localStorage', {
   clear: () => store.clear(),
 })
 
-const { putAsset, listAssets, deleteAssets } = await import('./assetRepo.js')
-const { createGeneration, updateGeneration, listGenerations } = await import('./generationRepo.js')
-const { exportLibraryZip, importLibraryZip, exportPresets } = await import('./share.js')
-const { savePreset, loadPresets } = await import('./presets.js')
+const { putAsset, listAssets, deleteAssets } = await import('../assetRepo.js')
+const { createGeneration, updateGeneration, listGenerations } = await import('../generationRepo.js')
+const { exportLibraryZip, importLibraryZip, exportPresets } = await import('../share.js')
+const { savePreset, loadPresets } = await import('../presets.js')
 
 function blob(text = 'PNGDATA') {
   return new Blob([text], { type: 'image/png' })

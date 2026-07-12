@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { collectDeletableOutputs } from './deletion.js'
+import { collectDeletableOutputs } from '../deletion.js'
 
 // gen 工厂:{ id, outputImageIds, refImageIds }
 function gen(id, outputs = [], refs = []) {

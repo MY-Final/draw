@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractImagesFromChatResponse } from './imageExtractor.js'
+import { extractImagesFromChatResponse } from '../imageExtractor.js'
 
 const PNG_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSU'
 

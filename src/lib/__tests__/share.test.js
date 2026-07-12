@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stripKey, SCHEMA_VERSION } from './share.js'
+import { stripKey, SCHEMA_VERSION } from '../share.js'
 
 // design D8 不变量:分享级导出的任何路径都不得写出 apiKey。
 describe('stripKey (D8 强制剥离 Key)', () => {

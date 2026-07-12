@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deriveConversations, groupConversationsByDate, convIdOf } from './conversations.js'
+import { deriveConversations, groupConversationsByDate, convIdOf } from '../conversations.js'
 
 const DAY = 86400000
 // 固定"现在":2026-07-11 12:00(与项目当前日期一致)
