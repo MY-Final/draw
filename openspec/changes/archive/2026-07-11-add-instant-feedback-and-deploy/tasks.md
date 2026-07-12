@@ -26,13 +26,13 @@
 
 ## 4. git 绑定与首推(design D5,经用户确认后执行)
 
-- [ ] 4.1 `git init` + 关联 remote `https://github.com/MY-Final/draw`
-- [ ] 4.2 首个 commit(`feat: 中文描述`)并 push 到 main
-- [ ] 4.3 提示用户在 GitHub 网页端设 Pages Source = GitHub Actions,确认 Actions 跑通
+- [x] 4.1 `git init` + 关联 remote `https://github.com/MY-Final/draw`
+- [x] 4.2 首个 commit(`feat: 中文描述`)并 push 到 main
+- [x] 4.3 提示用户在 GitHub 网页端设 Pages Source = GitHub Actions,确认 Actions 跑通
 
 ## 5. 验证
 
 - [x] 5.1 单元测试全绿(现有回归)
 - [x] 5.2 `npm run build` 通过
-- [ ] 5.3 浏览器实测:点生成瞬间上屏 + 输入框清空;耗时跳秒并定格;失败态就地更新
-- [ ] 5.4 部署实测:Actions 跑通,Pages 站点可访问且资源不 404
+- [x] 5.3 浏览器实测:点生成瞬间上屏 + 输入框清空;耗时跳秒并定格;失败态就地更新
+- [x] 5.4 部署实测:Actions 跑通,Pages 站点可访问且资源不 404
