@@ -7,19 +7,23 @@ import AppIcon from './AppIcon.vue'
 const store = useWorkbenchStore()
 
 const editing = ref(false)
-const form = reactive({ id: null, name: '', baseURL: '', apiKey: '', model: '', protocol: 'images' })
+const form = reactive({ id: null, name: '', baseURL: '', apiKey: '', model: '', protocol: 'auto' })
 const testing = ref(false)
 const testResult = ref(null)
 const showKey = ref(false)
+const showAdvanced = ref(false)
 
 function startNew() {
-  Object.assign(form, { id: null, name: '', baseURL: '', apiKey: '', model: '', protocol: 'images' })
+  Object.assign(form, { id: null, name: '', baseURL: '', apiKey: '', model: '', protocol: 'auto' })
   testResult.value = null
+  showAdvanced.value = false
   editing.value = true
 }
 function startEdit(p) {
   Object.assign(form, { ...p })
   testResult.value = null
+  // 已锁定具体协议的老预设,展开高级区让用户看到当前值
+  showAdvanced.value = p.protocol === 'chat' || p.protocol === 'images'
   editing.value = true
 }
 function save() {
@@ -32,7 +36,12 @@ async function test() {
   testing.value = true
   testResult.value = null
   try {
-    testResult.value = await store.testConnection({ ...form })
+    const result = await store.testConnection({ ...form })
+    testResult.value = result
+    // 自动探测成功:把识别出的协议写回表单,保存后即锁定,生成时直接用。
+    if (result.ok && result.protocol && form.protocol === 'auto') {
+      form.protocol = result.protocol
+    }
   } finally {
     testing.value = false
   }
@@ -62,7 +71,7 @@ function confirmClearKeys() {
       >
         <div class="preset-main">
           <span class="preset-name">{{ p.name || '未命名' }}</span>
-          <span class="badge">{{ p.protocol === 'chat' ? 'chat' : 'images' }}</span>
+          <span class="badge">{{ p.protocol === 'chat' ? 'chat' : p.protocol === 'images' ? 'images' : '自动' }}</span>
           <span v-if="!p.apiKey" class="badge badge-warn">缺 Key</span>
         </div>
         <button class="btn btn-sm btn-ghost" @click.stop="startEdit(p)" aria-label="编辑">编辑</button>
@@ -109,12 +118,18 @@ function confirmClearKeys() {
           <input v-model="form.model" placeholder="如:gpt-image-1 / dall-e-3 / gemini-..." />
         </div>
         <div class="field">
-          <label>协议</label>
-          <select v-model="form.protocol">
-            <option value="images">images/generations(纯文生图,默认)</option>
-            <option value="chat">chat/completions(支持参考图)</option>
-          </select>
-          <p class="helper">参考图 / 多轮改图仅在 chat 协议下可用。</p>
+          <button type="button" class="advanced-toggle" @click="showAdvanced = !showAdvanced">
+            <AppIcon :name="showAdvanced ? 'chevron-down' : 'chevron-right'" :size="13" />
+            高级:协议 {{ form.protocol === 'auto' ? '(自动识别)' : `(已锁定 ${form.protocol})` }}
+          </button>
+          <div v-if="showAdvanced" class="advanced-body">
+            <select v-model="form.protocol">
+              <option value="auto">自动识别(推荐,测试连接时判定)</option>
+              <option value="images">锁定 images/generations</option>
+              <option value="chat">锁定 chat/completions</option>
+            </select>
+            <p class="helper">默认自动识别,无需手动选择。参考图 / 改图两种协议均支持。</p>
+          </div>
         </div>
 
         <!-- 连通性结果(区分原因) -->
@@ -169,4 +184,7 @@ function confirmClearKeys() {
 .editor-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-4); }
 .editor-actions { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-4); }
 .spacer { flex: 1; }
+.advanced-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--color-fg-muted); padding: 2px 0; }
+.advanced-toggle:hover { color: var(--color-fg); }
+.advanced-body { margin-top: var(--space-2); display: flex; flex-direction: column; gap: var(--space-1); }
 </style>

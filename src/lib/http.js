@@ -13,6 +13,25 @@ export class ApiError extends Error {
   }
 }
 
+// 接口调用超时(ms):服务端生成较慢,给足时间但不无限等,避免记录永久 pending。
+const API_TIMEOUT_MS = 120000
+// 图片外链下载超时(ms):拿到 url 后下载不应长时间挂起。
+const IMAGE_TIMEOUT_MS = 60000
+
+// 合并外部 signal 与超时 signal:任一触发即中止。
+function withTimeout(signal, ms) {
+  const timeoutSignal = AbortSignal.timeout(ms)
+  if (!signal) return timeoutSignal
+  // AbortSignal.any 合并多个来源(现代浏览器均支持)。
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeoutSignal])
+  return timeoutSignal
+}
+
+// 判断一个 fetch 异常是否为超时(AbortSignal.timeout 触发时 name 为 TimeoutError)。
+function isTimeout(e) {
+  return e && (e.name === 'TimeoutError' || e.name === 'AbortError')
+}
+
 export async function callApi(url, { apiKey, body, signal } = {}) {
   const isForm = typeof FormData !== 'undefined' && body instanceof FormData
   let resp
@@ -25,9 +44,12 @@ export async function callApi(url, { apiKey, body, signal } = {}) {
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
       body: isForm ? body : JSON.stringify(body),
-      signal,
+      signal: withTimeout(signal, API_TIMEOUT_MS),
     })
   } catch (e) {
+    if (isTimeout(e)) {
+      throw new ApiError('timeout', `接口在 ${API_TIMEOUT_MS / 1000}s 内未响应(已超时)。`, String(e))
+    }
     // fetch 抛异常 = 网络层失败,浏览器不区分 CORS 与断网(安全策略),统一归类。
     throw new ApiError('network-or-cors', '无法连接接口:可能是网络问题或接口未开放跨域(CORS)。', String(e))
   }
@@ -54,10 +76,13 @@ export async function toBlob(image) {
   }
   // url:立即下载为 Blob
   try {
-    const resp = await fetch(image.value)
+    const resp = await fetch(image.value, { signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) })
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     return await resp.blob()
   } catch (e) {
+    if (isTimeout(e)) {
+      throw new ApiError('timeout', `图片外链下载超过 ${IMAGE_TIMEOUT_MS / 1000}s(已超时)。`, String(e))
+    }
     throw new ApiError('network-or-cors', '图片外链下载失败(可能已过期或不允许跨域)。', String(e))
   }
 }

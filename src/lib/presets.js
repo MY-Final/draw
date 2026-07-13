@@ -9,6 +9,8 @@ const ACTIVE_KEY = 'workbench.activePresetId.v1'
 
 export const PROTOCOL_IMAGES = 'images'
 export const PROTOCOL_CHAT = 'chat'
+// 未锁定:交由连通性检查自动探测(design D3)。
+export const PROTOCOL_AUTO = 'auto'
 
 function uid() {
   return `preset_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -35,7 +37,10 @@ export function savePreset(preset) {
     baseURL: (preset.baseURL || '').trim().replace(/\/+$/, ''),
     apiKey: preset.apiKey || '',
     model: preset.model || '',
-    protocol: preset.protocol === PROTOCOL_CHAT ? PROTOCOL_CHAT : PROTOCOL_IMAGES, // 默认 images
+    // 协议:chat / images 为用户锁定;auto(或缺省)表示待探测。
+    protocol: preset.protocol === PROTOCOL_CHAT ? PROTOCOL_CHAT
+      : preset.protocol === PROTOCOL_IMAGES ? PROTOCOL_IMAGES
+      : PROTOCOL_AUTO,
   }
   const idx = presets.findIndex((p) => p.id === record.id)
   if (idx >= 0) presets[idx] = record

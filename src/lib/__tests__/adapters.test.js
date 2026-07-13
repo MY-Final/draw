@@ -75,3 +75,54 @@ describe('generate 四象限分派', () => {
     expect(parsed.messages[0].content.some((c) => c.type === 'image_url')).toBe(true)
   })
 })
+
+describe('图像端点参数:b64 / quality / size', () => {
+  let calls
+  beforeEach(() => { calls = [] })
+  function install(body = okData) {
+    global.fetch = vi.fn(async (url, opts) => {
+      calls.push({ url, opts })
+      return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) }
+    })
+  }
+
+  it('generations 默认带 response_format=b64_json', async () => {
+    install()
+    await generate({ preset: preset('images'), prompt: '猫', refImages: [], params: {} })
+    const parsed = JSON.parse(calls[0].opts.body)
+    expect(parsed.response_format).toBe('b64_json')
+  })
+
+  it('generations 发送 quality,Auto 时不发 size', async () => {
+    install()
+    await generate({ preset: preset('images'), prompt: '猫', refImages: [], params: { quality: 'high' } })
+    const parsed = JSON.parse(calls[0].opts.body)
+    expect(parsed.quality).toBe('high')
+    expect('size' in parsed).toBe(false)
+  })
+
+  it('generations 有 size 时发送 size', async () => {
+    install()
+    await generate({ preset: preset('images'), prompt: '猫', refImages: [], params: { size: '2048x2048' } })
+    const parsed = JSON.parse(calls[0].opts.body)
+    expect(parsed.size).toBe('2048x2048')
+  })
+
+  it('edits(带参考图)默认带 b64_json 并发送 quality', async () => {
+    install()
+    const blob = new Blob(['img'], { type: 'image/png' })
+    await generate({ preset: preset('images'), prompt: 'p', refImages: [{ blob, mime: 'image/png' }], params: { quality: 'medium', size: '1024x1024' } })
+    const form = calls[0].opts.body
+    expect(form.get('response_format')).toBe('b64_json')
+    expect(form.get('quality')).toBe('medium')
+    expect(form.get('size')).toBe('1024x1024')
+  })
+
+  it('edits Auto 时不发 size', async () => {
+    install()
+    const blob = new Blob(['img'], { type: 'image/png' })
+    await generate({ preset: preset('images'), prompt: 'p', refImages: [{ blob, mime: 'image/png' }], params: {} })
+    const form = calls[0].opts.body
+    expect(form.get('size')).toBeNull()
+  })
+})

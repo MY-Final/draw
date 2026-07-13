@@ -117,7 +117,12 @@ watch(() => [feed.value.length, store.generating], async () => {
               <div>接口未返回可识别图片。<code class="snippet">{{ gen.rawResponseSnippet }}</code></div>
             </div>
             <!-- 生成中:本轮自身的骨架占位(不再有独立通用骨架) -->
-            <div v-else-if="gen.status === 'pending'" class="skeleton" />
+            <div v-else-if="gen.status === 'pending'" class="pending-block">
+              <div class="skeleton" />
+              <button class="pending-del act act-danger" @click="deleteGen(gen)" title="删除这条卡住的生成">
+                <AppIcon name="trash" :size="13" /> 卡住了?删除
+              </button>
+            </div>
 
             <div v-if="outputsOf(gen).length" class="imgs" :class="{ single: outputsOf(gen).length === 1 }">
               <figure v-for="a in outputsOf(gen)" :key="a.id" class="fig">
@@ -222,6 +227,8 @@ watch(() => [feed.value.length, store.generating], async () => {
 
 .snippet { display: block; margin-top: 6px; font-size: 11px; max-height: 80px; overflow: auto; opacity: 0.8; white-space: pre-wrap; word-break: break-all; }
 .skeleton { aspect-ratio: 1; max-width: 380px; border-radius: var(--radius); background: linear-gradient(90deg, var(--color-surface-2), var(--color-elevated), var(--color-surface-2)); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+.pending-block { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.pending-del { align-self: flex-start; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }

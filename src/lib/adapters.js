@@ -20,8 +20,11 @@ async function generateViaImages({ preset, prompt, params, signal }) {
   }
   // size 有值才发;Auto 宽高比时 params.size 为 null,交由服务端自适应
   if (params.size) body.size = params.size
-  // 部分接口支持 response_format;优先要 b64 以便直接落库,不依赖外链。
-  if (params.responseFormat) body.response_format = params.responseFormat
+  // 画质:作为真实参数发送(high/medium/low),不再靠往 prompt 拼形容词伪造
+  if (params.quality) body.quality = params.quality
+  // 默认要 b64_json:直接拿到图片数据落库,绕开"二次下载跨域外链"这个转圈根源。
+  // 调用方可用 responseFormat 显式覆盖(如某站不支持 b64,置为其它值或空)。
+  body.response_format = params.responseFormat || 'b64_json'
 
   const raw = await callApi(url, { apiKey: preset.apiKey, body, signal })
 
@@ -44,6 +47,10 @@ async function generateViaImagesEdit({ preset, prompt, refImages, params, signal
   form.append('n', String(params.n || 1))
   // size 有值才发;Auto 宽高比时省略,交由服务端自适应
   if (params.size) form.append('size', params.size)
+  // 画质:真实参数(high/medium/low)
+  if (params.quality) form.append('quality', params.quality)
+  // 默认要 b64_json,绕开外链下载转圈(同 generations)
+  form.append('response_format', params.responseFormat || 'b64_json')
   const ext = (first.mime?.split('/')[1] || 'png').replace('jpeg', 'jpg')
   form.append('image', first.blob, `image.${ext}`)
 

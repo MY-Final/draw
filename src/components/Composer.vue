@@ -5,11 +5,10 @@ import { useWorkbenchStore } from '../stores/workbench.js'
 import AppIcon from './AppIcon.vue'
 import AssetImage from './AssetImage.vue'
 import { addPrompt, removePrompt, getAllPrompts } from '../lib/promptLibrary.js'
-import { putAsset } from '../lib/assetRepo.js'
+import { imageFromClipboard } from '../lib/clipboard.js'
 
 // ── 尺寸计算(宽高比 × 分辨率组合,design D1)──
 const RES_MAP = { '1k': 1024, '2k': 2048, '4k': 4096 }
-const QUALITY_MAP = { '1k': '', '2k': ', high detail, sharp focus', '4k': ', ultra detailed, 4k, ultra sharp, intricate details' }
 const RATIOS = [
   { key: 'auto', label: 'Auto' },
   { key: '1:1', label: '1:1' },
@@ -24,6 +23,12 @@ const RESOLUTIONS = [
   { key: '1k', label: '1K' },
   { key: '2k', label: '2K' },
   { key: '4k', label: '4K' },
+]
+// 画质:真实 quality 参数(high/medium/low),独立于分辨率
+const QUALITIES = [
+  { key: 'high', label: '高' },
+  { key: 'medium', label: '中' },
+  { key: 'low', label: '低' },
 ]
 
 function computeSize(r, res) {
@@ -40,6 +45,7 @@ const store = useWorkbenchStore()
 const prompt = ref('')
 const ratio = ref('auto')
 const resolution = ref('1k')
+const quality = ref('high')
 const n = ref(1)
 const refImageIds = ref([])
 const showPromptLib = ref(false)
@@ -85,8 +91,15 @@ function onDocClick(e) {
   if (!el.closest('.prompt-lib-wrap')) showPromptLib.value = false
 }
 
-onMounted(() => document.addEventListener('click', onDocClick))
-onUnmounted(() => document.removeEventListener('click', onDocClick))
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  // 粘贴监听挂 document:无论焦点是否在输入框,Ctrl/Cmd+V 都能贴图(单一监听,避免重复触发)
+  document.addEventListener('paste', onPaste)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick)
+  document.removeEventListener('paste', onPaste)
+})
 
 const isChat = computed(() => store.isChatProtocol)
 // 参考图现在两种协议都支持(images 走 edits 改图)。多张时 images 只用第一张。
@@ -107,8 +120,8 @@ const fileInput = ref(null)
 const dropActive = ref(false)
 async function uploadRefImage(file) {
   if (!file || !file.type.startsWith('image/')) return
-  const blob = file
-  const asset = await putAsset({ blob, mime: blob.type, name: file.name, source: 'reference-uploaded', workspaceId: store.activeWorkspaceId })
+  // 走 store:落库并刷新响应式 assets,否则 refAssets 找不到新图、缩略图不显示。
+  const asset = await store.addReferenceAsset(file)
   addReference(asset.id)
   if (fileInput.value) fileInput.value.value = ''
 }
@@ -116,10 +129,11 @@ function onFilePick(e) {
   const file = e.target?.files?.[0]
   if (file) uploadRefImage(file)
 }
+// 从剪贴板事件提取第一张图片(files / items 两条路径,见 lib/clipboard.js)
 function onPaste(e) {
   // 只处理图片粘贴,不拦截文本(design 明确:不要拦截纯文本粘贴)
-  const file = e.clipboardData?.files?.[0]
-  if (file && file.type.startsWith('image/')) {
+  const file = imageFromClipboard(e.clipboardData)
+  if (file) {
     e.preventDefault()
     uploadRefImage(file)
   }
@@ -169,6 +183,7 @@ function applyPrefill(prefill) {
     if (prefill.params.resolution) resolution.value = prefill.params.resolution
   }
   if (prefill.params?.n) n.value = prefill.params.n
+  if (prefill.params?.quality) quality.value = prefill.params.quality
   refImageIds.value = Array.isArray(prefill.refImageIds) ? [...prefill.refImageIds] : []
 }
 function gcd(a, b) { return b ? gcd(b, a % b) : a }
@@ -183,11 +198,10 @@ async function submit() {
   const text = prompt.value.trim()
   const refs = [...refImageIds.value]
   const sizeVal = computeSize(ratio.value, resolution.value)
-  const qualitySuffix = QUALITY_MAP[resolution.value]
-  const fullPrompt = qualitySuffix ? text + qualitySuffix : text
   // 立即清空输入:乐观上屏已把本轮请求推上对话流,输入框无需等生成完成(请求即时上屏)。
   clear()
-  await store.generate({ prompt: text, fullPrompt, refImageIds: refs, params: { size: sizeVal, ratio: ratio.value, resolution: resolution.value, n: Number(n.value) } })
+  // 发送给接口的 prompt 就是用户原文;画质走真实 quality 参数,不再往 prompt 拼形容词。
+  await store.generate({ prompt: text, fullPrompt: text, refImageIds: refs, params: { size: sizeVal, ratio: ratio.value, resolution: resolution.value, quality: quality.value, n: Number(n.value) } })
 }
 
 // Enter 提交,但要避开中文输入法候选确认(isComposing 期间的 Enter 不算提交)。
@@ -205,7 +219,7 @@ function autogrow(e) {
 </script>
 
 <template>
-  <div class="composer-wrap" @paste="onPaste">
+  <div class="composer-wrap">
     <!-- 无接口时的引导条 -->
     <div v-if="!store.activePreset" class="hint">
       <AppIcon name="alert" :size="14" /> 还没有可用接口 —— 点左侧「设置」添加一个,即可开始。
@@ -226,7 +240,7 @@ function autogrow(e) {
         <AppIcon name="plus" :size="14" />
       </button>
       <input ref="fileInput" type="file" accept="image/*" class="hidden-input" @change="onFilePick" />
-      <span class="ref-tip">{{ refAssets.length ? (multiRefOnImages ? '参考图(images 仅用第一张)' : '参考图') : '上传或从素材库拖入参考图' }}</span>
+      <span class="ref-tip">{{ refAssets.length ? (multiRefOnImages ? '参考图(改图仅用第一张)' : '参考图') : '上传或从素材库拖入参考图' }}</span>
     </div>
 
     <!-- 主输入框 -->
@@ -244,13 +258,21 @@ function autogrow(e) {
           </div>
         </div>
         <div class="params-row">
-          <span class="params-tag-label">画质</span>
+          <span class="params-tag-label">分辨率</span>
           <div class="tag-group">
             <button
               v-for="r in RESOLUTIONS" :key="r.key"
               class="tag" :class="{ active: resolution === r.key }"
               @click="resolution = r.key"
             >{{ r.label }}</button>
+          </div>
+          <span class="params-tag-label params-tag-label-n">画质</span>
+          <div class="tag-group">
+            <button
+              v-for="q in QUALITIES" :key="q.key"
+              class="tag" :class="{ active: quality === q.key }"
+              @click="quality = q.key"
+            >{{ q.label }}</button>
           </div>
           <span class="params-tag-label params-tag-label-n">数量</span>
           <input class="tnum" type="number" min="1" max="4" v-model="n" />
@@ -266,8 +288,7 @@ function autogrow(e) {
       />
 
       <div class="composer-bar">
-        <span v-if="!isChat" class="proto-tip">images 协议 · 改图</span>
-        <span v-else class="proto-tip">chat 协议 · 可参考图</span>
+        <span class="proto-tip">{{ refAssets.length ? '改图 · 带参考图' : '文生图' }}</span>
 
         <div class="spacer" />
 

@@ -3,7 +3,7 @@ import {
   loadPresets, savePreset, deletePreset, getActivePresetId, setActivePresetId, clearAllKeys,
   PROTOCOL_IMAGES,
 } from '../lib/presets.js'
-import { listAssets, deleteAssets, toggleFavorite, clearAllAssets } from '../lib/assetRepo.js'
+import { listAssets, deleteAssets, toggleFavorite, clearAllAssets, putAsset } from '../lib/assetRepo.js'
 import { listGenerations, deleteGenerations, clearAllGenerations, updateGeneration } from '../lib/generationRepo.js'
 import { runGeneration } from '../lib/generationService.js'
 import { checkConnectivity } from '../lib/connectivity.js'
@@ -83,6 +83,11 @@ export const useWorkbenchStore = defineStore('workbench', {
       if (state.favoritesOnly) return state.assets.filter((a) => a.workspaceId === state.activeWorkspaceId && a.favorite)
       return state.assets.filter((a) => a.workspaceId === state.activeWorkspaceId)
     },
+    // 当前工作区下的生成记录(generations 已按 createdAt 倒序,[0] 为最近一次)。
+    workspaceGenerations(state) {
+      if (!state.activeWorkspaceId) return state.generations
+      return state.generations.filter((g) => g.workspaceId === state.activeWorkspaceId)
+    },
   },
 
   actions: {
@@ -91,6 +96,7 @@ export const useWorkbenchStore = defineStore('workbench', {
       this.activePresetId = getActivePresetId() || this.presets[0]?.id || null
       this.titleOverrides = loadTitleOverrides()
       await this.refreshAll()
+      await this.reconcileStalePending()
       await this.initWorkspaces()
       // 恢复上次会话;没有则挂到当前工作区最近一次生成的会话,再没有就新开一个。
       if (!this.conversationId) {
@@ -102,6 +108,19 @@ export const useWorkbenchStore = defineStore('workbench', {
 
     newConversationId() {
       return `conv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+    },
+
+    // 调和遗留的 pending:页面在生成途中刷新/崩溃会留下永久 pending 记录
+    // (计时器空转、UI 显示上万秒)。启动时把超时(>2min)的 pending 标为失败。
+    async reconcileStalePending() {
+      const STALE_MS = 2 * 60 * 1000
+      const now = Date.now()
+      const stale = this.generations.filter((g) => g.status === 'pending' && now - g.createdAt > STALE_MS)
+      if (!stale.length) return
+      for (const g of stale) {
+        await updateGeneration(g.id, { status: 'failed', error: '生成中断(页面刷新或超时)', elapsedMs: now - g.createdAt })
+      }
+      await this.refreshAll()
     },
 
     // 新建创作 = 开一段空白会话(非破坏:旧会话与图仍完整保留、可切回)。
@@ -365,6 +384,13 @@ export const useWorkbenchStore = defineStore('workbench', {
     },
 
     // ── 素材 ──
+    // 落库一张参考图并刷新响应式 assets(供上传/粘贴使用:putAsset 只写 DB,
+    // 不刷新 store.assets 会导致 refAssets 找不到新图 → 缩略图不显示)。
+    async addReferenceAsset(file) {
+      const asset = await putAsset({ blob: file, mime: file.type, name: file.name, source: 'reference-uploaded', workspaceId: this.activeWorkspaceId })
+      await this.refreshAll()
+      return asset
+    },
     async removeAssets(ids) {
       await deleteAssets(ids)
       await this.refreshAll()
