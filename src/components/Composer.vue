@@ -101,12 +101,11 @@ onUnmounted(() => {
   document.removeEventListener('paste', onPaste)
 })
 
-const isChat = computed(() => store.isChatProtocol)
-// 参考图现在两种协议都支持(images 走 edits 改图)。多张时 images 只用第一张。
+// 参考图走 images/edits 改图;多张时只用第一张。
 const refAssets = computed(() =>
   refImageIds.value.map((id) => store.assets.find((a) => a.id === id)).filter(Boolean)
 )
-const multiRefOnImages = computed(() => !isChat.value && refImageIds.value.length > 1)
+const multiRefOnImages = computed(() => refImageIds.value.length > 1)
 
 function addReference(id) {
   if (!refImageIds.value.includes(id)) refImageIds.value = [...refImageIds.value, id]
@@ -281,7 +280,7 @@ function autogrow(e) {
 
       <textarea
         v-model="prompt" rows="1" class="composer-input"
-        :placeholder="isChat ? '描述你想画的,或把图设为参考再改图…' : '描述你想画的,或把图设为参考改图…'"
+        placeholder="描述你想画的,或把图设为参考改图…"
         @input="autogrow"
         @keydown.enter.exact="onEnter"
         @keydown.shift.enter.stop

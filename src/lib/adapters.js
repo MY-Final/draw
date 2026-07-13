@@ -1,14 +1,11 @@
-// 协议适配层(design D1/D3)—— 统一接口:
+// 图像接口适配层 —— 统一接口:
 //   generate({ preset, prompt, refImages, params, signal }) -> { images: {kind,value}[], raw, snippet }
 //
-// refImages: [{ blob, mime }]。四象限分派:
-//   images 无参考图 → images/generations;images 带参考图 → images/edits(改图)
-//   chat → chat/completions(参考图作为 image_url 块)
-// 上层拿到 images 后统一交给 http.toBlob 落库,不关心协议差异。
+// refImages: [{ blob, mime }]。标准 OpenAI images 接口:
+//   无参考图 → images/generations(文生图);带参考图 → images/edits(改图)
+// 上层拿到 images 后统一交给 http.toBlob 落库。
 
-import { callApi, blobToDataUrl } from './http.js'
-import { extractImagesFromChatResponse } from './imageExtractor.js'
-import { PROTOCOL_CHAT } from './presets.js'
+import { callApi } from './http.js'
 
 // ImagesAdapter —— POST /v1/images/generations
 async function generateViaImages({ preset, prompt, params, signal }) {
@@ -64,36 +61,10 @@ async function generateViaImagesEdit({ preset, prompt, refImages, params, signal
   return { images, raw, snippet: images.length ? null : safeSnippet(raw) }
 }
 
-// ChatAdapter —— POST /v1/chat/completions,参考图作为 image_url 内容块
-async function generateViaChat({ preset, prompt, refImages, params, signal }) {
-  const url = `${preset.baseURL}/v1/chat/completions`
-
-  const content = [{ type: 'text', text: prompt }]
-  for (const ref of refImages || []) {
-    const dataUrl = await blobToDataUrl(ref.blob)
-    content.push({ type: 'image_url', image_url: { url: dataUrl } })
-  }
-
-  const body = {
-    model: preset.model || params.model,
-    messages: [{ role: 'user', content }],
-  }
-  if (params.maxTokens) body.max_tokens = params.maxTokens
-
-  const raw = await callApi(url, { apiKey: preset.apiKey, body, signal })
-  const { images, snippet } = extractImagesFromChatResponse(raw)
-  return { images, raw, snippet }
-}
-
 export async function generate({ preset, prompt, refImages = [], params = {}, signal } = {}) {
   if (!preset) throw new Error('未选择接口预设')
   const hasRefs = refImages.length > 0
-  // 四象限分派(design D1):
-  //   images 无参考图 → generations;images 带参考图 → edits
-  //   chat  → chat/completions(参考图作为 image_url 块)
-  if (preset.protocol === PROTOCOL_CHAT) {
-    return generateViaChat({ preset, prompt, refImages, params, signal })
-  }
+  // 标准 OpenAI images 接口:有参考图 → images/edits(改图);无 → images/generations(文生图)
   if (hasRefs) {
     return generateViaImagesEdit({ preset, prompt, refImages, params, signal })
   }

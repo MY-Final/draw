@@ -43,9 +43,6 @@ export const useWorkbenchStore = defineStore('workbench', {
     activePreset(state) {
       return state.presets.find((p) => p.id === state.activePresetId) || state.presets[0] || null
     },
-    isChatProtocol() {
-      return this.activePreset?.protocol === 'chat'
-    },
     // 当前会话可见的生成(旧记录用 canvasId 回退,不丢失)。
     canvasGenerations(state) {
       if (!state.conversationId) return state.generations

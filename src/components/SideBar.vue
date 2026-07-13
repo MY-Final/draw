@@ -84,7 +84,7 @@ const vFocus = { mounted: (el) => el.focus() }
         <div v-if="store.presets.length" class="preset-select">
           <select :value="store.activePresetId" @change="store.selectPreset($event.target.value)" aria-label="选择接口">
             <option v-for="p in store.presets" :key="p.id" :value="p.id">
-              {{ p.name || '未命名' }} · {{ p.protocol }}
+              {{ p.name || '未命名' }}
             </option>
           </select>
           <span v-if="active && !active.apiKey" class="badge badge-warn mini-badge">缺 Key</span>

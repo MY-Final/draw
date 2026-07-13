@@ -1,6 +1,7 @@
 // 接口预设(design D7)—— 存 localStorage 明文(design D6:纯前端无处可藏)。
 // 预设字段:{ id, name, baseURL, apiKey, model, protocol }
-//   protocol: 'images' | 'chat'   (默认 images)
+//   protocol 恒为 'images'(标准 OpenAI images 接口:generations / edits)。
+//   字段保留仅为兼容已有数据与分享配方格式。
 //
 // 关键不变量(design D8):导出分享时必须剥离 apiKey。见 share.js 的 stripKey。
 
@@ -8,9 +9,6 @@ const STORAGE_KEY = 'workbench.presets.v1'
 const ACTIVE_KEY = 'workbench.activePresetId.v1'
 
 export const PROTOCOL_IMAGES = 'images'
-export const PROTOCOL_CHAT = 'chat'
-// 未锁定:交由连通性检查自动探测(design D3)。
-export const PROTOCOL_AUTO = 'auto'
 
 function uid() {
   return `preset_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -37,10 +35,8 @@ export function savePreset(preset) {
     baseURL: (preset.baseURL || '').trim().replace(/\/+$/, ''),
     apiKey: preset.apiKey || '',
     model: preset.model || '',
-    // 协议:chat / images 为用户锁定;auto(或缺省)表示待探测。
-    protocol: preset.protocol === PROTOCOL_CHAT ? PROTOCOL_CHAT
-      : preset.protocol === PROTOCOL_IMAGES ? PROTOCOL_IMAGES
-      : PROTOCOL_AUTO,
+    // 恒为 images(标准 OpenAI 图像接口);不再有 chat/auto。
+    protocol: PROTOCOL_IMAGES,
   }
   const idx = presets.findIndex((p) => p.id === record.id)
   if (idx >= 0) presets[idx] = record

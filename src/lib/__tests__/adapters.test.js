@@ -1,32 +1,11 @@
-// 适配层四象限分派测试(mock fetch)—— 验证协议 × 参考图 选对端点。
+// 适配层分派测试(mock fetch)—— 验证是否带参考图选对 images 端点(generations / edits)。
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { generate } from '../adapters.js'
 
-// Node 无 FileReader(chat 分支 blobToDataUrl 需要);用 Blob.arrayBuffer 垫一个。
-if (typeof FileReader === 'undefined') {
-  global.FileReader = class {
-    readAsDataURL(blob) {
-      blob.arrayBuffer().then((buf) => {
-        const b64 = Buffer.from(buf).toString('base64')
-        this.result = `data:${blob.type || 'application/octet-stream'};base64,${b64}`
-        this.onload?.()
-      })
-    }
-  }
-}
-
-function mockFetchOnce(jsonBody) {
-  return vi.fn(async () => ({
-    ok: true, status: 200,
-    json: async () => jsonBody,
-    text: async () => JSON.stringify(jsonBody),
-  }))
-}
-
-const preset = (protocol) => ({ baseURL: 'https://api.test', apiKey: 'sk-x', model: 'gpt-image-2', protocol })
+const preset = (protocol = 'images') => ({ baseURL: 'https://api.test', apiKey: 'sk-x', model: 'gpt-image-2', protocol })
 const okData = { data: [{ b64_json: 'AAAA' }] }
 
-describe('generate 四象限分派', () => {
+describe('generate 端点分派', () => {
   let calls
   beforeEach(() => { calls = [] })
 
@@ -63,16 +42,6 @@ describe('generate 四象限分派', () => {
     const form = calls[0].opts.body
     // 只 append 了一个 image 字段
     expect(form.getAll('image').length).toBe(1)
-  })
-
-  it('chat → chat/completions(JSON,image_url 块)', async () => {
-    install({ choices: [{ message: { content: 'https://x/y.png' } }] })
-    const blob = new Blob(['img'], { type: 'image/png' })
-    await generate({ preset: preset('chat'), prompt: 'p', refImages: [{ blob, mime: 'image/png' }], params: {} })
-    expect(calls[0].url).toContain('/v1/chat/completions')
-    expect(typeof calls[0].opts.body).toBe('string')
-    const parsed = JSON.parse(calls[0].opts.body)
-    expect(parsed.messages[0].content.some((c) => c.type === 'image_url')).toBe(true)
   })
 })
 
