@@ -1,10 +1,4 @@
-# api-connection Specification
-
-## Purpose
-
-管理用户配置的图像生成接口预设(baseURL、API Key、model、协议),提供本地安全存储与连通性检查,使生成面板可选用不同接口。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: 接口预设管理
 系统 SHALL 允许用户创建、编辑、删除多个「接口预设」,每个预设包含 baseURL、API Key、model 名称。预设统一走标准 OpenAI images 接口(`/v1/images/generations` 与 `/v1/images/edits`),不再要求用户选择协议。
@@ -23,17 +17,6 @@
 #### Scenario: 预设协议固定为 images
 - **WHEN** 用户新建预设
 - **THEN** 协议为 `images`,界面不提供协议选择
-
-### Requirement: API Key 本地存储与告知
-系统 SHALL 仅在浏览器本机(localStorage)保存 API Key,不向任何第三方(除目标接口外)发送,并 SHALL 向用户明示 Key 存储位置与风险。
-
-#### Scenario: Key 仅存本机
-- **WHEN** 用户保存含 Key 的预设
-- **THEN** Key 写入 localStorage,且界面提示"仅存本机,勿在公共设备使用"
-
-#### Scenario: 一键清除
-- **WHEN** 用户点击清除凭据
-- **THEN** 系统从 localStorage 移除所有 Key
 
 ### Requirement: 连通性检查
 系统 SHALL 提供对选中预设的连通性检查,并对失败给出可区分的原因(网络/CORS、鉴权、接口错误、超时)。

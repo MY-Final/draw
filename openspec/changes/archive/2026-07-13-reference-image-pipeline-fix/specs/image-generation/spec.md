@@ -16,19 +16,19 @@
 - **THEN** 系统将该次生成记录标记为失败并保存错误信息,不产生残缺素材
 
 ### Requirement: 协议适配
-系统 SHALL 通过统一适配层支持 `images/generations` 与 `chat/completions` 两种协议,使上层以相同的输入(文字 + 参考图)与输出(图片列表)进行交互。图像端点(`images/generations` 与 `images/edits`)SHALL 默认请求 `response_format: 'b64_json'` 以直接获取图片数据落库;当接口未返回 base64 而仅返回图片外链时,系统 SHALL 回退到下载该外链。协议与改图端点的选择 SHALL 由系统按「协议类型 + 是否带参考图」自动决定,不要求用户在生成时手动切换。
+系统 SHALL 通过统一适配层走标准 OpenAI images 接口,使上层以相同的输入(文字 + 参考图)与输出(图片列表)进行交互:无参考图请求 `/v1/images/generations`,带参考图请求 `/v1/images/edits`(改图),由「是否带参考图」自动决定,不要求用户手动切换。系统 SHALL 支持通过 `response_format: 'b64_json'` 直接获取图片数据落库;当响应仅返回图片外链时,系统 SHALL 回退到下载该外链。考虑到不同中转站对各端点的兼容差异不同,`response_format` 的默认取值 SHALL 可按端点区分(如 edits 默认 b64_json、generations 默认交由服务端)。
 
-#### Scenario: images 协议
-- **WHEN** 当前预设协议为 `images` 且无参考图
-- **THEN** 系统请求 `images/generations`,默认带 `response_format: 'b64_json'`,并从 `data[].b64_json`(优先)或 `data[].url` 解析图片
+#### Scenario: 无参考图走 generations
+- **WHEN** 用户无参考图发起生成
+- **THEN** 系统请求 `/v1/images/generations`,并从 `data[].b64_json`(优先)或 `data[].url` 解析图片
 
-#### Scenario: chat 协议
-- **WHEN** 当前预设协议为 `chat`
-- **THEN** 系统请求 `chat/completions`,将参考图作为图像内容块发送,并从响应中提取图片
+#### Scenario: 带参考图自动走 edits
+- **WHEN** 用户附带了参考图
+- **THEN** 系统自动请求 `/v1/images/edits`(无需用户切换到改图模式)
 
-#### Scenario: 改图端点自动选择
-- **WHEN** 当前预设协议为 `images` 且用户附带了参考图
-- **THEN** 系统自动请求 `images/edits`(无需用户切换到改图模式),默认带 `response_format: 'b64_json'`
+#### Scenario: b64 与外链兼容
+- **WHEN** 响应以 `data[].b64_json` 或 `data[].url` 承载图片
+- **THEN** 系统均能规整为 Blob 落库;仅返回外链时下载该外链(带超时兜底)
 
 ## ADDED Requirements
 

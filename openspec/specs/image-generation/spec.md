@@ -2,12 +2,12 @@
 
 ## Purpose
 
-通过统一适配层支持 `images/generations` 与 `chat/completions` 两种协议发起图像生成,处理参考图、稳健的响应提取,并将结果落入素材库。
+通过标准 OpenAI images 接口(`/v1/images/generations` 与 `/v1/images/edits`)发起图像生成,处理参考图、稳健的响应提取,并将结果落入素材库。
 
 ## Requirements
 
 ### Requirement: 发起文生图生成
-系统 SHALL 允许用户输入文字 prompt 与生成参数(model、宽高比、画质/分辨率、数量),使用当前选中的接口预设发起生成,并将结果图片存入素材库。宽高比 SHALL 支持 `Auto` 与一组标准比例(`1:1`、`16:9`、`9:16`、`4:3`、`3:4`、`3:2`、`2:3`);当宽高比为 `Auto` 时,系统 SHALL NOT 向接口发送 `size` 字段,由服务端/模型自适应尺寸;当为具体比例时,系统 SHALL 由"比例 × 分辨率"计算出像素尺寸并作为 `size` 发送。
+系统 SHALL 允许用户输入文字 prompt 与生成参数(model、宽高比、分辨率、画质、数量),使用当前选中的接口预设发起生成,并将结果图片存入素材库。宽高比 SHALL 支持 `Auto` 与一组标准比例(`1:1`、`16:9`、`9:16`、`4:3`、`3:4`、`3:2`、`2:3`);当宽高比为 `Auto` 时,系统 SHALL NOT 向接口发送 `size` 字段,由服务端/模型自适应尺寸;当为具体比例时,系统 SHALL 由"比例 × 分辨率"计算出像素尺寸并作为 `size` 发送。画质 SHALL 作为真实参数 `quality`(`high`/`medium`/`low`)发送,系统 SHALL NOT 通过向用户 prompt 追加文字的方式伪造画质;`quality` 与 `size` 相互独立。
 
 #### Scenario: 纯文生图成功
 - **WHEN** 用户输入 prompt 并点击生成,接口返回图片
@@ -25,60 +25,65 @@
 - **WHEN** 用户选择某一具体比例(如 `16:9`)与某一分辨率(如 `2K`)并发起生成
 - **THEN** 系统按"比例 × 分辨率"计算像素尺寸并作为 `size` 发送
 
+#### Scenario: 画质作为真实参数发送
+- **WHEN** 用户选择画质(高/中/低)并发起生成
+- **THEN** 系统在请求中发送 `quality` 字段(high/medium/low),且发送给接口的 prompt 与用户输入原文一致,不含系统追加的画质形容词
+
 ### Requirement: 协议适配
-系统 SHALL 通过统一适配层支持 `images/generations` 与 `chat/completions` 两种协议,使上层以相同的输入(文字 + 参考图)与输出(图片列表)进行交互。
+系统 SHALL 通过统一适配层走标准 OpenAI images 接口:无参考图请求 `/v1/images/generations`,带参考图请求 `/v1/images/edits`(改图),由「是否带参考图」自动决定,不要求用户手动切换。系统 SHALL 支持通过 `response_format: 'b64_json'` 直接获取图片数据落库;当响应仅返回图片外链时,系统 SHALL 回退到下载该外链。`response_format` 的默认取值 SHALL 可按端点区分(edits 默认 b64_json、generations 默认交由服务端),以兼容不同中转站的端点差异。
 
-#### Scenario: images 协议
-- **WHEN** 当前预设协议为 `images`
-- **THEN** 系统请求 `images/generations` 并从 `data[].b64_json` 或 `data[].url` 解析图片
+#### Scenario: 无参考图走 generations
+- **WHEN** 用户无参考图发起生成
+- **THEN** 系统请求 `/v1/images/generations`,并从 `data[].b64_json`(优先)或 `data[].url` 解析图片
 
-#### Scenario: chat 协议
-- **WHEN** 当前预设协议为 `chat`
-- **THEN** 系统请求 `chat/completions`,将参考图作为图像内容块发送,并从响应中提取图片
+#### Scenario: 带参考图自动走 edits
+- **WHEN** 用户附带了参考图
+- **THEN** 系统自动请求 `/v1/images/edits`(无需用户切换到改图模式)
 
-### Requirement: 参考图仅在 chat 协议可用
-系统 SHALL 允许在 `chat` 与 `images` 两种协议下附带参考图;`images` 协议附带参考图时经 `images/edits` 端点改图。参考图输入 SHALL NOT 再按协议禁用;仅当目标接口/模型实际不支持时,由请求失败如实提示。
+#### Scenario: b64 与外链兼容
+- **WHEN** 响应以 `data[].b64_json` 或 `data[].url` 承载图片
+- **THEN** 系统均能规整为 Blob 落库;仅返回外链时下载该外链(带超时兜底)
 
-#### Scenario: images 协议附带参考图走 edits
-- **WHEN** 当前预设协议为 `images` 且用户选择了参考图
-- **THEN** 系统请求 `images/edits`(multipart),将参考图与 prompt 一并发送
+### Requirement: 参考图改图
+系统 SHALL 允许用户附带参考图发起改图,经 `/v1/images/edits` 端点以"参考图 + prompt"发起,并将结果图存入素材库。
 
-#### Scenario: chat 协议下附带参考图
-- **WHEN** 当前预设协议为 `chat` 且用户选择了若干参考图
-- **THEN** 系统将这些图片作为图像内容块随 prompt 一并发送
+#### Scenario: 附带参考图走 edits
+- **WHEN** 用户选择了参考图并发起生成
+- **THEN** 系统以 multipart 请求 `/v1/images/edits`,将参考图与 prompt 一并发送
 
 #### Scenario: 模型不支持改图
 - **WHEN** 目标模型不支持带参考图改图(如 dall-e-3)
 - **THEN** 系统将该次生成标记为失败并如实展示接口返回的错误,不静默吞掉
 
-### Requirement: chat 响应图片提取
-系统 SHALL 从 `chat/completions` 响应中稳健地提取图片,覆盖多种承载形式,并在无法提取时保留可诊断信息。
-
-#### Scenario: 多形式提取兜底
-- **WHEN** 响应以 `image_url` 内容块、markdown 图片语法、data URI、私有 `images[]` 数组或裸 URL 之一承载图片
-- **THEN** 系统能识别并将其规整为图片并落库
-
-#### Scenario: 无法提取
-- **WHEN** 响应中未能识别到任何图片
-- **THEN** 系统将该生成标记为无输出并保留原始响应片段供诊断
-
-### Requirement: 多轮改图为参考图特例
-系统 SHALL 允许用户将任一素材(包括以往生成的输出图)作为参考图发起新的生成,而不维护任何会话状态。
-
-#### Scenario: 用输出图当参考图
-- **WHEN** 用户选择素材库中一张图作为参考图并配以新 prompt 发起生成(chat 协议)
-- **THEN** 系统按普通带参考图的生成处理,不携带此前对话上下文
-
-### Requirement: images/edits 改图
-系统 SHALL 在 `images` 协议且存在参考图时,通过 `images/edits` 端点以"参考图 + prompt"发起改图,并将结果图存入素材库。
-
-#### Scenario: 基于原图改图
-- **WHEN** 用户在 images 协议下选择一张参考图并输入改图 prompt 后生成
-- **THEN** 系统以 multipart 请求 `images/edits`,解析返回图片并落库
-
 #### Scenario: 多张参考图仅取其一
-- **WHEN** images 协议下用户选择了多张参考图
+- **WHEN** 用户选择了多张参考图
 - **THEN** 系统仅使用第一张发起 edits,并提示该限制
+
+### Requirement: 请求超时与无残留 pending
+系统 SHALL 为接口调用与图片下载设置超时,超时按明确类别(如 timeout)记为失败,不使生成记录永久停留在 pending。系统 SHALL 在应用初始化时将超时仍未完成的历史 pending 记录调和为失败态,并 SHALL 允许用户删除 pending 记录。
+
+#### Scenario: 请求超时记为失败
+- **WHEN** 接口调用或图片外链下载超过超时阈值仍未返回
+- **THEN** 系统中止该请求,将该次生成标记为失败并给出超时类错误,不停留在"生成中"
+
+#### Scenario: 启动时调和遗留 pending
+- **WHEN** 应用初始化载入了一条超过阈值仍为 pending 的历史生成记录
+- **THEN** 系统将其标记为失败(注明中断原因),不再无限计时
+
+#### Scenario: 可删除 pending 记录
+- **WHEN** 用户对一条处于 pending 的生成记录执行删除
+- **THEN** 系统允许删除该记录
+
+### Requirement: 从剪贴板粘贴参考图
+系统 SHALL 允许用户通过粘贴(Ctrl/Cmd+V)添加参考图,覆盖从文件、截图工具、网页"复制图片"等来源的剪贴板图片。
+
+#### Scenario: 粘贴图片文件
+- **WHEN** 剪贴板含图片,用户在工作台执行粘贴
+- **THEN** 系统识别该图片(经 clipboard 的 files 或 items 任一路径)并将其加入参考图,不拦截纯文本粘贴
+
+#### Scenario: 焦点不在输入框时粘贴
+- **WHEN** 用户未聚焦输入框但剪贴板含图片并执行粘贴
+- **THEN** 系统仍能捕获并加入该参考图
 
 ### Requirement: 重新生成
 系统 SHALL 允许用户对任一生成事件以相同 prompt、参数与参考图重新生成一次,作为当前画布中的新事件,不改动原事件。
