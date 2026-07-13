@@ -55,9 +55,16 @@ describe('图像端点参数:b64 / quality / size', () => {
     })
   }
 
-  it('generations 默认带 response_format=b64_json', async () => {
+  it('generations 默认不发 response_format(部分中转站不认 b64_json)', async () => {
     install()
     await generate({ preset: preset('images'), prompt: '猫', refImages: [], params: {} })
+    const parsed = JSON.parse(calls[0].opts.body)
+    expect('response_format' in parsed).toBe(false)
+  })
+
+  it('generations 显式指定 responseFormat 时才发送', async () => {
+    install()
+    await generate({ preset: preset('images'), prompt: '猫', refImages: [], params: { responseFormat: 'b64_json' } })
     const parsed = JSON.parse(calls[0].opts.body)
     expect(parsed.response_format).toBe('b64_json')
   })

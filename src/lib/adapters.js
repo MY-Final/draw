@@ -19,9 +19,10 @@ async function generateViaImages({ preset, prompt, params, signal }) {
   if (params.size) body.size = params.size
   // 画质:作为真实参数发送(high/medium/low),不再靠往 prompt 拼形容词伪造
   if (params.quality) body.quality = params.quality
-  // 默认要 b64_json:直接拿到图片数据落库,绕开"二次下载跨域外链"这个转圈根源。
-  // 调用方可用 responseFormat 显式覆盖(如某站不支持 b64,置为其它值或空)。
-  body.response_format = params.responseFormat || 'b64_json'
+  // response_format 仅在调用方显式指定时发送:部分中转站的 generations 不认 b64_json
+  // 会卡住(实测某 newapi:发 b64_json → 服务端已出图但响应不回 → 客户端超时)。
+  // 不指定时由服务端默认(通常返回 url),url 再由 http.toBlob 下载落库(有超时兜底)。
+  if (params.responseFormat) body.response_format = params.responseFormat
 
   const raw = await callApi(url, { apiKey: preset.apiKey, body, signal })
 
