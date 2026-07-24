@@ -8,11 +8,16 @@ import { exportRecipe } from '../lib/share.js'
 import { downloadBlob, downloadJson } from '../lib/download.js'
 
 const store = useWorkbenchStore()
-const emit = defineEmits(['use-as-reference', 'preview'])
+const emit = defineEmits(['use-as-reference', 'preview', 'reuse'])
 const scroller = ref(null)
 // 用户主动上翻时不抢滚动;仅贴近底部才跟滚。
 const stickToBottom = ref(true)
 const NEAR_BOTTOM_PX = 120
+// 空状态快捷键文案按平台
+const searchModKey = (() => {
+  if (typeof navigator === 'undefined') return 'Ctrl'
+  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '') ? '⌘' : 'Ctrl'
+})()
 
 // 时间正序(旧→新);只显示当前会话。
 const feed = computed(() => [...store.canvasGenerations].reverse())
@@ -21,6 +26,21 @@ function assetById(id) { return store.assets.find((a) => a.id === id) }
 function outputsOf(gen) { return gen.outputImageIds.map(assetById).filter(Boolean) }
 function refsOf(gen) { return (gen.refImageIds || []).map(assetById).filter(Boolean) }
 function modelOf(gen) { return gen.params?.model || '模型' }
+
+// 把这条的 prompt/参数/参考图填回输入框,方便改画质后再发。
+function reuseInComposer(gen) {
+  emit('reuse', {
+    prompt: gen.prompt || '',
+    refImageIds: [...(gen.refImageIds || [])],
+    params: {
+      size: gen.params?.size,
+      ratio: gen.params?.ratio,
+      resolution: gen.params?.resolution,
+      quality: gen.params?.quality,
+      n: gen.params?.n,
+    },
+  })
+}
 
 // ── 生成耗时:pending 轮实时跳秒、完成后定格(design D3)──
 const nowTick = ref(Date.now())
@@ -105,7 +125,7 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
         <div class="empty-hints">
           <span class="empty-chip"><AppIcon name="image" :size="12" /> 可拖入参考图</span>
           <span class="empty-chip"><AppIcon name="keyboard" :size="12" /> Enter 生成</span>
-          <span class="empty-chip"><AppIcon name="search" :size="12" /> ⌘K 搜索</span>
+          <span class="empty-chip"><AppIcon name="search" :size="12" /> {{ searchModKey }}K 搜索</span>
         </div>
       </div>
 
@@ -192,8 +212,11 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
               >
                 <AppIcon name="layers" :size="14" /> 继续创作
               </button>
-              <button class="act" @click="store.regenerate(gen.id)" :disabled="store.generating" title="重新生成">
+              <button class="act" @click="store.regenerate(gen.id)" :disabled="store.generating" title="按原参数再跑一次">
                 <AppIcon name="refresh" :size="14" /> 重新生成
+              </button>
+              <button class="act" @click="reuseInComposer(gen)" title="填回输入框,可改画质/比例后再生成">
+                <AppIcon name="message" :size="14" /> 填入输入框
               </button>
               <button
                 class="act"

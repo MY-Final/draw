@@ -168,12 +168,16 @@ function openStorage() {
     <!-- 中间:结果流 + 底部输入 -->
     <main class="center">
       <div class="stream">
-        <ResultsView @use-as-reference="useAsReference" @preview="preview = $event" />
+        <ResultsView
+          @use-as-reference="useAsReference"
+          @preview="preview = $event"
+          @reuse="(prefill) => composer?.applyPrefill?.(prefill)"
+        />
       </div>
       <div class="dock">
         <Composer
           ref="composer"
-          @open-settings="settingsStartCreate = false; settingsOpen = true"
+          @open-settings="openSettings"
         />
       </div>
     </main>
@@ -515,7 +519,8 @@ function openStorage() {
   display: none;
   position: fixed;
   right: 16px;
-  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  /* 抬高,避开底部 Composer,减少误触 */
+  bottom: calc(148px + env(safe-area-inset-bottom, 0px));
   z-index: 40;
   width: 52px;
   height: 52px;

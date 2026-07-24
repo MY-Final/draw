@@ -245,14 +245,34 @@ function autogrow(e) {
   el.style.height = 'auto'
   el.style.height = Math.min(el.scrollHeight, 200) + 'px'
 }
+
+const settingsRelatedError = computed(() => {
+  const msg = store.lastError || ''
+  return /API Key|接口|预设|Key/i.test(msg)
+})
+
+function dismissError() { store.clearLastError() }
+function onErrorAction() {
+  if (settingsRelatedError.value) {
+    emit('open-settings')
+    store.clearLastError()
+  } else {
+    store.clearLastError()
+  }
+}
 </script>
 
 <template>
   <div class="composer-wrap">
-    <!-- 无接口时的引导条 -->
-    <div v-if="!store.activePreset" class="hint">
-      <AppIcon name="alert" :size="14" /> 还没有可用接口 —— 点左侧「添加接口」,填好即可开始。
-    </div>
+    <!-- 无接口 / 缺 Key:提示本身可点,文案不写死「左侧」(移动端侧栏在汉堡里) -->
+    <button
+      v-if="!store.activePreset"
+      type="button"
+      class="hint hint-btn"
+      @click="emit('open-settings', { create: true })"
+    >
+      <AppIcon name="alert" :size="14" /> 还没有可用接口 —— 点此添加,填好即可开始。
+    </button>
     <button
       v-else-if="missingKey"
       type="button"
@@ -264,7 +284,13 @@ function autogrow(e) {
     <div v-if="store.lastError" class="err-bar" role="alert">
       <AppIcon name="alert" :size="14" />
       <span class="err-text">{{ store.lastError }}</span>
-      <button class="err-close" @click="store.clearLastError()" aria-label="关闭错误">
+      <button
+        v-if="settingsRelatedError"
+        type="button"
+        class="err-action"
+        @click="onErrorAction"
+      >去设置</button>
+      <button class="err-close" @click="dismissError" aria-label="关闭错误">
         <AppIcon name="x" :size="12" />
       </button>
     </div>
@@ -277,10 +303,11 @@ function autogrow(e) {
       <div
         v-for="(a, i) in refAssets" :key="a.id"
         class="ref-thumb" :class="{ secondary: i > 0 }"
-        :title="i > 0 ? '改图仅用第一张,此图不会发送' : '主参考图'"
+        :title="i > 0 ? '不会发送:改图协议仅用第一张' : '将作为参考图发送'"
       >
         <AssetImage :asset="a" alt="参考图" />
-        <span v-if="i === 0 && multiRefOnImages" class="ref-badge">主</span>
+        <span v-if="i === 0 && multiRefOnImages" class="ref-badge">用</span>
+        <span v-else-if="i > 0" class="ref-badge ref-badge-off">未用</span>
         <button class="ref-remove" @click="removeReference(a.id)" aria-label="移除参考图">
           <AppIcon name="x" :size="11" />
         </button>
@@ -289,7 +316,7 @@ function autogrow(e) {
         <AppIcon name="plus" :size="14" />
       </button>
       <input ref="fileInput" type="file" accept="image/*" class="hidden-input" @change="onFilePick" />
-      <span class="ref-tip">{{ refAssets.length ? (multiRefOnImages ? '参考图(改图仅用第一张)' : '参考图') : '上传、粘贴或拖入参考图' }}</span>
+      <span class="ref-tip">{{ refAssets.length ? (multiRefOnImages ? '仅第一张会发送,其余未用' : '参考图') : '上传、粘贴或拖入参考图' }}</span>
     </div>
 
     <!-- 主输入框 -->
@@ -438,6 +465,13 @@ function autogrow(e) {
   border: 1px solid color-mix(in srgb, var(--color-destructive) 24%, transparent);
 }
 .err-text { flex: 1; min-width: 0; line-height: 1.4; }
+.err-action {
+  flex-shrink: 0; font-size: 12px; font-weight: 650;
+  color: var(--color-destructive); padding: 4px 8px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-destructive) 30%, transparent);
+  background: color-mix(in srgb, var(--color-destructive) 8%, transparent);
+}
+.err-action:hover { background: color-mix(in srgb, var(--color-destructive) 14%, transparent); }
 .err-close {
   flex-shrink: 0; width: 22px; height: 22px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -471,6 +505,10 @@ function autogrow(e) {
   font-size: 9px; font-weight: 700; line-height: 1;
   padding: 2px 4px; border-radius: 4px;
   color: #fff; background: rgba(0,0,0,0.62); backdrop-filter: blur(4px);
+}
+.ref-badge-off {
+  background: rgba(0,0,0,0.72);
+  color: color-mix(in srgb, #fff 78%, var(--color-warning));
 }
 .ref-remove {
   position: absolute; top: 2px; right: 2px; width: 18px; height: 18px;
