@@ -192,7 +192,11 @@ async function doDeleteSelected() {
   position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
   opacity: 0; transition: opacity var(--dur) var(--ease);
 }
-.cell:hover .cell-actions, .cell.selected .cell-actions { opacity: 1; }
+.cell:hover .cell-actions, .cell.selected .cell-actions, .cell:focus-within .cell-actions { opacity: 1; }
+/* 触屏无 hover:操作钮常显,避免摸不到收藏/参考 */
+@media (hover: none) {
+  .cell-actions { opacity: 0.95; }
+}
 .mini {
   width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
   border-radius: 8px; background: rgba(0,0,0,0.58); color: #fff; backdrop-filter: blur(6px);

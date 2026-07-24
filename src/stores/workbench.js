@@ -304,6 +304,10 @@ export const useWorkbenchStore = defineStore('workbench', {
         this.lastError = '请先在左侧添加并选择一个接口预设。'
         return { ok: false }
       }
+      if (!this.activePreset.apiKey) {
+        this.lastError = '当前接口缺少 API Key,请先在接口设置中填写。'
+        return { ok: false }
+      }
       if (this.generating) {
         this.lastError = '已有生成进行中,请等待完成或取消后再试。'
         return { ok: false }
@@ -359,8 +363,18 @@ export const useWorkbenchStore = defineStore('workbench', {
         prompt: g.prompt,
         fullPrompt: g.fullPrompt,
         refImageIds: [...(g.refImageIds || [])],
-        params: { size: g.params?.size, ratio: g.params?.ratio, resolution: g.params?.resolution, n: g.params?.n },
+        params: {
+          size: g.params?.size,
+          ratio: g.params?.ratio,
+          resolution: g.params?.resolution,
+          quality: g.params?.quality,
+          n: g.params?.n,
+        },
       })
+    },
+
+    clearLastError() {
+      this.lastError = null
     },
 
     // ── 删除单条生成(延迟提交,可撤销)──

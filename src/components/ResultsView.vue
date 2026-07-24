@@ -10,6 +10,9 @@ import { downloadBlob, downloadJson } from '../lib/download.js'
 const store = useWorkbenchStore()
 const emit = defineEmits(['use-as-reference', 'preview'])
 const scroller = ref(null)
+// 用户主动上翻时不抢滚动;仅贴近底部才跟滚。
+const stickToBottom = ref(true)
+const NEAR_BOTTOM_PX = 120
 
 // 时间正序(旧→新);只显示当前会话。
 const feed = computed(() => [...store.canvasGenerations].reverse())
@@ -77,14 +80,22 @@ function undoDelete() {
   undoToast.value = null
 }
 
-watch(() => [feed.value.length, store.generating], async () => {
+function onFeedScroll() {
+  const el = scroller.value
+  if (!el) return
+  const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+  stickToBottom.value = dist <= NEAR_BOTTOM_PX
+}
+
+watch(() => [feed.value.length, store.generating, hasPending.value], async () => {
+  if (!stickToBottom.value) return
   await nextTick()
   scroller.value?.scrollTo({ top: scroller.value.scrollHeight, behavior: 'smooth' })
 })
 </script>
 
 <template>
-  <div class="feed" ref="scroller">
+  <div class="feed" ref="scroller" @scroll.passive="onFeedScroll">
     <div class="feed-inner">
       <!-- 空状态 -->
       <div v-if="!feed.length && !store.generating" class="empty">
@@ -327,7 +338,11 @@ watch(() => [feed.value.length, store.generating], async () => {
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease), transform var(--dur) var(--ease);
   opacity: 0;
 }
-.fig:hover .fav, .fav.on { opacity: 1; }
+.fig:hover .fav, .fig.focused .fav, .fav.on { opacity: 1; }
+/* 触屏无 hover:常显收藏按钮,避免摸不到 */
+@media (hover: none) {
+  .fav { opacity: 0.92; }
+}
 .fav:hover { background: rgba(0,0,0,0.7); transform: scale(1.05); }
 .fav.on { color: var(--color-heart); }
 .fav.on :deep(svg) { fill: var(--color-heart); }

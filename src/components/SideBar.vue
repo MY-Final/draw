@@ -55,13 +55,38 @@ const renameText = ref('')
 
 function wsConversationGroups(wsId) {
   const gens = store.generations.filter(g => g.workspaceId === wsId)
-  return groupConversationsByDate(deriveConversations(gens, store.titleOverrides))
+  const groups = groupConversationsByDate(deriveConversations(gens, store.titleOverrides))
+  // 当前空白会话(新建创作后还没生成)也显示在树里,避免「幽灵会话」不可见
+  if (
+    wsId === store.activeWorkspaceId
+    && store.conversationId
+    && !gens.some((g) => convIdOf(g) === store.conversationId)
+  ) {
+    const draft = {
+      id: store.conversationId,
+      title: store.titleOverrides[store.conversationId] || '新创作',
+      createdAt: Date.now(),
+      lastAt: Date.now(),
+      count: 0,
+      draft: true,
+    }
+    let today = groups.find((g) => g.key === 'today')
+    if (!today) {
+      today = { key: 'today', label: '今天', order: 0, items: [] }
+      groups.unshift(today)
+    }
+    // 草稿置顶
+    today.items = [draft, ...today.items.filter((c) => c.id !== draft.id)]
+  }
+  return groups
 }
 function wsCount(wsId) {
   return store.generations.filter(g => g.workspaceId === wsId).length
 }
 function wsHasConversations(wsId) {
-  return store.generations.some(g => g.workspaceId === wsId)
+  if (store.generations.some(g => g.workspaceId === wsId)) return true
+  // 当前工作区有空白会话时也算「有会话」
+  return wsId === store.activeWorkspaceId && !!store.conversationId
 }
 
 function openMenu(id, e) { e?.stopPropagation(); menuFor.value = menuFor.value === id ? null : id }
@@ -93,7 +118,13 @@ const vFocus = { mounted: (el) => el.focus() }
               {{ p.name || '未命名' }}
             </option>
           </select>
-          <span v-if="active && !active.apiKey" class="badge badge-warn mini-badge">缺 Key</span>
+          <button
+            v-if="active && !active.apiKey"
+            type="button"
+            class="badge badge-warn mini-badge key-badge"
+            @click="emit('open-settings')"
+            title="填写 API Key"
+          >缺 Key</button>
         </div>
         <button v-else class="btn btn-sm add-first" @click="emit('open-settings', { create: true })">
           <AppIcon name="plus" :size="13" /> 添加接口
@@ -152,7 +183,8 @@ const vFocus = { mounted: (el) => el.focus() }
                     <button class="hist-item" @click="store.switchConversation(c.id)" :title="c.title">
                       <AppIcon name="image" :size="13" />
                       <span class="hist-title">{{ c.title }}</span>
-                      <span class="hist-count tnum">{{ c.count }}</span>
+                      <span v-if="c.draft" class="hist-draft">草稿</span>
+                      <span v-else class="hist-count tnum">{{ c.count }}</span>
                     </button>
                     <button class="hist-menu" @click="openMenu(c.id, $event)" aria-label="会话操作">⋯</button>
                     <div v-if="menuFor === c.id" class="menu conv-menu" @click.stop>
@@ -239,6 +271,8 @@ const vFocus = { mounted: (el) => el.focus() }
   min-height: 34px;
 }
 .mini-badge { flex-shrink: 0; }
+.key-badge { cursor: pointer; border: none; font: inherit; }
+.key-badge:hover { filter: brightness(1.05); }
 .add-first { width: 100%; border-radius: 999px; }
 
 /* 工作区树 */
@@ -291,6 +325,9 @@ const vFocus = { mounted: (el) => el.focus() }
 }
 .ws-header:hover .ws-menu-toggle, .ws-header.active .ws-menu-toggle { opacity: 1; }
 .ws-menu-toggle:hover { background: color-mix(in srgb, var(--color-border) 80%, transparent); color: var(--color-fg); }
+@media (hover: none) {
+  .ws-menu-toggle { opacity: 0.85; }
+}
 
 /* 工作区内联重命名 */
 .ws-rename-input { flex: 1; }
@@ -327,6 +364,12 @@ const vFocus = { mounted: (el) => el.focus() }
 .hist-row.active .hist-item { font-weight: 550; }
 .hist-row.active .hist-item :deep(svg) { color: var(--color-fg-muted); }
 .hist-title { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-draft {
+  font-size: 10px; color: var(--color-primary); flex-shrink: 0;
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--color-primary-soft);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
 .hist-count {
   font-size: 10px; color: var(--color-fg-subtle); flex-shrink: 0;
   min-width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;
@@ -341,6 +384,9 @@ const vFocus = { mounted: (el) => el.focus() }
 .hist-menu { flex-shrink: 0; width: 24px; height: 24px; margin-right: 2px; border-radius: var(--radius-sm); color: var(--color-fg-subtle); font-size: 15px; line-height: 1; opacity: 0; transition: opacity var(--dur) var(--ease); }
 .hist-row:hover .hist-menu, .hist-row.active .hist-menu { opacity: 1; }
 .hist-menu:hover { background: var(--color-border); color: var(--color-fg); }
+@media (hover: none) {
+  .hist-menu { opacity: 0.85; }
+}
 
 /* 菜单 */
 .menu { position: absolute; top: calc(100% - 2px); right: 4px; z-index: 20; min-width: 140px; padding: var(--space-1); background: var(--color-elevated); border: 1px solid var(--color-border-strong); border-radius: var(--radius); box-shadow: var(--shadow-pop); display: flex; flex-direction: column; gap: 1px; }

@@ -41,6 +41,7 @@ function computeSize(r, res) {
 }
 
 const store = useWorkbenchStore()
+const emit = defineEmits(['open-settings'])
 
 const prompt = ref('')
 const ratio = ref('auto')
@@ -54,6 +55,10 @@ const promptLibToast = ref(null)
 // 次要参数(画质/数量)默认收起,给输入区更多呼吸感;非默认值时自动展开提示。
 const moreParamsOpen = ref(false)
 const moreParamsDirty = computed(() => quality.value !== 'high' || Number(n.value) !== 1)
+const missingKey = computed(() => !!(store.activePreset && !store.activePreset.apiKey))
+const canGenerate = computed(() =>
+  !!prompt.value.trim() && !!store.activePreset && !missingKey.value && !store.generating
+)
 
 function loadSavedPrompts() {
   savedPrompts.value = getAllPrompts(store.activeWorkspaceId).slice(0, 50)
@@ -153,10 +158,23 @@ function onDragLeave() {
 function onDrop(e) {
   e.preventDefault()
   dropActive.value = false
+  // 1) 素材库拖入(application/json)
   try {
-    const data = JSON.parse(e.dataTransfer.getData('application/json'))
-    if (data.assetId) addReference(data.assetId)
-  } catch { /* 非素材库拖放,忽略 */ }
+    const raw = e.dataTransfer?.getData('application/json')
+    if (raw) {
+      const data = JSON.parse(raw)
+      if (data.assetId) {
+        addReference(data.assetId)
+        return
+      }
+    }
+  } catch { /* 继续尝试文件 */ }
+  // 2) 系统文件 / 访达拖入
+  const files = Array.from(e.dataTransfer?.files || []).filter((f) => f.type.startsWith('image/'))
+  if (files.length) {
+    // 多文件时逐张入库;改图协议实际只用第一张,但允许用户先摆好再删
+    files.forEach((f) => uploadRefImage(f))
+  }
 }
 function applyPrefill(prefill) {
   if (!prefill) return
@@ -200,7 +218,12 @@ function clear() {
 defineExpose({ addReference, applyPrefill, clear, fillPrompt })
 
 async function submit() {
-  if (!prompt.value.trim() || store.generating || !store.activePreset) return
+  if (!canGenerate.value) {
+    if (missingKey.value) {
+      store.lastError = '当前接口缺少 API Key,请先在接口设置中填写。'
+    }
+    return
+  }
   const text = prompt.value.trim()
   const refs = [...refImageIds.value]
   const sizeVal = computeSize(ratio.value, resolution.value)
@@ -230,14 +253,34 @@ function autogrow(e) {
     <div v-if="!store.activePreset" class="hint">
       <AppIcon name="alert" :size="14" /> 还没有可用接口 —— 点左侧「添加接口」,填好即可开始。
     </div>
+    <button
+      v-else-if="missingKey"
+      type="button"
+      class="hint hint-btn"
+      @click="emit('open-settings')"
+    >
+      <AppIcon name="alert" :size="14" /> 当前接口缺少 API Key —— 点此填写后即可生成。
+    </button>
+    <div v-if="store.lastError" class="err-bar" role="alert">
+      <AppIcon name="alert" :size="14" />
+      <span class="err-text">{{ store.lastError }}</span>
+      <button class="err-close" @click="store.clearLastError()" aria-label="关闭错误">
+        <AppIcon name="x" :size="12" />
+      </button>
+    </div>
 
     <!-- 参考图 chips 与上传 + DnD 目标(上传按钮始终可见) -->
     <div
       class="ref-strip" :class="{ 'drop-active': dropActive }"
       @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
     >
-      <div v-for="a in refAssets" :key="a.id" class="ref-thumb">
+      <div
+        v-for="(a, i) in refAssets" :key="a.id"
+        class="ref-thumb" :class="{ secondary: i > 0 }"
+        :title="i > 0 ? '改图仅用第一张,此图不会发送' : '主参考图'"
+      >
         <AssetImage :asset="a" alt="参考图" />
+        <span v-if="i === 0 && multiRefOnImages" class="ref-badge">主</span>
         <button class="ref-remove" @click="removeReference(a.id)" aria-label="移除参考图">
           <AppIcon name="x" :size="11" />
         </button>
@@ -246,7 +289,7 @@ function autogrow(e) {
         <AppIcon name="plus" :size="14" />
       </button>
       <input ref="fileInput" type="file" accept="image/*" class="hidden-input" @change="onFilePick" />
-      <span class="ref-tip">{{ refAssets.length ? (multiRefOnImages ? '参考图(改图仅用第一张)' : '参考图') : '上传或从素材库拖入参考图' }}</span>
+      <span class="ref-tip">{{ refAssets.length ? (multiRefOnImages ? '参考图(改图仅用第一张)' : '参考图') : '上传、粘贴或拖入参考图' }}</span>
     </div>
 
     <!-- 主输入框 -->
@@ -358,8 +401,9 @@ function autogrow(e) {
         <button
           v-else
           class="btn btn-primary send"
-          :disabled="!prompt.trim() || !store.activePreset"
+          :disabled="!canGenerate"
           @click="submit" aria-label="生成图片"
+          :title="missingKey ? '请先填写 API Key' : (!store.activePreset ? '请先添加接口' : '生成图片')"
         >
           <AppIcon name="sparkles" :size="16" />
           生成
@@ -379,6 +423,27 @@ function autogrow(e) {
   background: color-mix(in srgb, var(--color-warning) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-warning) 24%, transparent);
 }
+.hint-btn {
+  width: 100%; text-align: left; cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.hint-btn:hover {
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+}
+.err-bar {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+  color: var(--color-destructive); margin-bottom: var(--space-2);
+  padding: 8px 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--color-destructive) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-destructive) 24%, transparent);
+}
+.err-text { flex: 1; min-width: 0; line-height: 1.4; }
+.err-close {
+  flex-shrink: 0; width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; color: var(--color-destructive);
+}
+.err-close:hover { background: color-mix(in srgb, var(--color-destructive) 12%, transparent); }
 
 .ref-strip {
   display: flex; align-items: center; gap: var(--space-2);
@@ -398,6 +463,14 @@ function autogrow(e) {
   position: relative; width: 48px; height: 48px; border-radius: 12px;
   overflow: hidden; border: 1px solid var(--color-border-strong);
   box-shadow: var(--shadow-1);
+}
+.ref-thumb.secondary { opacity: 0.55; }
+.ref-thumb.secondary:hover { opacity: 0.85; }
+.ref-badge {
+  position: absolute; left: 3px; bottom: 3px;
+  font-size: 9px; font-weight: 700; line-height: 1;
+  padding: 2px 4px; border-radius: 4px;
+  color: #fff; background: rgba(0,0,0,0.62); backdrop-filter: blur(4px);
 }
 .ref-remove {
   position: absolute; top: 2px; right: 2px; width: 18px; height: 18px;
