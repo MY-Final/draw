@@ -179,9 +179,8 @@ function onDrop(e) {
 function applyPrefill(prefill) {
   if (!prefill) return
   prompt.value = prefill.prompt || ''
-  // 非默认画质/数量时展开次要参数,避免用户看不到被还原的值。
-  if (prefill.params?.quality && prefill.params.quality !== 'high') moreParamsOpen.value = true
-  if (prefill.params?.n && Number(prefill.params.n) !== 1) moreParamsOpen.value = true
+  // 「填入输入框」场景:始终展开画质/数量,避免用户改参时还要再点「更多」。
+  moreParamsOpen.value = true
   if (prefill.params?.size) {
     // 向后兼容:旧格式 "1024x1024" 尝试解析,新格式用 ratio+resolution
     const s = prefill.params.size
@@ -230,7 +229,23 @@ async function submit() {
   // 立即清空输入:乐观上屏已把本轮请求推上对话流,输入框无需等生成完成(请求即时上屏)。
   clear()
   // 发送给接口的 prompt 就是用户原文;画质走真实 quality 参数,不再往 prompt 拼形容词。
-  await store.generate({ prompt: text, fullPrompt: text, refImageIds: refs, params: { size: sizeVal, ratio: ratio.value, resolution: resolution.value, quality: quality.value, n: Number(n.value) } })
+  const result = await store.generate({
+    prompt: text,
+    fullPrompt: text,
+    refImageIds: refs,
+    params: {
+      size: sizeVal,
+      ratio: ratio.value,
+      resolution: resolution.value,
+      quality: quality.value,
+      n: Number(n.value),
+    },
+  })
+  // 失败/空结果时回填,避免长 prompt 白打;主动取消不回填(用户通常想空着)。
+  if (result && !result.ok && !result.cancelled) {
+    prompt.value = text
+    refImageIds.value = refs
+  }
 }
 
 // Enter 提交,但要避开中文输入法候选确认(isComposing 期间的 Enter 不算提交)。

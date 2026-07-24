@@ -8,7 +8,7 @@ import { exportRecipe } from '../lib/share.js'
 import { downloadBlob, downloadJson } from '../lib/download.js'
 
 const store = useWorkbenchStore()
-const emit = defineEmits(['use-as-reference', 'preview', 'reuse'])
+const emit = defineEmits(['use-as-reference', 'preview', 'reuse', 'open-settings'])
 const scroller = ref(null)
 // 用户主动上翻时不抢滚动;仅贴近底部才跟滚。
 const stickToBottom = ref(true)
@@ -26,6 +26,16 @@ function assetById(id) { return store.assets.find((a) => a.id === id) }
 function outputsOf(gen) { return gen.outputImageIds.map(assetById).filter(Boolean) }
 function refsOf(gen) { return (gen.refImageIds || []).map(assetById).filter(Boolean) }
 function modelOf(gen) { return gen.params?.model || '模型' }
+function qualityOf(gen) {
+  const q = gen.params?.quality
+  if (q === 'medium') return '中'
+  if (q === 'low') return '低'
+  if (q === 'high') return '高'
+  return ''
+}
+function isSettingsError(msg) {
+  return /API Key|接口|预设|Key|401|403|Unauthorized|鉴权|认证/i.test(String(msg || ''))
+}
 
 // 把这条的 prompt/参数/参考图填回输入框,方便改画质后再发。
 function reuseInComposer(gen) {
@@ -151,6 +161,7 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
           <div class="card">
             <div class="card-head">
               <span class="model">{{ modelOf(gen) }}</span>
+              <span v-if="qualityOf(gen)" class="badge-soft tnum" :title="'画质 ' + qualityOf(gen)">{{ qualityOf(gen) }}</span>
               <span v-if="gen.status === 'success'" class="badge badge-ok"><AppIcon name="check" :size="11" /> 已完成</span>
               <span v-else-if="gen.status === 'failed'" class="badge badge-danger">失败</span>
               <span v-else-if="gen.status === 'empty'" class="badge badge-warn">无图片</span>
@@ -159,7 +170,14 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
             </div>
 
             <div v-if="gen.status === 'failed'" class="note note-danger">
-              <AppIcon name="alert" :size="14" /> <span>{{ gen.error }}</span>
+              <AppIcon name="alert" :size="14" />
+              <span class="note-text">{{ gen.error }}</span>
+              <button
+                v-if="isSettingsError(gen.error)"
+                type="button"
+                class="note-action"
+                @click="emit('open-settings')"
+              >去设置</button>
             </div>
             <div v-else-if="gen.status === 'empty'" class="note note-warn">
               <div>接口未返回可识别图片。<code class="snippet">{{ gen.rawResponseSnippet }}</code></div>
@@ -334,7 +352,23 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
 }
 .card-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .model { font-size: 13px; font-weight: 600; color: var(--color-fg); }
+.badge-soft {
+  font-size: 11px; font-weight: 550; color: var(--color-fg-muted);
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+}
 .elapsed { margin-left: auto; font-size: 11px; color: var(--color-fg-subtle); }
+.note-danger, .note-warn {
+  display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
+}
+.note-text { flex: 1; min-width: 0; line-height: 1.45; }
+.note-action {
+  flex-shrink: 0; font-size: 12px; font-weight: 650;
+  color: var(--color-destructive); padding: 4px 10px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-destructive) 30%, transparent);
+  background: color-mix(in srgb, var(--color-destructive) 8%, transparent);
+}
+.note-action:hover { background: color-mix(in srgb, var(--color-destructive) 14%, transparent); }
 
 .imgs { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); align-items: start; }
 .imgs.single { grid-template-columns: minmax(0, 420px); }

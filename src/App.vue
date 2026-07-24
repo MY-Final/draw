@@ -172,6 +172,7 @@ function openStorage() {
           @use-as-reference="useAsReference"
           @preview="preview = $event"
           @reuse="(prefill) => composer?.applyPrefill?.(prefill)"
+          @open-settings="openSettings"
         />
       </div>
       <div class="dock">
