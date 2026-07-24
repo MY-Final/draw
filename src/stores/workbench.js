@@ -301,7 +301,7 @@ export const useWorkbenchStore = defineStore('workbench', {
 
     async generate({ prompt, fullPrompt, refImageIds = [], params = {} }) {
       if (!this.activePreset) {
-        this.lastError = '请先在左侧添加并选择一个接口预设。'
+        this.lastError = '请先添加并选择一个接口预设。'
         return { ok: false }
       }
       if (!this.activePreset.apiKey) {
