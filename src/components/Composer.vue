@@ -60,6 +60,7 @@ function loadSavedPrompts() {
 }
 
 function togglePromptLib() {
+  // 空输入也能打开列表(复用旧 prompt);有字时列表里可一键收藏当前
   showPromptLib.value = !showPromptLib.value
   if (showPromptLib.value) loadSavedPrompts()
 }
@@ -227,7 +228,7 @@ function autogrow(e) {
   <div class="composer-wrap">
     <!-- 无接口时的引导条 -->
     <div v-if="!store.activePreset" class="hint">
-      <AppIcon name="alert" :size="14" /> 还没有可用接口 —— 点左侧「设置」添加一个,即可开始。
+      <AppIcon name="alert" :size="14" /> 还没有可用接口 —— 点左侧「添加接口」,填好即可开始。
     </div>
 
     <!-- 参考图 chips 与上传 + DnD 目标(上传按钮始终可见) -->
@@ -315,8 +316,9 @@ function autogrow(e) {
         <div class="prompt-lib-wrap">
           <button
             class="chip star-btn" :class="{ active: showPromptLib, highlight: prompt.trim() && !showPromptLib }"
-            @click.stop="togglePromptLib" :disabled="!prompt.trim() && !showPromptLib"
-            title="收藏 prompt"
+            @click.stop="togglePromptLib"
+            :title="prompt.trim() ? '收藏 / 打开 Prompt 库' : '打开 Prompt 库'"
+            aria-label="Prompt 库"
           >
             <AppIcon name="heart" :size="13" />
           </button>
@@ -519,7 +521,6 @@ function autogrow(e) {
   color: var(--color-heart); border-color: color-mix(in srgb, var(--color-heart) 35%, transparent);
 }
 .star-btn.highlight { color: var(--color-heart); border-color: color-mix(in srgb, var(--color-heart) 40%, transparent); }
-.star-btn:disabled { opacity: 0.4; }
 
 .prompt-pop {
   position: absolute; bottom: 44px; right: 0; z-index: 30;

@@ -4,19 +4,25 @@ import { ref } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 const store = useWorkbenchStore()
 const emit = defineEmits(['use-as-reference', 'preview'])
 const selected = ref(new Set())
+const confirmDelAssets = ref(false)
 
 function toggleSelect(id) {
   const s = new Set(selected.value)
   s.has(id) ? s.delete(id) : s.add(id)
   selected.value = s
 }
-async function deleteSelected() {
+function askDeleteSelected() {
   if (!selected.value.size) return
-  if (!confirm(`删除选中的 ${selected.value.size} 张素材?不可撤销。`)) return
+  confirmDelAssets.value = true
+}
+async function doDeleteSelected() {
+  confirmDelAssets.value = false
+  if (!selected.value.size) return
   await store.removeAssets([...selected.value])
   selected.value = new Set()
 }
@@ -34,7 +40,7 @@ async function deleteSelected() {
         >
           <AppIcon name="heart" :size="13" />
         </button>
-        <button v-if="selected.size" class="btn btn-sm btn-danger" @click="deleteSelected">
+        <button v-if="selected.size" class="btn btn-sm btn-danger" @click="askDeleteSelected">
           <AppIcon name="trash" :size="13" /> {{ selected.size }}
         </button>
         <span v-else class="lib-count tnum">{{ store.workspaceAssets.length }} 张</span>
@@ -79,6 +85,14 @@ async function deleteSelected() {
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      v-if="confirmDelAssets"
+      title="删除素材"
+      :message="`将删除选中的 ${selected.size} 张素材,不可撤销。`"
+      confirm-text="删除" danger
+      @confirm="doDeleteSelected" @cancel="confirmDelAssets = false"
+    />
   </div>
 </template>
 

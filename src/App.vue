@@ -6,7 +6,6 @@ import SideBar from './components/SideBar.vue'
 import ResultsView from './components/ResultsView.vue'
 import Composer from './components/Composer.vue'
 import LibraryPanel from './components/LibraryPanel.vue'
-import SideDrawer from './components/SideDrawer.vue'
 import PresetManager from './components/PresetManager.vue'
 import BackupTools from './components/BackupTools.vue'
 import ImageLightbox from './components/ImageLightbox.vue'
@@ -17,7 +16,10 @@ import AppIcon from './components/AppIcon.vue'
 const store = useWorkbenchStore()
 const composer = ref(null)
 const preview = ref(null)
-const drawer = ref(null) // 'settings' | 'storage' | null
+const settingsOpen = ref(false)
+const storageOpen = ref(false)
+// 打开接口弹窗时是否直接进入「新建」表单(侧栏「添加接口」)
+const settingsStartCreate = ref(false)
 const rightOpen = ref(true)
 // 移动端:给素材库一个底部入口(桌面端右侧栏在小屏被隐藏)
 const mobileAssetsOpen = ref(false)
@@ -46,7 +48,7 @@ watch(() => store.generating, async (val) => {
 
 function onReminderClose(action) {
   showBackupReminder.value = false
-  if (action === 'backup') drawer.value = 'storage'
+  if (action === 'backup') storageOpen.value = true
 }
 
 onUnmounted(() => {
@@ -90,7 +92,7 @@ function setTheme(t) {
 function toggleTheme() { setTheme(theme.value === 'dark' ? 'light' : 'dark') }
 
 function useAsReference(id) { composer.value?.addReference(id) }
-function onRecipeImported(prefill) { composer.value?.applyPrefill(prefill); drawer.value = null }
+function onRecipeImported(prefill) { composer.value?.applyPrefill(prefill); storageOpen.value = false }
 function onNewCanvas() {
   store.newConversation()   // 开一段空白会话(旧会话与图仍保留、可从左侧切回)
   composer.value?.clear()
@@ -119,8 +121,8 @@ function onNewCanvas() {
       </button>
       <SideBar
         :theme="theme"
-        @open-settings="drawer = 'settings'"
-        @open-storage="drawer = 'storage'"
+        @open-settings="(opts) => { settingsStartCreate = !!opts?.create; settingsOpen = true }"
+        @open-storage="storageOpen = true"
         @toggle-theme="toggleTheme"
         @new-canvas="onNewCanvas"
       />
@@ -168,12 +170,16 @@ function onNewCanvas() {
     </button>
 
     <!-- 抽屉 -->
-    <SideDrawer v-if="drawer === 'settings'" title="接口设置" @close="drawer = null">
-      <PresetManager />
-    </SideDrawer>
-    <SideDrawer v-if="drawer === 'storage'" title="数据保护" @close="drawer = null">
-      <BackupTools @recipe-imported="onRecipeImported" @close-drawer="drawer = null" />
-    </SideDrawer>
+    <PresetManager
+      v-if="settingsOpen"
+      :start-create="settingsStartCreate || !store.presets.length"
+      @close="settingsOpen = false; settingsStartCreate = false"
+    />
+    <BackupTools
+      v-if="storageOpen"
+      @recipe-imported="onRecipeImported"
+      @close="storageOpen = false"
+    />
 
     <ImageLightbox v-if="preview" :asset="preview" @close="preview = null" />
 

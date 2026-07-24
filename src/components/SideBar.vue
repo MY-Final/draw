@@ -29,8 +29,13 @@ function toggleWs(id) {
 }
 
 function selectWorkspace(id) {
+  // 点名称 = 切换工作区并确保展开;折叠只走 chevron,避免误触
   if (store.activeWorkspaceId !== id) store.switchWorkspace(id)
-  toggleWs(id)
+  if (!expandedWs.value.has(id)) {
+    const s = new Set(expandedWs.value)
+    s.add(id)
+    expandedWs.value = s
+  }
 }
 
 function openWsMenu(id, e) { e?.stopPropagation(); wsMenuFor.value = wsMenuFor.value === id ? null : id }
@@ -74,8 +79,9 @@ const vFocus = { mounted: (el) => el.focus() }
   <div class="side">
     <div v-if="menuFor || wsMenuFor" class="menu-backdrop" @click="menuFor = null; wsMenuFor = null" />
     <div class="side-top">
-      <button class="btn btn-primary new-btn" @click="store.createWorkspace()">
-        <AppIcon name="plus" :size="15" /> 新建工作区
+      <!-- 高频:新会话;工作区降级到树底部次级入口 -->
+      <button class="btn btn-primary new-btn" @click="emit('new-canvas')">
+        <AppIcon name="plus" :size="15" /> 新建创作
       </button>
 
       <!-- 当前接口 -->
@@ -89,7 +95,7 @@ const vFocus = { mounted: (el) => el.focus() }
           </select>
           <span v-if="active && !active.apiKey" class="badge badge-warn mini-badge">缺 Key</span>
         </div>
-        <button v-else class="btn btn-sm add-first" @click="emit('open-settings')">
+        <button v-else class="btn btn-sm add-first" @click="emit('open-settings', { create: true })">
           <AppIcon name="plus" :size="13" /> 添加接口
         </button>
       </div>
@@ -97,7 +103,7 @@ const vFocus = { mounted: (el) => el.focus() }
       <!-- 工作区树 -->
       <div class="ws-tree" v-if="store.workspaces.length">
         <div v-for="ws in store.workspaces" :key="ws.id" class="ws-block">
-          <!-- 工作区头部 -->
+          <!-- 工作区头部:点名称切换;chevron 只负责展开 -->
           <div
             class="ws-header"
             :class="{ active: ws.id === store.activeWorkspaceId }"
@@ -157,12 +163,12 @@ const vFocus = { mounted: (el) => el.focus() }
                 </div>
               </div>
             </template>
-            <p v-else class="hist-empty helper">还没有会话。</p>
-            <button class="btn btn-sm new-conv-btn" @click="emit('new-canvas')">
-              <AppIcon name="plus" :size="11" /> 新建创作
-            </button>
+            <p v-else class="hist-empty helper">还没有会话。点上方「新建创作」开始。</p>
           </div>
         </div>
+        <button class="btn btn-sm new-ws-btn" @click="store.createWorkspace()">
+          <AppIcon name="plus" :size="11" /> 新建工作区
+        </button>
       </div>
       <p v-else class="hist-empty helper">还没有工作区。新建一个工作区开始创作。</p>
     </div>
@@ -170,7 +176,7 @@ const vFocus = { mounted: (el) => el.focus() }
     <div class="side-bottom">
       <button class="nav-item" @click="emit('open-storage')">
         <AppIcon name="image" :size="16" /> 数据保护
-        <span class="nav-meta tnum">{{ store.assets.length }}</span>
+        <span v-if="store.assets.length" class="nav-meta tnum">{{ store.assets.length }}</span>
       </button>
       <button class="nav-item" @click="emit('open-settings')">
         <AppIcon name="settings" :size="16" /> 接口设置
@@ -347,11 +353,11 @@ const vFocus = { mounted: (el) => el.focus() }
 
 .rename-input { width: 100%; padding: var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--color-primary); background: var(--color-surface); color: var(--color-fg); font-size: 13px; }
 
-.new-conv-btn {
-  width: 100%; justify-content: center; margin-top: var(--space-1);
+.new-ws-btn {
+  width: 100%; justify-content: center; margin-top: var(--space-2); flex-shrink: 0;
   border-style: dashed; color: var(--color-fg-muted); background: transparent;
 }
-.new-conv-btn:hover { color: var(--color-fg); border-color: var(--color-border-strong); background: var(--color-surface-2); }
+.new-ws-btn:hover { color: var(--color-fg); border-color: var(--color-border-strong); background: var(--color-surface-2); }
 
 .hist-empty { padding: 0 var(--space-2); font-size: 12px; }
 

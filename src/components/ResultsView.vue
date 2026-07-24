@@ -48,6 +48,18 @@ function downloadImage(a) {
   downloadBlob(a.blob, `${a.id}.${ext}`)
 }
 
+// 多图时记住每轮「当前图」(hover / 点击选中);操作作用在当前图而非永远第一张。
+const focusByGen = ref({}) // genId -> assetId
+function focusAsset(genId, assetId) {
+  focusByGen.value = { ...focusByGen.value, [genId]: assetId }
+}
+function activeOutput(gen) {
+  const outs = outputsOf(gen)
+  if (!outs.length) return null
+  const fid = focusByGen.value[gen.id]
+  return outs.find((a) => a.id === fid) || outs[0]
+}
+
 // 删除单条:延迟提交,给撤销窗口(design D3)。
 const UNDO_MS = 5000
 const undoToast = ref(null) // { genId, timer }
@@ -140,8 +152,13 @@ watch(() => [feed.value.length, store.generating], async () => {
             </div>
 
             <div v-if="outputsOf(gen).length" class="imgs" :class="{ single: outputsOf(gen).length === 1 }">
-              <figure v-for="a in outputsOf(gen)" :key="a.id" class="fig">
-                <button class="fig-img" @click="emit('preview', a)" aria-label="放大预览">
+              <figure
+                v-for="a in outputsOf(gen)" :key="a.id"
+                class="fig" :class="{ focused: activeOutput(gen)?.id === a.id && outputsOf(gen).length > 1 }"
+                @mouseenter="focusAsset(gen.id, a.id)"
+                @focusin="focusAsset(gen.id, a.id)"
+              >
+                <button class="fig-img" @click="focusAsset(gen.id, a.id); emit('preview', a)" aria-label="放大预览">
                   <AssetImage :asset="a" :alt="gen.prompt" />
                 </button>
                 <button
@@ -154,15 +171,25 @@ watch(() => [feed.value.length, store.generating], async () => {
               </figure>
             </div>
 
-            <!-- 操作区(生成中不显示) -->
+            <!-- 操作区(生成中不显示);多图时作用在当前聚焦图 -->
             <div v-if="gen.status !== 'pending'" class="actions">
-              <button class="act" @click="emit('use-as-reference', outputsOf(gen)[0]?.id)" :disabled="!outputsOf(gen).length" title="继续创作(设为参考图)">
+              <button
+                class="act"
+                @click="emit('use-as-reference', activeOutput(gen)?.id)"
+                :disabled="!activeOutput(gen)"
+                :title="outputsOf(gen).length > 1 ? '继续创作(当前选中图)' : '继续创作(设为参考图)'"
+              >
                 <AppIcon name="layers" :size="14" /> 继续创作
               </button>
               <button class="act" @click="store.regenerate(gen.id)" :disabled="store.generating" title="重新生成">
                 <AppIcon name="refresh" :size="14" /> 重新生成
               </button>
-              <button class="act" @click="downloadImage(outputsOf(gen)[0])" :disabled="!outputsOf(gen).length" title="下载">
+              <button
+                class="act"
+                @click="downloadImage(activeOutput(gen))"
+                :disabled="!activeOutput(gen)"
+                :title="outputsOf(gen).length > 1 ? '下载当前选中图' : '下载'"
+              >
                 <AppIcon name="download" :size="14" /> 下载
               </button>
               <button class="act" @click="shareRecipe(gen)" title="分享配方(不含 Key)">
@@ -285,6 +312,10 @@ watch(() => [feed.value.length, store.generating], async () => {
 .fig:hover {
   transform: translateY(-1px);
   box-shadow: 0 10px 28px rgba(0,0,0,0.22);
+}
+.fig.focused {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: 2px;
 }
 /* 结果图按真实宽高比显示;过高时封顶 */
 .fig-img { display: block; width: 100%; padding: 0; }
