@@ -27,13 +27,20 @@ function persist(presets) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(presets))
 }
 
-export function savePreset(preset) {
+// options.preserveExistingKey: 导入场景下若本机已有同 id 且带 Key,保留本机 Key,绝不被空 Key 覆盖。
+export function savePreset(preset, options = {}) {
   const presets = loadPresets()
+  const id = preset.id || uid()
+  const existing = presets.find((p) => p.id === id)
+  let apiKey = preset.apiKey || ''
+  if (options.preserveExistingKey && existing?.apiKey && !apiKey) {
+    apiKey = existing.apiKey
+  }
   const record = {
-    id: preset.id || uid(),
+    id,
     name: preset.name || '未命名接口',
     baseURL: (preset.baseURL || '').trim().replace(/\/+$/, ''),
-    apiKey: preset.apiKey || '',
+    apiKey,
     model: preset.model || '',
     // 恒为 images(标准 OpenAI 图像接口);不再有 chat/auto。
     protocol: PROTOCOL_IMAGES,

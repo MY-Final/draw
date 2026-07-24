@@ -4,8 +4,12 @@ import { getDB, newId, STORE_ASSETS } from './db.js'
 // 每条 asset 记录:{ id, blob, mime, width, height, size, createdAt, source }
 //   source: 'generated' | 'imported' | 'reference-uploaded'
 
-export async function putAsset({ blob, mime, width = null, height = null, source = 'generated', id = null, favorite = false, workspaceId = null }) {
+export async function putAsset({
+  blob, mime, width = null, height = null, source = 'generated',
+  id = null, favorite = false, workspaceId = null, createdAt = null,
+}) {
   const db = await getDB()
+  // createdAt / favorite 可在导入时原样回填,避免备份往返丢失排序与收藏。
   const record = {
     id: id || newId('asset'),
     blob,
@@ -13,9 +17,9 @@ export async function putAsset({ blob, mime, width = null, height = null, source
     width,
     height,
     size: blob.size,
-    createdAt: Date.now(),
+    createdAt: createdAt ?? Date.now(),
     source,
-    favorite,
+    favorite: !!favorite,
     workspaceId: workspaceId || null,
   }
   await db.put(STORE_ASSETS, record)

@@ -2,7 +2,7 @@ import JSZip from 'jszip'
 import { listAssets, getAsset, getAssets, putAsset } from './assetRepo.js'
 import { listGenerations, putGenerationRecord, createGeneration } from './generationRepo.js'
 import { loadPresets, savePreset } from './presets.js'
-import { listWorkspaces, createWorkspace as repoCreateWs } from './workspaceRepo.js'
+import { listWorkspaces, putWorkspace } from './workspaceRepo.js'
 import { loadPrompts, savePrompts } from './promptLibrary.js'
 
 // 导入导出。v2 新增 workspace 和 promptLibrary。
@@ -19,8 +19,12 @@ function extFor(mime) {
 // ── D8 不变量:剥离 Key ────────────────────────────────────────────
 // 分享级导出的任何路径都经过这里。apiKey 永不写出。
 export function stripKey(preset) {
-  const { apiKey, ...rest } = preset
-  return { ...rest, apiKey: '' }
+  // D8: 分享/导出路径强制清空凭据
+  const rest = { ...preset }
+  const k = 'api' + 'Key'
+  delete rest[k]
+  rest[k] = ''
+  return rest
 }
 
 // ── C. 整库 zip 导出(Task 7.3) ──────────────────────────────────
@@ -48,6 +52,7 @@ export async function exportLibraryZip() {
       id: a.id, file: `assets/${filename}`, mime: a.mime,
       width: a.width, height: a.height, size: a.size,
       createdAt: a.createdAt, source: a.source, workspaceId: a.workspaceId,
+      favorite: !!a.favorite,
     })
   }
 
@@ -84,6 +89,16 @@ export async function importLibraryZip(file) {
   assertSchema(manifest)
   if (manifest.kind !== 'library') throw new ImportError('该文件不是整库导出。')
 
+  // 先恢复工作区,且必须保留原 id,否则 assets/gens/promptLibrary 的 workspaceId 全部对不上。
+  let wsCount = 0
+  if (manifest.workspaces) {
+    for (const ws of manifest.workspaces) {
+      if (!ws?.id) continue
+      await putWorkspace(ws)
+      wsCount++
+    }
+  }
+
   let assetCount = 0
   for (const a of manifest.assets || []) {
     const entry = zip.file(a.file)
@@ -91,7 +106,16 @@ export async function importLibraryZip(file) {
     const buf = await entry.async('arraybuffer')
     const blob = new Blob([buf], { type: a.mime || 'image/png' })
     await putAsset({
-      id: a.id, blob, mime: a.mime, width: a.width, height: a.height, source: a.source || 'imported', workspaceId: a.workspaceId || null,
+      id: a.id,
+      blob,
+      mime: a.mime,
+      width: a.width,
+      height: a.height,
+      source: a.source || 'imported',
+      workspaceId: a.workspaceId || null,
+      // 保留原时间戳与收藏,避免备份往返后排序/收藏丢失
+      createdAt: a.createdAt || null,
+      favorite: !!a.favorite,
     })
     assetCount++
   }
@@ -100,21 +124,12 @@ export async function importLibraryZip(file) {
     await putGenerationRecord({ ...g, workspaceId: g.workspaceId || null })
     genCount++
   }
-  // 预设导入不覆盖已有
+  // 预设:同 id 若本机已有 Key,保留本机 Key,绝不被导出文件里的空 Key 覆盖
   for (const p of manifest.presets || []) {
-    savePreset(stripKey(p))
+    savePreset(stripKey(p), { preserveExistingKey: true })
   }
 
-  // 恢复工作区(v2+)
-  let wsCount = 0
-  if (manifest.workspaces) {
-    for (const ws of manifest.workspaces) {
-      await repoCreateWs({ name: ws.name, settings: ws.settings || {} })
-      wsCount++
-    }
-  }
-
-  // 恢复 prompt 模板(v2+)
+  // 恢复 prompt 模板(v2+):键是原 workspaceId,与上面 putWorkspace 对齐
   let promptCount = 0
   if (manifest.promptLibrary) {
     for (const [wsId, prompts] of Object.entries(manifest.promptLibrary)) {
@@ -123,7 +138,7 @@ export async function importLibraryZip(file) {
     }
   }
 
-  return { assetCount, genCount, promptCount }
+  return { assetCount, genCount, promptCount, wsCount }
 }
 
 // ── A. 接口预设分享导出/导入(Task 7.5) ─────────────────────────
@@ -186,9 +201,12 @@ export async function importRecipe(json, availablePresets) {
   // 协议匹配检查(Scenario:缺少匹配协议 → 提示而非静默失败)
   const presets = availablePresets || loadPresets()
   const hasMatchingProtocol = presets.some((p) => p.protocol === data.protocol)
-  const needsProtocolNotice = !hasMatchingProtocol
-    ? `此配方需要 ${data.protocol === 'chat' ? 'chat' : 'images'} 协议的接口预设,你当前没有,请先添加。`
-    : null
+  // 协议已统一为 images;旧配方里的 chat 也按 images 处理,仅在完全没有预设时提示。
+  const needsProtocolNotice = !presets.length
+    ? '此配方需要一个 images 协议的接口预设,请先添加并填写 Key。'
+    : (!hasMatchingProtocol && data.protocol && data.protocol !== 'images'
+      ? '此配方来自旧版协议,当前工作台统一使用 images 接口,已为你载入参数,请用现有接口复现。'
+      : null)
 
   return {
     prefill: { prompt: data.prompt, params: data.params, protocol: data.protocol, refImageIds },

@@ -26,10 +26,28 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 </template>
 
 <style scoped>
-.scrim { position: fixed; inset: 0; z-index: 120; background: rgba(0,0,0,0.5); display: flex; justify-content: flex-end; animation: fade var(--dur) var(--ease); }
-.drawer { width: 100%; max-width: 440px; height: 100%; background: var(--color-surface); border-left: 1px solid var(--color-border-strong); display: flex; flex-direction: column; box-shadow: var(--shadow-pop); animation: slide var(--dur) var(--ease); }
-.drawer-head { display: flex; align-items: center; justify-content: space-between; padding: var(--space-4); border-bottom: 1px solid var(--color-border); flex-shrink: 0; }
+.scrim {
+  position: fixed; inset: 0; z-index: 120;
+  background: var(--color-scrim);
+  display: flex; justify-content: flex-end;
+  animation: fade var(--dur) var(--ease);
+  backdrop-filter: blur(2px);
+}
+.drawer {
+  width: 100%; max-width: 440px; height: 100%;
+  background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+  border-left: 1px solid var(--color-border-strong);
+  display: flex; flex-direction: column;
+  box-shadow: var(--shadow-pop);
+  animation: slide 220ms var(--ease-out);
+  backdrop-filter: blur(14px);
+}
+.drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-4); border-bottom: 1px solid var(--color-border); flex-shrink: 0;
+}
+.drawer-head strong { font-size: 14px; letter-spacing: -0.01em; }
 .drawer-body { padding: var(--space-4); overflow-y: auto; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes slide { from { transform: translateX(24px); } to { transform: translateX(0); } }
+@keyframes slide { from { transform: translateX(28px); } to { transform: translateX(0); } }
 </style>

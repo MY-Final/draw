@@ -24,7 +24,7 @@ A **front-end-only, zero-backend** AI drawing workbench. Plug in your own OpenAI
 ## Features
 
 - **Zero backend**: the browser talks to the endpoint directly. No server, no account, no cloud sync.
-- **Two protocols**: `images/generations` by default (pure text-to-image), switchable to `chat/completions` (supports reference images).
+- **Standard images protocol**: text-to-image via `images/generations`; with reference images it automatically uses `images/edits` (OpenAI-compatible).
 - **Reference images / iterative editing**: set any asset (including past results) as a reference and regenerate — multi-turn editing is just "reuse an old image as reference," with no conversation state.
 - **Local asset library**: images are stored as Blobs in IndexedDB, never expiring by default; metadata and image bytes are separated, so one image can be reused in many places without duplicated storage.
 - **Storage management**: view usage, delete assets; supports full-library zip export/import and backup reminders.
@@ -50,7 +50,7 @@ npm run preview  # preview the build
 npm test         # run tests
 ```
 
-First run: click **New** on the left to create an endpoint preset → fill in Base URL / API Key / Model / Protocol → **Test Connection** → Save → enter a prompt → Generate.
+First run: click **New** on the left to create an endpoint preset → fill in Base URL / API Key / Model → **Test Connection** → Save → enter a prompt → Generate.
 
 ## Deployment
 
@@ -87,7 +87,7 @@ Every platform offers a free tier; after deploying you get your own public URL. 
 ## Known Constraints
 
 - **CORS**: browsers direct-calling third-party endpoints are subject to the same-origin policy. "Supports any endpoint" assumes that endpoint **allows cross-origin** requests; endpoints that don't allow CORS can't be reached directly from a pure front end (error messages distinguish CORS/network, auth, and other cases).
-- **Reference images require the chat protocol**: the `images/generations` protocol doesn't support reference images; when it's selected, the reference-image area is disabled with a hint.
+- **Connectivity probe**: "Test connection" only does `GET /v1/models` and never triggers a billable image generation.
 - **Plaintext API key**: a pure front end has no secure hiding place, so the key is stored in plaintext in localStorage. Don't save it on a shared device; the UI provides a "clear credentials" button.
 - **Browser storage**: IndexedDB may be evicted by the browser under storage pressure; export important assets via full-library zip backup.
 
@@ -100,8 +100,7 @@ Vue 3 + Vite · Pinia · idb (IndexedDB) · JSZip · pure-CSS design system (dar
 ```
 Data model : assets (image Blobs) and generations (generation events) are
              separated and reference each other by id.
-Adapter    : a unified generate() interface isolates the two protocols; chat
-             responses go through a robust image extractor for normalization.
+Adapter    : unified generate(); no refs → generations, with refs → edits.
 Storage    : Blobs persisted to DB; display via URL.createObjectURL, released centrally.
 Sharing    : all share-level exports are forced through stripKey() to strip the key
              (locked down by tests).

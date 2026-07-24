@@ -15,7 +15,7 @@ import {
 import { collectDeletableOutputs } from '../lib/deletion.js'
 import { getDB, STORE_WORKSPACES, STORE_ASSETS } from '../lib/db.js'
 import { listWorkspaces, createWorkspace as repoCreateWs, updateWorkspace, deleteWorkspace as repoDeleteWs } from '../lib/workspaceRepo.js'
-import { migrateLegacyPrompts } from '../lib/promptLibrary.js'
+import { migrateLegacyPrompts, savePrompts } from '../lib/promptLibrary.js'
 import { checkReminder } from '../lib/backupReminder.js'
 
 export const useWorkbenchStore = defineStore('workbench', {
@@ -27,6 +27,8 @@ export const useWorkbenchStore = defineStore('workbench', {
     usage: null,
     generating: false,
     lastError: null,
+    // 当前进行中的生成:用于取消(abort)与删除 pending 时中止网络请求。
+    activeGeneration: null, // { genId, controller }
     // 当前会话(新建创作 = 新会话)。会话只是视图分组,持久保留,可在左侧导航切回。
     conversationId: null,
     favoritesOnly: false,
@@ -192,8 +194,53 @@ export const useWorkbenchStore = defineStore('workbench', {
     async deleteWorkspace(id) {
       // 至少保留一个工作区
       if (this.workspaces.length <= 1) return
+
+      // 级联:删该工作区下全部 generation + 可连带删除的产出图 + 未再被引用的素材。
+      // 与确认框文案一致,避免只删元数据留下孤儿数据占空间。
+      const wsGens = this.generations.filter((g) => g.workspaceId === id)
+      const genIds = wsGens.map((g) => g.id)
+
+      // 先取消进行中的生成(若属于本工作区)
+      if (this.activeGeneration && genIds.includes(this.activeGeneration.genId)) {
+        this.cancelActiveGeneration()
+      }
+      // 清掉该工作区相关的软删定时器,直接提交
+      for (const gid of genIds) {
+        const p = this.pendingDeletes[gid]
+        if (p) {
+          clearTimeout(p.timer)
+          const { [gid]: _d, ...rest } = this.pendingDeletes
+          this.pendingDeletes = rest
+        }
+      }
+
+      // 引用感知删产出图
+      if (genIds.length) {
+        await this._deleteGensAndOrphans(genIds, this.generations)
+      }
+
+      // 该工作区下剩余素材(上传参考图、导入图等,可能不在任何 generation 产出里)
+      // 删 workspaceId 匹配、且未被其他工作区 generation 引用的;收藏也随工作区删(确认框写"全部素材")。
+      const remainingAssets = this.assets.filter((a) => a.workspaceId === id)
+      if (remainingAssets.length) {
+        const otherGens = this.generations.filter((g) => g.workspaceId !== id)
+        const stillReferenced = new Set()
+        for (const g of otherGens) {
+          for (const rid of g.refImageIds || []) stillReferenced.add(rid)
+          for (const oid of g.outputImageIds || []) stillReferenced.add(oid)
+        }
+        const favoritesToo = remainingAssets
+          .filter((a) => !stillReferenced.has(a.id))
+          .map((a) => a.id)
+        if (favoritesToo.length) await deleteAssets(favoritesToo)
+      }
+
+      // 清该工作区的 prompt 模板
+      try { savePrompts([], id) } catch { /* ignore */ }
+
       await repoDeleteWs(id)
       this.workspaces = await listWorkspaces()
+      await this.refreshAll()
       if (this.activeWorkspaceId === id) {
         await this.switchWorkspace(this.workspaces[0].id)
       }
@@ -246,13 +293,25 @@ export const useWorkbenchStore = defineStore('workbench', {
     },
 
     // ── 生成 ──
+    cancelActiveGeneration() {
+      const ag = this.activeGeneration
+      if (!ag) return
+      try { ag.controller.abort() } catch { /* ignore */ }
+    },
+
     async generate({ prompt, fullPrompt, refImageIds = [], params = {} }) {
       if (!this.activePreset) {
         this.lastError = '请先在左侧添加并选择一个接口预设。'
         return { ok: false }
       }
+      if (this.generating) {
+        this.lastError = '已有生成进行中,请等待完成或取消后再试。'
+        return { ok: false }
+      }
       this.generating = true
       this.lastError = null
+      const controller = new AbortController()
+      this.activeGeneration = { genId: null, controller }
       try {
         // 把当前会话 id 和 workspace id 记进这次生成。
         const gen = await runGeneration({
@@ -260,24 +319,35 @@ export const useWorkbenchStore = defineStore('workbench', {
           fullPrompt: fullPrompt || prompt,
           params: { ...params, conversationId: this.conversationId },
           workspaceId: this.activeWorkspaceId,
+          signal: controller.signal,
           // 乐观上屏:pending 记录落库后立即插入内存,请求瞬间可见。
           onPending: (pending) => {
+            if (this.activeGeneration) this.activeGeneration.genId = pending.id
             if (!this.generations.some((g) => g.id === pending.id)) {
               this.generations = [pending, ...this.generations]
             }
           },
         })
         await this.refreshAll()
+        if (gen?.cancelled || gen?.error === '已取消') {
+          return { ok: false, cancelled: true, generation: gen }
+        }
         if (gen.status === 'empty') {
           this.lastError = '接口返回了内容,但未能识别出图片(已保留响应片段供诊断)。'
         }
         return { ok: gen.status === 'success', generation: gen }
       } catch (e) {
+        // abort 已在 generationService 内消化;这里只处理真正的失败
+        if (e?.name === 'AbortError' || controller.signal.aborted) {
+          await this.refreshAll()
+          return { ok: false, cancelled: true }
+        }
         this.lastError = String(e?.message || e)
         await this.refreshAll()
         return { ok: false, error: this.lastError }
       } finally {
         this.generating = false
+        this.activeGeneration = null
       }
     },
 
@@ -295,7 +365,12 @@ export const useWorkbenchStore = defineStore('workbench', {
 
     // ── 删除单条生成(延迟提交,可撤销)──
     // 立即从内存移除并暂存记录;窗口结束才真正落库删除 + 连带删图。
+    // 若是进行中的生成:先 abort,再软删(取消后不会再落孤儿图)。
     deleteGenerationSoft(genId, delayMs = 5000) {
+      // 进行中 → 取消网络请求
+      if (this.activeGeneration?.genId === genId) {
+        this.cancelActiveGeneration()
+      }
       const idx = this.generations.findIndex((x) => x.id === genId)
       if (idx < 0) return { ok: false }
       const [record] = this.generations.splice(idx, 1)

@@ -1,35 +1,39 @@
 /* ────────────────────────────────────────────────────────────────
-   设计系统 tokens —— 由 ui-ux-pro-max 生成(design D9,中性灰+蓝改版)。
-   Style: 干净/中性/Swiss · Primary 蓝 #2563EB · Accent emerald #059669
-   Font Inter · Density 6/10(标准)· Motion 3/10(克制)。
-   中性 slate 灰阶,无紫调。默认深色(创作工具让图片突出),浅色同样完整。
-   语义 token,不在组件里写裸 hex。
+   设计系统 tokens —— 中性灰 + 克制蓝。
+   Style: 干净/Swiss · Primary #3B82F6 · Density 6/10 · Motion 克制。
+   默认深色(创作工具让图片突出),浅色同样完整。语义 token,组件不写裸 hex。
    ──────────────────────────────────────────────────────────────── */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
-  /* 品牌色:克制蓝 + emerald 强调 */
-  --color-primary: #2563eb;
-  --color-primary-hover: #3b74f0;
+  /* 品牌色:稍亮的蓝,深底上更通透 */
+  --color-primary: #3b82f6;
+  --color-primary-hover: #60a5fa;
+  --color-primary-soft: color-mix(in srgb, #3b82f6 14%, transparent);
   --color-on-primary: #ffffff;
-  --color-accent: #059669;
-  --color-destructive: #dc2626;
-  --color-success: #059669;
-  --color-warning: #d97706;
+  --color-accent: #10b981;
+  --color-destructive: #ef4444;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-heart: #f43f5e;
 
-  /* 深色中性(slate,无紫)—— 默认 */
-  --color-bg: #0d1117;
-  --color-surface: #12171f;
-  --color-surface-2: #1a212b;
-  --color-elevated: #212a36;
-  --color-fg: #e8ecf2;
-  --color-fg-muted: #9aa5b4;
-  --color-fg-subtle: #6b7683;
-  --color-border: #232c38;
-  --color-border-strong: #313d4d;
-  --color-ring: #2563eb;
+  /* 深色中性(slate)—— 默认 */
+  --color-bg: #0b0f14;
+  --color-surface: #11161d;
+  --color-surface-2: #171e27;
+  --color-elevated: #1c2530;
+  --color-fg: #eef2f7;
+  --color-fg-muted: #9aa6b5;
+  --color-fg-subtle: #6b7785;
+  --color-border: #222b36;
+  --color-border-strong: #314050;
+  --color-ring: #3b82f6;
 
-  /* 间距(density 6/10 标准,比之前松一档,更透气) */
+  /* 玻璃/浮层 */
+  --color-glass: color-mix(in srgb, var(--color-surface) 82%, transparent);
+  --color-scrim: rgba(0, 0, 0, 0.52);
+
+  /* 间距 */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -38,31 +42,43 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  --radius-sm: 6px;
-  --radius: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.25);
-  --shadow-2: 0 6px 24px rgba(0, 0, 0, 0.35);
-  --shadow-pop: 0 10px 40px rgba(0, 0, 0, 0.45);
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-2: 0 8px 28px rgba(0, 0, 0, 0.38);
+  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 28%, transparent),
+    0 8px 28px color-mix(in srgb, var(--color-primary) 18%, transparent);
   --dur: 180ms;
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-num: 'Inter', ui-monospace, monospace;
 }
 
 :root[data-theme='light'] {
-  --color-bg: #ffffff;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-soft: color-mix(in srgb, #2563eb 10%, transparent);
+  --color-bg: #eef2f7;
   --color-surface: #f8fafc;
-  --color-surface-2: #f1f5f9;
+  --color-surface-2: #eef3f9;
   --color-elevated: #ffffff;
   --color-fg: #0f172a;
   --color-fg-muted: #55627a;
   --color-fg-subtle: #94a3b8;
-  --color-border: #e6ebf2;
-  --color-border-strong: #d3dbe6;
-  --shadow-2: 0 6px 24px rgba(15, 23, 42, 0.1);
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+  --color-glass: color-mix(in srgb, #ffffff 88%, transparent);
+  --color-scrim: rgba(15, 23, 42, 0.42);
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05), 0 0 0 1px rgba(15, 23, 42, 0.02);
+  --shadow-2: 0 8px 28px rgba(15, 23, 42, 0.08), 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+  --shadow-pop: 0 16px 40px rgba(15, 23, 42, 0.12);
+  --shadow-glow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 22%, transparent),
+    0 10px 28px color-mix(in srgb, var(--color-primary) 14%, transparent);
 }
 
 * {
@@ -112,7 +128,7 @@ button {
   background: var(--color-surface-2);
   color: var(--color-fg);
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
-    transform var(--dur) var(--ease);
+    transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .btn:hover {
   background: var(--color-elevated);
@@ -126,13 +142,15 @@ button {
   cursor: not-allowed;
 }
 .btn-primary {
-  background: var(--color-primary);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 92%, #fff), var(--color-primary));
   color: var(--color-on-primary);
-  border-color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 70%, #000);
   font-weight: 600;
+  box-shadow: 0 1px 0 color-mix(in srgb, #fff 18%, transparent) inset,
+    0 6px 16px color-mix(in srgb, var(--color-primary) 28%, transparent);
 }
 .btn-primary:hover {
-  background: var(--color-primary-hover);
+  background: linear-gradient(180deg, var(--color-primary-hover), var(--color-primary));
   border-color: var(--color-primary-hover);
 }
 .btn-danger {
@@ -229,14 +247,15 @@ label {
 
 .note {
   font-size: 12px;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  border-radius: 12px;
   border: 1px solid var(--color-border);
   background: var(--color-surface-2);
   color: var(--color-fg-muted);
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
+  line-height: 1.5;
 }
 .note-warn {
   border-color: color-mix(in srgb, var(--color-warning) 45%, transparent);

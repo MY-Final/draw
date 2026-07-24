@@ -51,6 +51,9 @@ const refImageIds = ref([])
 const showPromptLib = ref(false)
 const savedPrompts = ref([])
 const promptLibToast = ref(null)
+// 次要参数(画质/数量)默认收起,给输入区更多呼吸感;非默认值时自动展开提示。
+const moreParamsOpen = ref(false)
+const moreParamsDirty = computed(() => quality.value !== 'high' || Number(n.value) !== 1)
 
 function loadSavedPrompts() {
   savedPrompts.value = getAllPrompts(store.activeWorkspaceId).slice(0, 50)
@@ -157,6 +160,9 @@ function onDrop(e) {
 function applyPrefill(prefill) {
   if (!prefill) return
   prompt.value = prefill.prompt || ''
+  // 非默认画质/数量时展开次要参数,避免用户看不到被还原的值。
+  if (prefill.params?.quality && prefill.params.quality !== 'high') moreParamsOpen.value = true
+  if (prefill.params?.n && Number(prefill.params.n) !== 1) moreParamsOpen.value = true
   if (prefill.params?.size) {
     // 向后兼容:旧格式 "1024x1024" 尝试解析,新格式用 ratio+resolution
     const s = prefill.params.size
@@ -244,7 +250,7 @@ function autogrow(e) {
 
     <!-- 主输入框 -->
     <div class="composer" :class="{ disabled: !store.activePreset }">
-      <!-- 生成参数:常驻输入框上方,一点即选(design D2/D3) -->
+      <!-- 生成参数:比例/分辨率常驻;画质/数量默认折叠(design D2/D3 + 呼吸感) -->
       <div class="params-tags">
         <div class="params-row">
           <span class="params-tag-label">比例</span>
@@ -265,7 +271,22 @@ function autogrow(e) {
               @click="resolution = r.key"
             >{{ r.label }}</button>
           </div>
-          <span class="params-tag-label params-tag-label-n">画质</span>
+          <button
+            class="more-params-btn"
+            :class="{ open: moreParamsOpen, dirty: moreParamsDirty }"
+            :aria-expanded="moreParamsOpen"
+            @click="moreParamsOpen = !moreParamsOpen"
+            :title="moreParamsOpen ? '收起更多参数' : '画质与数量'"
+          >
+            <span class="more-params-label">更多</span>
+            <span v-if="moreParamsDirty && !moreParamsOpen" class="more-params-summary tnum">
+              {{ quality === 'high' ? '高' : quality === 'medium' ? '中' : '低' }} · {{ n }}
+            </span>
+            <AppIcon :name="moreParamsOpen ? 'chevron-down' : 'chevron-right'" :size="12" />
+          </button>
+        </div>
+        <div v-if="moreParamsOpen" class="params-row params-row-more">
+          <span class="params-tag-label">画质</span>
           <div class="tag-group">
             <button
               v-for="q in QUALITIES" :key="q.key"
@@ -324,12 +345,22 @@ function autogrow(e) {
         </div>
 
         <button
+          v-if="store.generating"
+          class="btn btn-ghost send cancel"
+          @click="store.cancelActiveGeneration()"
+          aria-label="取消生成"
+        >
+          <AppIcon name="x" :size="16" />
+          取消
+        </button>
+        <button
+          v-else
           class="btn btn-primary send"
-          :disabled="store.generating || !prompt.trim() || !store.activePreset"
+          :disabled="!prompt.trim() || !store.activePreset"
           @click="submit" aria-label="生成图片"
         >
-          <AppIcon :name="store.generating ? 'refresh' : 'sparkles'" :size="16" :class="{ spin: store.generating }" />
-          {{ store.generating ? '生成中' : '生成' }}
+          <AppIcon name="sparkles" :size="16" />
+          生成
         </button>
       </div>
     </div>
@@ -338,109 +369,183 @@ function autogrow(e) {
 </template>
 
 <style scoped>
-.composer-wrap { width: 100%; max-width: 760px; margin: 0 auto; }
-.hint { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-warning); margin-bottom: var(--space-2); }
+.composer-wrap { width: 100%; max-width: 780px; margin: 0 auto; }
+.hint {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+  color: var(--color-warning); margin-bottom: var(--space-2);
+  padding: 8px 12px; border-radius: 999px;
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 24%, transparent);
+}
 
-.ref-strip { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); flex-wrap: wrap; transition: border-color var(--dur) var(--ease); }
+.ref-strip {
+  display: flex; align-items: center; gap: var(--space-2);
+  margin-bottom: var(--space-2); flex-wrap: wrap;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
 .ref-strip.drop-active {
-  border: 2px dashed var(--color-primary);
-  border-radius: var(--radius-sm);
+  border: 1.5px dashed var(--color-primary);
+  border-radius: var(--radius);
   padding: var(--space-2);
-  margin-left: calc(-1 * var(--space-2) - 2px);
-  margin-right: calc(-1 * var(--space-2) - 2px);
-  margin-top: calc(-1 * var(--space-2) - 2px);
-  position: relative;
-  z-index: 1;
-  background: var(--color-surface);
+  margin-left: calc(-1 * var(--space-2));
+  margin-right: calc(-1 * var(--space-2));
+  position: relative; z-index: 1;
+  background: var(--color-primary-soft);
 }
-.ref-thumb { position: relative; width: 44px; height: 44px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--color-border-strong); }
-.ref-remove { position: absolute; top: 1px; right: 1px; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.65); color: #fff; border-radius: 999px; }
+.ref-thumb {
+  position: relative; width: 48px; height: 48px; border-radius: 12px;
+  overflow: hidden; border: 1px solid var(--color-border-strong);
+  box-shadow: var(--shadow-1);
+}
+.ref-remove {
+  position: absolute; top: 2px; right: 2px; width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.62); color: #fff; border-radius: 999px;
+  backdrop-filter: blur(4px);
+}
 .ref-add {
-  width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
-  border-radius: var(--radius-sm); border: 1px dashed var(--color-border-strong);
-  color: var(--color-fg-muted); transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+  border-radius: 12px; border: 1px dashed var(--color-border-strong);
+  color: var(--color-fg-muted);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.ref-add:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.ref-add:hover {
+  border-color: var(--color-primary); color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
 .hidden-input { display: none; }
 .ref-tip { font-size: 11px; color: var(--color-fg-subtle); }
 
 .composer {
-  background: var(--color-surface); border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-xl); padding: var(--space-3) var(--space-3) var(--space-2);
-  box-shadow: var(--shadow-2); transition: border-color var(--dur) var(--ease);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 24px;
+  padding: 14px 14px 10px;
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(16px);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-.composer:focus-within { border-color: var(--color-primary); }
-.composer.disabled { opacity: 0.7; }
+.composer:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border-strong));
+  box-shadow: var(--shadow-glow);
+}
+.composer.disabled { opacity: 0.72; }
 .composer-input {
-  border: none; background: transparent; padding: var(--space-1) var(--space-2);
-  font-size: 15px; max-height: 200px; overflow-y: auto;
+  border: none; background: transparent; padding: 6px 8px;
+  font-size: 15px; max-height: 200px; overflow-y: auto; line-height: 1.5;
 }
 .composer-input:focus { outline: none; }
 
-.composer-bar { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-1); position: relative; }
+.composer-bar { display: flex; align-items: center; gap: var(--space-2); margin-top: 4px; position: relative; }
 .chip {
   display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--color-fg-muted);
-  padding: 4px 10px; border-radius: 999px; border: 1px solid var(--color-border);
-  transition: background var(--dur) var(--ease);
-}
-.chip:hover { background: var(--color-surface-2); }
-
-/* 生成参数:常驻输入框上方(design D2/D3) */
-.params-tags {
-  display: flex; flex-direction: column; gap: var(--space-2);
-  margin-bottom: var(--space-2); padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--color-border);
-}
-.params-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.params-tag-label {
-  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
-  color: var(--color-fg-subtle); flex-shrink: 0;
-}
-.params-tag-label-n { margin-left: var(--space-3); }
-.tag-group { display: flex; gap: 6px; flex-wrap: wrap; }
-.tag {
-  padding: 4px 10px; font-size: 12px; border-radius: 999px;
-  border: 1px solid var(--color-border); color: var(--color-fg-muted);
-  background: var(--color-surface);
+  padding: 6px 10px; border-radius: 999px; border: 1px solid var(--color-border);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
-.tag:hover { background: var(--color-surface-2); }
-.tag.active { background: var(--color-primary); color: var(--color-on-primary); border-color: var(--color-primary); }
-.tnum { width: 52px; }
-.proto-tip { font-size: 11px; color: var(--color-fg-subtle); }
+.chip:hover { background: var(--color-surface-2); color: var(--color-fg); }
+
+/* 生成参数 */
+.params-tags {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 8px; padding: 2px 2px 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+.params-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.params-tag-label {
+  font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--color-fg-subtle); flex-shrink: 0;
+}
+.params-tag-label-n { margin-left: 4px; }
+.params-row-more {
+  padding-top: 2px;
+  animation: params-in 160ms var(--ease-out);
+}
+@keyframes params-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+.more-params-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-left: auto; min-height: 28px; padding: 0 10px;
+  border-radius: 999px; font-size: 11px; font-weight: 550;
+  color: var(--color-fg-subtle); border: 1px solid transparent;
+  background: transparent;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.more-params-btn:hover {
+  color: var(--color-fg-muted); background: var(--color-surface-2);
+  border-color: var(--color-border);
+}
+.more-params-btn.open {
+  color: var(--color-fg-muted); background: var(--color-surface-2);
+  border-color: var(--color-border);
+}
+.more-params-btn.dirty {
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 28%, transparent);
+  background: var(--color-primary-soft);
+}
+.more-params-summary { font-size: 10px; opacity: 0.9; }
+.tag-group { display: flex; gap: 4px; flex-wrap: wrap; }
+.tag {
+  padding: 5px 10px; font-size: 12px; border-radius: 999px;
+  border: 1px solid transparent; color: var(--color-fg-muted);
+  background: var(--color-surface-2);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.tag:hover { color: var(--color-fg); background: var(--color-elevated); }
+.tag.active {
+  background: var(--color-primary); color: var(--color-on-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 70%, #000);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+.tnum {
+  width: 52px; min-height: 30px; border-radius: 999px;
+  background: var(--color-surface-2); border-color: transparent; text-align: center;
+}
+.proto-tip {
+  font-size: 11px; color: var(--color-fg-subtle);
+  padding: 4px 10px; border-radius: 999px;
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+}
 .spacer { flex: 1; }
 
 /* Prompt 收藏 */
 .prompt-lib-wrap { position: relative; }
-.star-btn.active { background: var(--color-primary); color: var(--color-on-primary); border-color: var(--color-primary); }
-.star-btn.highlight { color: var(--color-primary); border-color: var(--color-primary); }
+.star-btn.active {
+  background: color-mix(in srgb, var(--color-heart) 14%, transparent);
+  color: var(--color-heart); border-color: color-mix(in srgb, var(--color-heart) 35%, transparent);
+}
+.star-btn.highlight { color: var(--color-heart); border-color: color-mix(in srgb, var(--color-heart) 40%, transparent); }
 .star-btn:disabled { opacity: 0.4; }
 
 .prompt-pop {
-  position: absolute; bottom: 40px; right: 0; z-index: 30;
+  position: absolute; bottom: 44px; right: 0; z-index: 30;
   width: 320px; max-height: 280px; display: flex; flex-direction: column;
   background: var(--color-elevated); border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius); box-shadow: var(--shadow-pop);
-  overflow: hidden;
+  border-radius: 16px; box-shadow: var(--shadow-pop);
+  overflow: hidden; backdrop-filter: blur(12px);
 }
 .prompt-pop-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border);
+  padding: 10px 12px; border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
-.prompt-pop-title { font-size: 11px; font-weight: 600; color: var(--color-fg-subtle); text-transform: uppercase; letter-spacing: 0.05em; }
-.pop-save { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--color-primary); padding: 2px 6px; border-radius: var(--radius-sm); }
-.pop-save:hover:not(:disabled) { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
+.prompt-pop-title { font-size: 11px; font-weight: 650; color: var(--color-fg-subtle); text-transform: uppercase; letter-spacing: 0.05em; }
+.pop-save { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--color-primary); padding: 4px 8px; border-radius: 999px; }
+.pop-save:hover:not(:disabled) { background: var(--color-primary-soft); }
 .pop-save:disabled { opacity: 0.4; }
-.prompt-toast { padding: var(--space-1) var(--space-3); font-size: 11px; flex-shrink: 0; }
-.prompt-toast.success { background: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary); }
+.prompt-toast { padding: 6px 12px; font-size: 11px; flex-shrink: 0; }
+.prompt-toast.success { background: var(--color-primary-soft); color: var(--color-primary); }
 .prompt-toast.warn { background: color-mix(in srgb, var(--color-warning) 12%, transparent); color: var(--color-warning); }
 
 .prompt-empty { padding: var(--space-6) var(--space-3); text-align: center; font-size: 12px; color: var(--color-fg-subtle); }
 .prompt-list { overflow-y: auto; flex: 1; }
 .prompt-item {
   display: flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-2) var(--space-3); cursor: pointer;
+  padding: 10px 12px; cursor: pointer;
   border-bottom: 1px solid var(--color-border); font-size: 13px;
   transition: background var(--dur) var(--ease);
 }
@@ -450,9 +555,17 @@ function autogrow(e) {
 .prompt-del { flex-shrink: 0; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); color: var(--color-fg-subtle); }
 .prompt-del:hover { background: var(--color-surface-2); color: var(--color-destructive); }
 
-.send { border-radius: 999px; min-height: 38px; padding: 0 var(--space-5); }
+.send { border-radius: 999px; min-height: 40px; padding: 0 18px; }
+.send.cancel {
+  border: 1px solid var(--color-border-strong); color: var(--color-fg-muted);
+  background: var(--color-surface-2); box-shadow: none;
+}
+.send.cancel:hover {
+  color: var(--color-destructive); border-color: color-mix(in srgb, var(--color-destructive) 45%, transparent);
+  background: color-mix(in srgb, var(--color-destructive) 10%, transparent);
+}
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.composer-foot { text-align: center; font-size: 11px; color: var(--color-fg-subtle); margin: var(--space-2) 0 0; }
+.composer-foot { text-align: center; font-size: 11px; color: var(--color-fg-subtle); margin: 10px 0 0; }
 </style>

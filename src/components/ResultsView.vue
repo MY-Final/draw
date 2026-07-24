@@ -78,7 +78,12 @@ watch(() => [feed.value.length, store.generating], async () => {
       <div v-if="!feed.length && !store.generating" class="empty">
         <div class="empty-icon"><AppIcon name="sparkles" :size="26" /></div>
         <h1>画点什么?</h1>
-        <p>在下方描述你想要的画面,回车即可生成。结果会自动存入本地素材库。</p>
+        <p>在下方描述你想要的画面，回车即可生成。结果会自动存入本地素材库。</p>
+        <div class="empty-hints">
+          <span class="empty-chip"><AppIcon name="image" :size="12" /> 可拖入参考图</span>
+          <span class="empty-chip"><AppIcon name="keyboard" :size="12" /> Enter 生成</span>
+          <span class="empty-chip"><AppIcon name="search" :size="12" /> ⌘K 搜索</span>
+        </div>
       </div>
 
       <!-- 每条生成:请求气泡 + 回复卡 -->
@@ -94,7 +99,7 @@ watch(() => [feed.value.length, store.generating], async () => {
               <span class="ref-hint">参考图</span>
             </div>
           </div>
-          <div class="avatar avatar-user"><AppIcon name="settings" :size="15" /></div>
+          <div class="avatar avatar-user"><AppIcon name="user" :size="15" /></div>
         </div>
 
         <!-- AI 回复卡(左) -->
@@ -116,12 +121,22 @@ watch(() => [feed.value.length, store.generating], async () => {
             <div v-else-if="gen.status === 'empty'" class="note note-warn">
               <div>接口未返回可识别图片。<code class="snippet">{{ gen.rawResponseSnippet }}</code></div>
             </div>
-            <!-- 生成中:本轮自身的骨架占位(不再有独立通用骨架) -->
+            <!-- 生成中:本轮自身的骨架占位 + 取消 -->
             <div v-else-if="gen.status === 'pending'" class="pending-block">
               <div class="skeleton" />
-              <button class="pending-del act act-danger" @click="deleteGen(gen)" title="删除这条卡住的生成">
-                <AppIcon name="trash" :size="13" /> 卡住了?删除
-              </button>
+              <div class="pending-actions">
+                <button
+                  v-if="store.activeGeneration?.genId === gen.id"
+                  class="pending-del act"
+                  @click="store.cancelActiveGeneration()"
+                  title="取消本次生成"
+                >
+                  <AppIcon name="x" :size="13" /> 取消
+                </button>
+                <button class="pending-del act act-danger" @click="deleteGen(gen)" title="删除这条卡住的生成">
+                  <AppIcon name="trash" :size="13" /> 卡住了?删除
+                </button>
+              </div>
             </div>
 
             <div v-if="outputsOf(gen).length" class="imgs" :class="{ single: outputsOf(gen).length === 1 }">
@@ -171,70 +186,167 @@ watch(() => [feed.value.length, store.generating], async () => {
 </template>
 
 <style scoped>
-.feed { height: 100%; overflow-y: auto; }
-.feed-inner { max-width: 820px; margin: 0 auto; padding: var(--space-6) var(--space-4) var(--space-8); display: flex; flex-direction: column; gap: var(--space-8); }
+.feed { height: 100%; overflow-y: auto; scroll-behavior: smooth; }
+.feed-inner {
+  max-width: 860px; margin: 0 auto;
+  padding: var(--space-6) var(--space-4) var(--space-8);
+  display: flex; flex-direction: column; gap: var(--space-8);
+}
 
-.empty { text-align: center; padding: 12vh 0; color: var(--color-fg-muted); display: flex; flex-direction: column; align-items: center; gap: var(--space-2); }
-.empty-icon { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--color-surface-2); color: var(--color-primary); border: 1px solid var(--color-border); }
-.empty h1 { margin: var(--space-3) 0 0; font-size: 22px; font-weight: 600; color: var(--color-fg); letter-spacing: -0.01em; }
-.empty p { max-width: 360px; font-size: 13px; margin: 0; }
+.empty {
+  text-align: center; padding: 14vh 0 8vh; color: var(--color-fg-muted);
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
+}
+.empty-icon {
+  width: 64px; height: 64px; border-radius: 20px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--color-on-primary);
+  background: linear-gradient(145deg, var(--color-primary-hover), var(--color-primary));
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+.empty h1 {
+  margin: var(--space-3) 0 0; font-size: 26px; font-weight: 650;
+  color: var(--color-fg); letter-spacing: -0.02em;
+}
+.empty p { max-width: 380px; font-size: 13.5px; margin: 0; line-height: 1.6; }
+.empty-hints { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: var(--space-3); }
+.empty-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 999px; font-size: 11px;
+  color: var(--color-fg-muted); border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+}
 
-.turn { display: flex; flex-direction: column; gap: var(--space-4); }
+.turn {
+  display: flex; flex-direction: column; gap: var(--space-4);
+  animation: turn-in 280ms var(--ease-out);
+}
+@keyframes turn-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* 行:头像 + 内容。用户靠右,AI 靠左,明显错开 */
 .row { display: flex; gap: var(--space-3); align-items: flex-start; }
 .row-user { flex-direction: row; justify-content: flex-end; padding-left: 15%; }
 .row-ai { justify-content: flex-start; padding-right: 12%; }
 
-.avatar { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.avatar-user { background: var(--color-surface-2); color: var(--color-fg-muted); border: 1px solid var(--color-border); }
-.avatar-ai { background: color-mix(in srgb, var(--color-primary) 16%, transparent); color: var(--color-primary); border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent); }
+.avatar {
+  width: 32px; height: 32px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.avatar-user {
+  background: var(--color-surface-2); color: var(--color-fg-muted);
+  border: 1px solid var(--color-border);
+}
+.avatar-ai {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--color-primary) 28%, transparent), color-mix(in srgb, var(--color-primary) 12%, transparent));
+  color: var(--color-primary);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
 
-/* 用户气泡:蓝色,右侧 */
-.bubble { background: var(--color-primary); color: var(--color-on-primary); padding: var(--space-3) var(--space-4); border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg); max-width: 100%; }
-.bubble-text { margin: 0; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+/* 用户气泡 */
+.bubble {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--color-primary) 92%, #fff), var(--color-primary));
+  color: var(--color-on-primary);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 18px 18px 6px 18px;
+  max-width: 100%;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+.bubble-text { margin: 0; font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .bubble-refs { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
-.bubble-ref { width: 40px; height: 40px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid rgba(255,255,255,0.4); }
+.bubble-ref { width: 42px; height: 42px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.35); }
 .ref-hint { font-size: 11px; opacity: 0.85; }
 
-/* AI 回复卡:中性表面,左侧 */
-.card { flex: 1; min-width: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
-.card-head { display: flex; align-items: center; gap: var(--space-2); }
+/* AI 回复卡 */
+.card {
+  flex: 1; min-width: 0;
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: 8px 18px 18px 18px;
+  padding: var(--space-4);
+  display: flex; flex-direction: column; gap: var(--space-3);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(8px);
+}
+.card-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .model { font-size: 13px; font-weight: 600; color: var(--color-fg); }
 .elapsed { margin-left: auto; font-size: 11px; color: var(--color-fg-subtle); }
 
 .imgs { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); align-items: start; }
-.imgs.single { grid-template-columns: minmax(0, 380px); }
-.fig { margin: 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--color-border); background: var(--color-surface-2); position: relative; }
-/* 结果图按真实宽高比显示(竖屏不再被裁成正方形);过高时封顶避免撑爆气泡 */
+.imgs.single { grid-template-columns: minmax(0, 420px); }
+.fig {
+  margin: 0; border-radius: 14px; overflow: hidden;
+  border: 1px solid var(--color-border); background: var(--color-surface-2);
+  position: relative; transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.fig:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.22);
+}
+/* 结果图按真实宽高比显示;过高时封顶 */
 .fig-img { display: block; width: 100%; padding: 0; }
 .fig-img :deep(.asset-img) { height: auto; max-height: 70vh; object-fit: contain; }
-.fav { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(0,0,0,0.5); color: #fff; transition: color var(--dur) var(--ease), background var(--dur) var(--ease); }
-.fav:hover { background: rgba(0,0,0,0.7); }
-.fav.on { color: #f43f5e; }
-.fav.on :deep(svg) { fill: #f43f5e; }
+.fav {
+  position: absolute; top: 10px; right: 10px; width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center; border-radius: 50%;
+  background: rgba(0,0,0,0.48); color: #fff; backdrop-filter: blur(6px);
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease), transform var(--dur) var(--ease);
+  opacity: 0;
+}
+.fig:hover .fav, .fav.on { opacity: 1; }
+.fav:hover { background: rgba(0,0,0,0.7); transform: scale(1.05); }
+.fav.on { color: var(--color-heart); }
+.fav.on :deep(svg) { fill: var(--color-heart); }
 
-.actions { display: flex; flex-wrap: wrap; gap: var(--space-1); border-top: 1px solid var(--color-border); padding-top: var(--space-2); }
-.act { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--color-fg-muted); padding: 6px 10px; border-radius: var(--radius-sm); transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.actions {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  border-top: 1px solid var(--color-border); padding-top: var(--space-2);
+}
+.act {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+  color: var(--color-fg-muted); padding: 7px 11px; border-radius: 999px;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
 .act:hover:not(:disabled) { background: var(--color-surface-2); color: var(--color-fg); }
 .act:disabled { opacity: 0.4; cursor: not-allowed; }
-.act-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--color-destructive) 12%, transparent); color: var(--color-destructive); }
+.act-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-destructive) 12%, transparent);
+  color: var(--color-destructive);
+}
 
-/* 删除撤销提示(固定于视口底部,抬高避开输入区) */
-.undo-toast { position: fixed; bottom: 120px; left: 50%; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-radius: var(--radius); background: var(--color-elevated); border: 1px solid var(--color-border-strong); box-shadow: var(--shadow-2); font-size: 13px; color: var(--color-fg); }
-.undo-btn { font-size: 13px; font-weight: 600; color: var(--color-primary); }
-.undo-btn:hover { text-decoration: underline; }
+/* 删除撤销提示 */
+.undo-toast {
+  position: fixed; bottom: 128px; left: 50%; transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: 12px 16px; border-radius: 999px;
+  background: var(--color-elevated); border: 1px solid var(--color-border-strong);
+  box-shadow: var(--shadow-2); font-size: 13px; color: var(--color-fg);
+  backdrop-filter: blur(10px);
+}
+.undo-btn { font-size: 13px; font-weight: 650; color: var(--color-primary); padding: 4px 8px; border-radius: 999px; }
+.undo-btn:hover { background: var(--color-primary-soft); }
 
 .snippet { display: block; margin-top: 6px; font-size: 11px; max-height: 80px; overflow: auto; opacity: 0.8; white-space: pre-wrap; word-break: break-all; }
-.skeleton { aspect-ratio: 1; max-width: 380px; border-radius: var(--radius); background: linear-gradient(90deg, var(--color-surface-2), var(--color-elevated), var(--color-surface-2)); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+.skeleton {
+  aspect-ratio: 1; max-width: 380px; border-radius: 14px;
+  background: linear-gradient(90deg, var(--color-surface-2), var(--color-elevated), var(--color-surface-2));
+  background-size: 200% 100%; animation: shimmer 1.4s infinite;
+  border: 1px solid var(--color-border);
+}
 .pending-block { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.pending-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .pending-del { align-self: flex-start; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 @media (max-width: 1024px) {
-  .row-user { padding-left: 8%; }
-  .row-ai { padding-right: 6%; }
+  .row-user { padding-left: 4%; }
+  .row-ai { padding-right: 2%; }
+  .feed-inner { padding-left: var(--space-3); padding-right: var(--space-3); }
+  .avatar { display: none; }
 }
 </style>

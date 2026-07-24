@@ -19,6 +19,22 @@ export async function createWorkspace({ name, settings = {} }) {
   return record
 }
 
+// 按指定 id 写入/覆盖(备份导入必须保留原 workspaceId,不能新建随机 id)。
+export async function putWorkspace(record) {
+  const db = await getDB()
+  const now = Date.now()
+  const full = {
+    id: record.id,
+    name: record.name || '未命名工作区',
+    createdAt: record.createdAt || now,
+    updatedAt: record.updatedAt || now,
+    settings: record.settings || {},
+  }
+  if (!full.id) throw new Error('putWorkspace requires id')
+  await db.put(STORE_WORKSPACES, full)
+  return full
+}
+
 export async function updateWorkspace(id, patch) {
   const db = await getDB()
   const existing = await db.get(STORE_WORKSPACES, id)

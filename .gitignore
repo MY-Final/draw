@@ -3,3 +3,6 @@ dist/
 *.local
 .DS_Store
 .playwright-mcp/
+# Windows accidental redirect artifact
+/nul
+nul
