@@ -53,11 +53,29 @@ function buildIndex() {
     }
   }
 
-  // 素材(跨工作区)
+  // 素材(跨工作区):用关联 generation 的 prompt 做可搜索文本
+  const promptByAsset = new Map()
+  for (const g of store.generations) {
+    const text = (g.prompt || '').trim()
+    if (!text) continue
+    for (const id of (g.outputImageIds || [])) {
+      if (!promptByAsset.has(id)) promptByAsset.set(id, text)
+    }
+    for (const id of (g.refImageIds || [])) {
+      if (!promptByAsset.has(id)) promptByAsset.set(id, text)
+    }
+  }
   for (const a of store.assets) {
     const ws = store.workspaces.find((w) => w.id === a.workspaceId)
+    const prompt = promptByAsset.get(a.id) || ''
+    const shortId = a.id.slice(0, 10)
+    const label = prompt
+      ? (prompt.length > 48 ? prompt.slice(0, 48) + '…' : prompt)
+      : (a.favorite ? `收藏素材 ${shortId}` : `素材 ${shortId}`)
     items.push({
-      type: 'asset', id: a.id, label: a.id.slice(0, 16) + '…',
+      type: 'asset', id: a.id, label,
+      // 额外可搜字段:完整 prompt + id
+      searchText: `${label} ${prompt} ${a.id} ${a.favorite ? '收藏' : ''}`,
       subtitle: ws ? ws.name : '未知工作区', wsId: a.workspaceId, asset: a,
     })
   }
@@ -85,12 +103,12 @@ function doSearch() {
   const terms = q.split(/\s+/).filter(Boolean)
 
   for (const item of allItems.value) {
-    const text = item.label.toLowerCase()
+    const text = (item.searchText || item.label || '').toLowerCase()
     // 多关键词:所有词都匹配才算
     const matchAll = terms.every((t) => text.includes(t))
     if (!matchAll) continue
     if (groups[item.type] && groups[item.type].length < 5) {
-      groups[item.type].push({ ...item, idx: selectedIdx.value })
+      groups[item.type].push({ ...item })
     }
   }
 
@@ -107,7 +125,9 @@ function doSearch() {
   }
 
   results.value = flat
-  selectedIdx.value = 0
+  // 默认停在第一条可选项,跳过分组标题
+  selectedIdx.value = flat.findIndex((r) => !r._group)
+  if (selectedIdx.value < 0) selectedIdx.value = 0
 }
 
 // 防抖搜索
@@ -118,15 +138,32 @@ function onInput() {
   debounceTimer.value = setTimeout(doSearch, 200)
 }
 
-// 键盘导航
+// 键盘导航:方向键跳过分组标题行
+function nextSelectable(from, dir) {
+  const list = results.value
+  if (!list.length) return from
+  let i = from
+  for (let n = 0; n < list.length; n++) {
+    i = Math.max(0, Math.min(list.length - 1, i + dir))
+    if (!list[i]?._group) return i
+    // 已到边界仍是分组时停在最近可选
+    if ((dir > 0 && i === list.length - 1) || (dir < 0 && i === 0)) {
+      // 反向找最近非分组
+      for (let j = i; j >= 0 && j < list.length; j -= dir) {
+        if (!list[j]?._group) return j
+      }
+      return from
+    }
+  }
+  return from
+}
 function onKeydown(e) {
   if (e.key === 'ArrowDown') {
     e.preventDefault()
-    const max = results.value.length - 1
-    selectedIdx.value = Math.min(selectedIdx.value + 1, max)
+    selectedIdx.value = nextSelectable(selectedIdx.value, 1)
   } else if (e.key === 'ArrowUp') {
     e.preventDefault()
-    selectedIdx.value = Math.max(selectedIdx.value - 1, 0)
+    selectedIdx.value = nextSelectable(selectedIdx.value, -1)
   } else if (e.key === 'Enter') {
     e.preventDefault()
     const item = results.value[selectedIdx.value]

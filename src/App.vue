@@ -1,12 +1,11 @@
 <script setup>
 // 对话式布局:左安静栏 · 中(结果流 + 底部固定输入)· 右素材库。低频操作进抽屉。
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useWorkbenchStore } from './stores/workbench.js'
 import SideBar from './components/SideBar.vue'
 import ResultsView from './components/ResultsView.vue'
 import Composer from './components/Composer.vue'
 import LibraryPanel from './components/LibraryPanel.vue'
-import SideDrawer from './components/SideDrawer.vue'
 import PresetManager from './components/PresetManager.vue'
 import BackupTools from './components/BackupTools.vue'
 import ImageLightbox from './components/ImageLightbox.vue'
@@ -17,14 +16,25 @@ import AppIcon from './components/AppIcon.vue'
 const store = useWorkbenchStore()
 const composer = ref(null)
 const preview = ref(null)
-const drawer = ref(null) // 'settings' | 'storage' | null
+const settingsOpen = ref(false)
+const storageOpen = ref(false)
+// 打开接口弹窗时是否直接进入「新建」表单(侧栏「添加接口」)
+const settingsStartCreate = ref(false)
 const rightOpen = ref(true)
 // 移动端:给素材库一个底部入口(桌面端右侧栏在小屏被隐藏)
 const mobileAssetsOpen = ref(false)
+// 移动端:侧栏工作区树抽屉
+const mobileNavOpen = ref(false)
 const theme = ref('dark')
 const searchOpen = ref(false)
 const showBackupReminder = ref(false)
 const reminderBytes = ref(0)
+// Win/Linux 显示 Ctrl,macOS 显示 ⌘
+const isApple = computed(() => {
+  if (typeof navigator === 'undefined') return false
+  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '')
+})
+const searchModKey = computed(() => (isApple.value ? '⌘' : 'Ctrl'))
 
 onMounted(async () => {
   await store.init()
@@ -46,7 +56,7 @@ watch(() => store.generating, async (val) => {
 
 function onReminderClose(action) {
   showBackupReminder.value = false
-  if (action === 'backup') drawer.value = 'storage'
+  if (action === 'backup') storageOpen.value = true
 }
 
 onUnmounted(() => {
@@ -59,8 +69,9 @@ function onGlobalKeydown(e) {
     e.preventDefault()
     searchOpen.value = !searchOpen.value
   }
-  if (e.key === 'Escape' && mobileAssetsOpen.value) {
-    mobileAssetsOpen.value = false
+  if (e.key === 'Escape') {
+    if (mobileAssetsOpen.value) mobileAssetsOpen.value = false
+    if (mobileNavOpen.value) mobileNavOpen.value = false
   }
 }
 
@@ -90,17 +101,27 @@ function setTheme(t) {
 function toggleTheme() { setTheme(theme.value === 'dark' ? 'light' : 'dark') }
 
 function useAsReference(id) { composer.value?.addReference(id) }
-function onRecipeImported(prefill) { composer.value?.applyPrefill(prefill); drawer.value = null }
+function onRecipeImported(prefill) { composer.value?.applyPrefill(prefill); storageOpen.value = false }
 function onNewCanvas() {
   store.newConversation()   // 开一段空白会话(旧会话与图仍保留、可从左侧切回)
   composer.value?.clear()
   preview.value = null
+  mobileNavOpen.value = false
+}
+function openSettings(opts) {
+  settingsStartCreate.value = !!opts?.create
+  settingsOpen.value = true
+  mobileNavOpen.value = false
+}
+function openStorage() {
+  storageOpen.value = true
+  mobileNavOpen.value = false
 }
 </script>
 
 <template>
   <div class="app">
-    <!-- 左侧安静栏 -->
+    <!-- 左侧安静栏(桌面) -->
     <aside class="rail">
       <div class="logo" title="AI 绘画工作台">
         <span class="logo-mark" aria-hidden="true">
@@ -115,24 +136,50 @@ function onNewCanvas() {
       <button class="search-chip" @click="searchOpen = true" title="搜索 (Ctrl/⌘ K)">
         <AppIcon name="search" :size="14" />
         <span>搜索</span>
-        <kbd>⌘K</kbd>
+        <kbd>{{ searchModKey }}K</kbd>
       </button>
-      <SideBar
-        :theme="theme"
-        @open-settings="drawer = 'settings'"
-        @open-storage="drawer = 'storage'"
-        @toggle-theme="toggleTheme"
-        @new-canvas="onNewCanvas"
-      />
+      <div class="rail-side">
+        <SideBar
+          :theme="theme"
+          @open-settings="openSettings"
+          @open-storage="openStorage"
+          @toggle-theme="toggleTheme"
+          @new-canvas="onNewCanvas"
+        />
+      </div>
     </aside>
+
+    <!-- 移动端顶栏 -->
+    <header class="mobile-top">
+      <button class="mobile-icon-btn" @click="mobileNavOpen = true" aria-label="打开菜单">
+        <AppIcon name="menu" :size="18" />
+      </button>
+      <div class="mobile-brand">
+        <span class="logo-mark mobile-logo" aria-hidden="true">
+          <AppIcon name="sparkles" :size="13" />
+        </span>
+        <span class="mobile-title">绘画工作台</span>
+      </div>
+      <button class="mobile-icon-btn" @click="searchOpen = true" :aria-label="`搜索 (${searchModKey}+K)`">
+        <AppIcon name="search" :size="16" />
+      </button>
+    </header>
 
     <!-- 中间:结果流 + 底部输入 -->
     <main class="center">
       <div class="stream">
-        <ResultsView @use-as-reference="useAsReference" @preview="preview = $event" />
+        <ResultsView
+          @use-as-reference="useAsReference"
+          @preview="preview = $event"
+          @reuse="(prefill) => composer?.applyPrefill?.(prefill)"
+          @open-settings="openSettings"
+        />
       </div>
       <div class="dock">
-        <Composer ref="composer" />
+        <Composer
+          ref="composer"
+          @open-settings="openSettings"
+        />
       </div>
     </main>
 
@@ -145,6 +192,43 @@ function onNewCanvas() {
         <LibraryPanel @use-as-reference="useAsReference" @preview="preview = $event" />
       </div>
     </aside>
+
+    <!-- 移动端侧栏抽屉 -->
+    <Transition name="nav">
+      <div v-if="mobileNavOpen" class="mobile-nav-scrim" @click.self="mobileNavOpen = false">
+        <div class="mobile-nav-panel" role="dialog" aria-label="导航">
+          <div class="mobile-nav-head">
+            <div class="logo" title="AI 绘画工作台">
+              <span class="logo-mark" aria-hidden="true">
+                <span class="logo-mark-glow" />
+                <AppIcon name="sparkles" :size="15" />
+              </span>
+              <div class="logo-copy">
+                <span class="logo-text">绘画工作台</span>
+                <span class="logo-sub">本地 · 零后端</span>
+              </div>
+            </div>
+            <button class="mobile-icon-btn" @click="mobileNavOpen = false" aria-label="关闭菜单">
+              <AppIcon name="x" :size="16" />
+            </button>
+          </div>
+          <button class="search-chip mobile-search" @click="searchOpen = true; mobileNavOpen = false">
+            <AppIcon name="search" :size="14" />
+            <span>搜索</span>
+            <kbd>{{ searchModKey }}K</kbd>
+          </button>
+          <div class="mobile-nav-body">
+            <SideBar
+              :theme="theme"
+              @open-settings="openSettings"
+              @open-storage="openStorage"
+              @toggle-theme="toggleTheme"
+              @new-canvas="onNewCanvas"
+            />
+          </div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- 移动端素材库抽屉(桌面右侧栏在 ≤1024 隐藏) -->
     <Transition name="sheet">
@@ -168,14 +252,23 @@ function onNewCanvas() {
     </button>
 
     <!-- 抽屉 -->
-    <SideDrawer v-if="drawer === 'settings'" title="接口设置" @close="drawer = null">
-      <PresetManager />
-    </SideDrawer>
-    <SideDrawer v-if="drawer === 'storage'" title="数据保护" @close="drawer = null">
-      <BackupTools @recipe-imported="onRecipeImported" @close-drawer="drawer = null" />
-    </SideDrawer>
+    <PresetManager
+      v-if="settingsOpen"
+      :start-create="settingsStartCreate || !store.presets.length"
+      @close="settingsOpen = false; settingsStartCreate = false"
+    />
+    <BackupTools
+      v-if="storageOpen"
+      @recipe-imported="onRecipeImported"
+      @close="storageOpen = false"
+    />
 
-    <ImageLightbox v-if="preview" :asset="preview" @close="preview = null" />
+    <ImageLightbox
+      v-if="preview"
+      :asset="preview"
+      @close="preview = null"
+      @use-as-reference="(id) => { useAsReference(id); preview = null }"
+    />
 
     <UnifiedSearch :visible="searchOpen" @close="searchOpen = false" @jump="onSearchJump" />
 
@@ -219,6 +312,7 @@ function onNewCanvas() {
   overflow: hidden;
   min-height: 0;
 }
+.rail-side { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .logo {
   display: flex;
   align-items: center;
@@ -353,21 +447,71 @@ function onNewCanvas() {
 }
 .collapse-tab:hover { color: var(--color-fg); transform: scale(1.04); }
 
+/* 移动端顶栏:默认隐藏 */
+.mobile-top { display: none; }
+.mobile-icon-btn {
+  width: 40px; height: 40px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 12px; color: var(--color-fg-muted);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.mobile-icon-btn:hover { background: var(--color-surface-2); color: var(--color-fg); }
+
+.mobile-nav-scrim {
+  position: fixed; inset: 0; z-index: 55;
+  background: var(--color-scrim);
+  display: flex; justify-content: flex-start;
+}
+.mobile-nav-panel {
+  width: min(86vw, 320px); height: 100%;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column;
+  padding: var(--space-3);
+  gap: var(--space-3);
+  overflow: hidden;
+}
+.mobile-nav-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  flex-shrink: 0;
+}
+.mobile-nav-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.mobile-search { flex-shrink: 0; }
+
+.nav-enter-active, .nav-leave-active { transition: opacity 180ms var(--ease); }
+.nav-enter-active .mobile-nav-panel,
+.nav-leave-active .mobile-nav-panel { transition: transform 220ms var(--ease-out); }
+.nav-enter-from, .nav-leave-to { opacity: 0; }
+.nav-enter-from .mobile-nav-panel,
+.nav-leave-to .mobile-nav-panel { transform: translateX(-16px); }
+
 @media (max-width: 1024px) {
-  .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; overflow: hidden; }
-  .rail {
-    flex-direction: row;
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    overflow: hidden;
+  }
+  .rail { display: none; }
+  .mobile-top {
+    display: flex;
     align-items: center;
     gap: var(--space-2);
-    overflow-x: auto;
-    overflow-y: hidden;
-    border-right: none;
-    border-bottom: 1px solid var(--color-border);
     padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+    background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+    backdrop-filter: blur(12px);
+    min-height: 52px;
   }
-  .logo-copy { display: none; }
-  .search-chip { width: auto; min-width: 108px; }
-  .search-chip kbd { display: none; }
+  .mobile-brand {
+    flex: 1; min-width: 0;
+    display: flex; align-items: center; gap: var(--space-2);
+  }
+  .mobile-logo { width: 28px; height: 28px; border-radius: 9px; }
+  .mobile-title {
+    font-size: 14px; font-weight: 650; color: var(--color-fg);
+    letter-spacing: -0.01em;
+  }
   .assets { display: none; }
   .mobile-assets-fab { display: flex; }
   .dock { padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); }
@@ -376,7 +520,8 @@ function onNewCanvas() {
   display: none;
   position: fixed;
   right: 16px;
-  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  /* 抬高,避开底部 Composer,减少误触 */
+  bottom: calc(148px + env(safe-area-inset-bottom, 0px));
   z-index: 40;
   width: 52px;
   height: 52px;

@@ -8,8 +8,16 @@ import { exportRecipe } from '../lib/share.js'
 import { downloadBlob, downloadJson } from '../lib/download.js'
 
 const store = useWorkbenchStore()
-const emit = defineEmits(['use-as-reference', 'preview'])
+const emit = defineEmits(['use-as-reference', 'preview', 'reuse', 'open-settings'])
 const scroller = ref(null)
+// 用户主动上翻时不抢滚动;仅贴近底部才跟滚。
+const stickToBottom = ref(true)
+const NEAR_BOTTOM_PX = 120
+// 空状态快捷键文案按平台
+const searchModKey = (() => {
+  if (typeof navigator === 'undefined') return 'Ctrl'
+  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '') ? '⌘' : 'Ctrl'
+})()
 
 // 时间正序(旧→新);只显示当前会话。
 const feed = computed(() => [...store.canvasGenerations].reverse())
@@ -18,6 +26,31 @@ function assetById(id) { return store.assets.find((a) => a.id === id) }
 function outputsOf(gen) { return gen.outputImageIds.map(assetById).filter(Boolean) }
 function refsOf(gen) { return (gen.refImageIds || []).map(assetById).filter(Boolean) }
 function modelOf(gen) { return gen.params?.model || '模型' }
+function qualityOf(gen) {
+  const q = gen.params?.quality
+  if (q === 'medium') return '中'
+  if (q === 'low') return '低'
+  if (q === 'high') return '高'
+  return ''
+}
+function isSettingsError(msg) {
+  return /API Key|接口|预设|Key|401|403|Unauthorized|鉴权|认证/i.test(String(msg || ''))
+}
+
+// 把这条的 prompt/参数/参考图填回输入框,方便改画质后再发。
+function reuseInComposer(gen) {
+  emit('reuse', {
+    prompt: gen.prompt || '',
+    refImageIds: [...(gen.refImageIds || [])],
+    params: {
+      size: gen.params?.size,
+      ratio: gen.params?.ratio,
+      resolution: gen.params?.resolution,
+      quality: gen.params?.quality,
+      n: gen.params?.n,
+    },
+  })
+}
 
 // ── 生成耗时:pending 轮实时跳秒、完成后定格(design D3)──
 const nowTick = ref(Date.now())
@@ -48,6 +81,18 @@ function downloadImage(a) {
   downloadBlob(a.blob, `${a.id}.${ext}`)
 }
 
+// 多图时记住每轮「当前图」(hover / 点击选中);操作作用在当前图而非永远第一张。
+const focusByGen = ref({}) // genId -> assetId
+function focusAsset(genId, assetId) {
+  focusByGen.value = { ...focusByGen.value, [genId]: assetId }
+}
+function activeOutput(gen) {
+  const outs = outputsOf(gen)
+  if (!outs.length) return null
+  const fid = focusByGen.value[gen.id]
+  return outs.find((a) => a.id === fid) || outs[0]
+}
+
 // 删除单条:延迟提交,给撤销窗口(design D3)。
 const UNDO_MS = 5000
 const undoToast = ref(null) // { genId, timer }
@@ -65,14 +110,22 @@ function undoDelete() {
   undoToast.value = null
 }
 
-watch(() => [feed.value.length, store.generating], async () => {
+function onFeedScroll() {
+  const el = scroller.value
+  if (!el) return
+  const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+  stickToBottom.value = dist <= NEAR_BOTTOM_PX
+}
+
+watch(() => [feed.value.length, store.generating, hasPending.value], async () => {
+  if (!stickToBottom.value) return
   await nextTick()
   scroller.value?.scrollTo({ top: scroller.value.scrollHeight, behavior: 'smooth' })
 })
 </script>
 
 <template>
-  <div class="feed" ref="scroller">
+  <div class="feed" ref="scroller" @scroll.passive="onFeedScroll">
     <div class="feed-inner">
       <!-- 空状态 -->
       <div v-if="!feed.length && !store.generating" class="empty">
@@ -82,7 +135,7 @@ watch(() => [feed.value.length, store.generating], async () => {
         <div class="empty-hints">
           <span class="empty-chip"><AppIcon name="image" :size="12" /> 可拖入参考图</span>
           <span class="empty-chip"><AppIcon name="keyboard" :size="12" /> Enter 生成</span>
-          <span class="empty-chip"><AppIcon name="search" :size="12" /> ⌘K 搜索</span>
+          <span class="empty-chip"><AppIcon name="search" :size="12" /> {{ searchModKey }}K 搜索</span>
         </div>
       </div>
 
@@ -108,6 +161,7 @@ watch(() => [feed.value.length, store.generating], async () => {
           <div class="card">
             <div class="card-head">
               <span class="model">{{ modelOf(gen) }}</span>
+              <span v-if="qualityOf(gen)" class="badge-soft tnum" :title="'画质 ' + qualityOf(gen)">{{ qualityOf(gen) }}</span>
               <span v-if="gen.status === 'success'" class="badge badge-ok"><AppIcon name="check" :size="11" /> 已完成</span>
               <span v-else-if="gen.status === 'failed'" class="badge badge-danger">失败</span>
               <span v-else-if="gen.status === 'empty'" class="badge badge-warn">无图片</span>
@@ -116,7 +170,14 @@ watch(() => [feed.value.length, store.generating], async () => {
             </div>
 
             <div v-if="gen.status === 'failed'" class="note note-danger">
-              <AppIcon name="alert" :size="14" /> <span>{{ gen.error }}</span>
+              <AppIcon name="alert" :size="14" />
+              <span class="note-text">{{ gen.error }}</span>
+              <button
+                v-if="isSettingsError(gen.error)"
+                type="button"
+                class="note-action"
+                @click="emit('open-settings')"
+              >去设置</button>
             </div>
             <div v-else-if="gen.status === 'empty'" class="note note-warn">
               <div>接口未返回可识别图片。<code class="snippet">{{ gen.rawResponseSnippet }}</code></div>
@@ -140,8 +201,13 @@ watch(() => [feed.value.length, store.generating], async () => {
             </div>
 
             <div v-if="outputsOf(gen).length" class="imgs" :class="{ single: outputsOf(gen).length === 1 }">
-              <figure v-for="a in outputsOf(gen)" :key="a.id" class="fig">
-                <button class="fig-img" @click="emit('preview', a)" aria-label="放大预览">
+              <figure
+                v-for="a in outputsOf(gen)" :key="a.id"
+                class="fig" :class="{ focused: activeOutput(gen)?.id === a.id && outputsOf(gen).length > 1 }"
+                @mouseenter="focusAsset(gen.id, a.id)"
+                @focusin="focusAsset(gen.id, a.id)"
+              >
+                <button class="fig-img" @click="focusAsset(gen.id, a.id); emit('preview', a)" aria-label="放大预览">
                   <AssetImage :asset="a" :alt="gen.prompt" />
                 </button>
                 <button
@@ -154,15 +220,28 @@ watch(() => [feed.value.length, store.generating], async () => {
               </figure>
             </div>
 
-            <!-- 操作区(生成中不显示) -->
+            <!-- 操作区(生成中不显示);多图时作用在当前聚焦图 -->
             <div v-if="gen.status !== 'pending'" class="actions">
-              <button class="act" @click="emit('use-as-reference', outputsOf(gen)[0]?.id)" :disabled="!outputsOf(gen).length" title="继续创作(设为参考图)">
+              <button
+                class="act"
+                @click="emit('use-as-reference', activeOutput(gen)?.id)"
+                :disabled="!activeOutput(gen)"
+                :title="outputsOf(gen).length > 1 ? '继续创作(当前选中图)' : '继续创作(设为参考图)'"
+              >
                 <AppIcon name="layers" :size="14" /> 继续创作
               </button>
-              <button class="act" @click="store.regenerate(gen.id)" :disabled="store.generating" title="重新生成">
+              <button class="act" @click="store.regenerate(gen.id)" :disabled="store.generating" title="按原参数再跑一次">
                 <AppIcon name="refresh" :size="14" /> 重新生成
               </button>
-              <button class="act" @click="downloadImage(outputsOf(gen)[0])" :disabled="!outputsOf(gen).length" title="下载">
+              <button class="act" @click="reuseInComposer(gen)" title="填回输入框,可改画质/比例后再生成">
+                <AppIcon name="message" :size="14" /> 填入输入框
+              </button>
+              <button
+                class="act"
+                @click="downloadImage(activeOutput(gen))"
+                :disabled="!activeOutput(gen)"
+                :title="outputsOf(gen).length > 1 ? '下载当前选中图' : '下载'"
+              >
                 <AppIcon name="download" :size="14" /> 下载
               </button>
               <button class="act" @click="shareRecipe(gen)" title="分享配方(不含 Key)">
@@ -273,7 +352,23 @@ watch(() => [feed.value.length, store.generating], async () => {
 }
 .card-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .model { font-size: 13px; font-weight: 600; color: var(--color-fg); }
+.badge-soft {
+  font-size: 11px; font-weight: 550; color: var(--color-fg-muted);
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+}
 .elapsed { margin-left: auto; font-size: 11px; color: var(--color-fg-subtle); }
+.note-danger, .note-warn {
+  display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
+}
+.note-text { flex: 1; min-width: 0; line-height: 1.45; }
+.note-action {
+  flex-shrink: 0; font-size: 12px; font-weight: 650;
+  color: var(--color-destructive); padding: 4px 10px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-destructive) 30%, transparent);
+  background: color-mix(in srgb, var(--color-destructive) 8%, transparent);
+}
+.note-action:hover { background: color-mix(in srgb, var(--color-destructive) 14%, transparent); }
 
 .imgs { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); align-items: start; }
 .imgs.single { grid-template-columns: minmax(0, 420px); }
@@ -286,6 +381,10 @@ watch(() => [feed.value.length, store.generating], async () => {
   transform: translateY(-1px);
   box-shadow: 0 10px 28px rgba(0,0,0,0.22);
 }
+.fig.focused {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: 2px;
+}
 /* 结果图按真实宽高比显示;过高时封顶 */
 .fig-img { display: block; width: 100%; padding: 0; }
 .fig-img :deep(.asset-img) { height: auto; max-height: 70vh; object-fit: contain; }
@@ -296,7 +395,11 @@ watch(() => [feed.value.length, store.generating], async () => {
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease), transform var(--dur) var(--ease);
   opacity: 0;
 }
-.fig:hover .fav, .fav.on { opacity: 1; }
+.fig:hover .fav, .fig.focused .fav, .fav.on { opacity: 1; }
+/* 触屏无 hover:常显收藏按钮,避免摸不到 */
+@media (hover: none) {
+  .fav { opacity: 0.92; }
+}
 .fav:hover { background: rgba(0,0,0,0.7); transform: scale(1.05); }
 .fav.on { color: var(--color-heart); }
 .fav.on :deep(svg) { fill: var(--color-heart); }

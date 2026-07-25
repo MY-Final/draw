@@ -41,6 +41,7 @@ function computeSize(r, res) {
 }
 
 const store = useWorkbenchStore()
+const emit = defineEmits(['open-settings'])
 
 const prompt = ref('')
 const ratio = ref('auto')
@@ -54,12 +55,17 @@ const promptLibToast = ref(null)
 // 次要参数(画质/数量)默认收起,给输入区更多呼吸感;非默认值时自动展开提示。
 const moreParamsOpen = ref(false)
 const moreParamsDirty = computed(() => quality.value !== 'high' || Number(n.value) !== 1)
+const missingKey = computed(() => !!(store.activePreset && !store.activePreset.apiKey))
+const canGenerate = computed(() =>
+  !!prompt.value.trim() && !!store.activePreset && !missingKey.value && !store.generating
+)
 
 function loadSavedPrompts() {
   savedPrompts.value = getAllPrompts(store.activeWorkspaceId).slice(0, 50)
 }
 
 function togglePromptLib() {
+  // 空输入也能打开列表(复用旧 prompt);有字时列表里可一键收藏当前
   showPromptLib.value = !showPromptLib.value
   if (showPromptLib.value) loadSavedPrompts()
 }
@@ -152,17 +158,29 @@ function onDragLeave() {
 function onDrop(e) {
   e.preventDefault()
   dropActive.value = false
+  // 1) 素材库拖入(application/json)
   try {
-    const data = JSON.parse(e.dataTransfer.getData('application/json'))
-    if (data.assetId) addReference(data.assetId)
-  } catch { /* 非素材库拖放,忽略 */ }
+    const raw = e.dataTransfer?.getData('application/json')
+    if (raw) {
+      const data = JSON.parse(raw)
+      if (data.assetId) {
+        addReference(data.assetId)
+        return
+      }
+    }
+  } catch { /* 继续尝试文件 */ }
+  // 2) 系统文件 / 访达拖入
+  const files = Array.from(e.dataTransfer?.files || []).filter((f) => f.type.startsWith('image/'))
+  if (files.length) {
+    // 多文件时逐张入库;改图协议实际只用第一张,但允许用户先摆好再删
+    files.forEach((f) => uploadRefImage(f))
+  }
 }
 function applyPrefill(prefill) {
   if (!prefill) return
   prompt.value = prefill.prompt || ''
-  // 非默认画质/数量时展开次要参数,避免用户看不到被还原的值。
-  if (prefill.params?.quality && prefill.params.quality !== 'high') moreParamsOpen.value = true
-  if (prefill.params?.n && Number(prefill.params.n) !== 1) moreParamsOpen.value = true
+  // 「填入输入框」场景:始终展开画质/数量,避免用户改参时还要再点「更多」。
+  moreParamsOpen.value = true
   if (prefill.params?.size) {
     // 向后兼容:旧格式 "1024x1024" 尝试解析,新格式用 ratio+resolution
     const s = prefill.params.size
@@ -199,14 +217,35 @@ function clear() {
 defineExpose({ addReference, applyPrefill, clear, fillPrompt })
 
 async function submit() {
-  if (!prompt.value.trim() || store.generating || !store.activePreset) return
+  if (!canGenerate.value) {
+    if (missingKey.value) {
+      store.lastError = '当前接口缺少 API Key,请先在接口设置中填写。'
+    }
+    return
+  }
   const text = prompt.value.trim()
   const refs = [...refImageIds.value]
   const sizeVal = computeSize(ratio.value, resolution.value)
   // 立即清空输入:乐观上屏已把本轮请求推上对话流,输入框无需等生成完成(请求即时上屏)。
   clear()
   // 发送给接口的 prompt 就是用户原文;画质走真实 quality 参数,不再往 prompt 拼形容词。
-  await store.generate({ prompt: text, fullPrompt: text, refImageIds: refs, params: { size: sizeVal, ratio: ratio.value, resolution: resolution.value, quality: quality.value, n: Number(n.value) } })
+  const result = await store.generate({
+    prompt: text,
+    fullPrompt: text,
+    refImageIds: refs,
+    params: {
+      size: sizeVal,
+      ratio: ratio.value,
+      resolution: resolution.value,
+      quality: quality.value,
+      n: Number(n.value),
+    },
+  })
+  // 失败/空结果时回填,避免长 prompt 白打;主动取消不回填(用户通常想空着)。
+  if (result && !result.ok && !result.cancelled) {
+    prompt.value = text
+    refImageIds.value = refs
+  }
 }
 
 // Enter 提交,但要避开中文输入法候选确认(isComposing 期间的 Enter 不算提交)。
@@ -221,13 +260,54 @@ function autogrow(e) {
   el.style.height = 'auto'
   el.style.height = Math.min(el.scrollHeight, 200) + 'px'
 }
+
+const settingsRelatedError = computed(() => {
+  const msg = store.lastError || ''
+  return /API Key|接口|预设|Key/i.test(msg)
+})
+
+function dismissError() { store.clearLastError() }
+function onErrorAction() {
+  if (settingsRelatedError.value) {
+    emit('open-settings')
+    store.clearLastError()
+  } else {
+    store.clearLastError()
+  }
+}
 </script>
 
 <template>
   <div class="composer-wrap">
-    <!-- 无接口时的引导条 -->
-    <div v-if="!store.activePreset" class="hint">
-      <AppIcon name="alert" :size="14" /> 还没有可用接口 —— 点左侧「设置」添加一个,即可开始。
+    <!-- 无接口 / 缺 Key:提示本身可点,文案不写死「左侧」(移动端侧栏在汉堡里) -->
+    <button
+      v-if="!store.activePreset"
+      type="button"
+      class="hint hint-btn"
+      @click="emit('open-settings', { create: true })"
+    >
+      <AppIcon name="alert" :size="14" /> 还没有可用接口 —— 点此添加,填好即可开始。
+    </button>
+    <button
+      v-else-if="missingKey"
+      type="button"
+      class="hint hint-btn"
+      @click="emit('open-settings')"
+    >
+      <AppIcon name="alert" :size="14" /> 当前接口缺少 API Key —— 点此填写后即可生成。
+    </button>
+    <div v-if="store.lastError" class="err-bar" role="alert">
+      <AppIcon name="alert" :size="14" />
+      <span class="err-text">{{ store.lastError }}</span>
+      <button
+        v-if="settingsRelatedError"
+        type="button"
+        class="err-action"
+        @click="onErrorAction"
+      >去设置</button>
+      <button class="err-close" @click="dismissError" aria-label="关闭错误">
+        <AppIcon name="x" :size="12" />
+      </button>
     </div>
 
     <!-- 参考图 chips 与上传 + DnD 目标(上传按钮始终可见) -->
@@ -235,8 +315,14 @@ function autogrow(e) {
       class="ref-strip" :class="{ 'drop-active': dropActive }"
       @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
     >
-      <div v-for="a in refAssets" :key="a.id" class="ref-thumb">
+      <div
+        v-for="(a, i) in refAssets" :key="a.id"
+        class="ref-thumb" :class="{ secondary: i > 0 }"
+        :title="i > 0 ? '不会发送:改图协议仅用第一张' : '将作为参考图发送'"
+      >
         <AssetImage :asset="a" alt="参考图" />
+        <span v-if="i === 0 && multiRefOnImages" class="ref-badge">用</span>
+        <span v-else-if="i > 0" class="ref-badge ref-badge-off">未用</span>
         <button class="ref-remove" @click="removeReference(a.id)" aria-label="移除参考图">
           <AppIcon name="x" :size="11" />
         </button>
@@ -245,7 +331,7 @@ function autogrow(e) {
         <AppIcon name="plus" :size="14" />
       </button>
       <input ref="fileInput" type="file" accept="image/*" class="hidden-input" @change="onFilePick" />
-      <span class="ref-tip">{{ refAssets.length ? (multiRefOnImages ? '参考图(改图仅用第一张)' : '参考图') : '上传或从素材库拖入参考图' }}</span>
+      <span class="ref-tip">{{ refAssets.length ? (multiRefOnImages ? '仅第一张会发送,其余未用' : '参考图') : '上传、粘贴或拖入参考图' }}</span>
     </div>
 
     <!-- 主输入框 -->
@@ -315,8 +401,9 @@ function autogrow(e) {
         <div class="prompt-lib-wrap">
           <button
             class="chip star-btn" :class="{ active: showPromptLib, highlight: prompt.trim() && !showPromptLib }"
-            @click.stop="togglePromptLib" :disabled="!prompt.trim() && !showPromptLib"
-            title="收藏 prompt"
+            @click.stop="togglePromptLib"
+            :title="prompt.trim() ? '收藏 / 打开 Prompt 库' : '打开 Prompt 库'"
+            aria-label="Prompt 库"
           >
             <AppIcon name="heart" :size="13" />
           </button>
@@ -356,8 +443,9 @@ function autogrow(e) {
         <button
           v-else
           class="btn btn-primary send"
-          :disabled="!prompt.trim() || !store.activePreset"
+          :disabled="!canGenerate"
           @click="submit" aria-label="生成图片"
+          :title="missingKey ? '请先填写 API Key' : (!store.activePreset ? '请先添加接口' : '生成图片')"
         >
           <AppIcon name="sparkles" :size="16" />
           生成
@@ -377,6 +465,34 @@ function autogrow(e) {
   background: color-mix(in srgb, var(--color-warning) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-warning) 24%, transparent);
 }
+.hint-btn {
+  width: 100%; text-align: left; cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.hint-btn:hover {
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+}
+.err-bar {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+  color: var(--color-destructive); margin-bottom: var(--space-2);
+  padding: 8px 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--color-destructive) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-destructive) 24%, transparent);
+}
+.err-text { flex: 1; min-width: 0; line-height: 1.4; }
+.err-action {
+  flex-shrink: 0; font-size: 12px; font-weight: 650;
+  color: var(--color-destructive); padding: 4px 8px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-destructive) 30%, transparent);
+  background: color-mix(in srgb, var(--color-destructive) 8%, transparent);
+}
+.err-action:hover { background: color-mix(in srgb, var(--color-destructive) 14%, transparent); }
+.err-close {
+  flex-shrink: 0; width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; color: var(--color-destructive);
+}
+.err-close:hover { background: color-mix(in srgb, var(--color-destructive) 12%, transparent); }
 
 .ref-strip {
   display: flex; align-items: center; gap: var(--space-2);
@@ -396,6 +512,18 @@ function autogrow(e) {
   position: relative; width: 48px; height: 48px; border-radius: 12px;
   overflow: hidden; border: 1px solid var(--color-border-strong);
   box-shadow: var(--shadow-1);
+}
+.ref-thumb.secondary { opacity: 0.55; }
+.ref-thumb.secondary:hover { opacity: 0.85; }
+.ref-badge {
+  position: absolute; left: 3px; bottom: 3px;
+  font-size: 9px; font-weight: 700; line-height: 1;
+  padding: 2px 4px; border-radius: 4px;
+  color: #fff; background: rgba(0,0,0,0.62); backdrop-filter: blur(4px);
+}
+.ref-badge-off {
+  background: rgba(0,0,0,0.72);
+  color: color-mix(in srgb, #fff 78%, var(--color-warning));
 }
 .ref-remove {
   position: absolute; top: 2px; right: 2px; width: 18px; height: 18px;
@@ -519,7 +647,6 @@ function autogrow(e) {
   color: var(--color-heart); border-color: color-mix(in srgb, var(--color-heart) 35%, transparent);
 }
 .star-btn.highlight { color: var(--color-heart); border-color: color-mix(in srgb, var(--color-heart) 40%, transparent); }
-.star-btn:disabled { opacity: 0.4; }
 
 .prompt-pop {
   position: absolute; bottom: 44px; right: 0; z-index: 30;

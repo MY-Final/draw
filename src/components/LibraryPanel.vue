@@ -4,19 +4,25 @@ import { ref } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 const store = useWorkbenchStore()
 const emit = defineEmits(['use-as-reference', 'preview'])
 const selected = ref(new Set())
+const confirmDelAssets = ref(false)
 
 function toggleSelect(id) {
   const s = new Set(selected.value)
   s.has(id) ? s.delete(id) : s.add(id)
   selected.value = s
 }
-async function deleteSelected() {
+function askDeleteSelected() {
   if (!selected.value.size) return
-  if (!confirm(`删除选中的 ${selected.value.size} 张素材?不可撤销。`)) return
+  confirmDelAssets.value = true
+}
+async function doDeleteSelected() {
+  confirmDelAssets.value = false
+  if (!selected.value.size) return
   await store.removeAssets([...selected.value])
   selected.value = new Set()
 }
@@ -34,7 +40,7 @@ async function deleteSelected() {
         >
           <AppIcon name="heart" :size="13" />
         </button>
-        <button v-if="selected.size" class="btn btn-sm btn-danger" @click="deleteSelected">
+        <button v-if="selected.size" class="btn btn-sm btn-danger" @click="askDeleteSelected">
           <AppIcon name="trash" :size="13" /> {{ selected.size }}
         </button>
         <span v-else class="lib-count tnum">{{ store.workspaceAssets.length }} 张</span>
@@ -79,6 +85,14 @@ async function deleteSelected() {
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      v-if="confirmDelAssets"
+      title="删除素材"
+      :message="`将删除选中的 ${selected.size} 张素材,不可撤销。`"
+      confirm-text="删除" danger
+      @confirm="doDeleteSelected" @cancel="confirmDelAssets = false"
+    />
   </div>
 </template>
 
@@ -178,7 +192,11 @@ async function deleteSelected() {
   position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
   opacity: 0; transition: opacity var(--dur) var(--ease);
 }
-.cell:hover .cell-actions, .cell.selected .cell-actions { opacity: 1; }
+.cell:hover .cell-actions, .cell.selected .cell-actions, .cell:focus-within .cell-actions { opacity: 1; }
+/* 触屏无 hover:操作钮常显,避免摸不到收藏/参考 */
+@media (hover: none) {
+  .cell-actions { opacity: 0.95; }
+}
 .mini {
   width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
   border-radius: 8px; background: rgba(0,0,0,0.58); color: #fff; backdrop-filter: blur(6px);

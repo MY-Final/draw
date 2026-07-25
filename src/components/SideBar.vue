@@ -29,8 +29,13 @@ function toggleWs(id) {
 }
 
 function selectWorkspace(id) {
+  // 点名称 = 切换工作区并确保展开;折叠只走 chevron,避免误触
   if (store.activeWorkspaceId !== id) store.switchWorkspace(id)
-  toggleWs(id)
+  if (!expandedWs.value.has(id)) {
+    const s = new Set(expandedWs.value)
+    s.add(id)
+    expandedWs.value = s
+  }
 }
 
 function openWsMenu(id, e) { e?.stopPropagation(); wsMenuFor.value = wsMenuFor.value === id ? null : id }
@@ -50,13 +55,38 @@ const renameText = ref('')
 
 function wsConversationGroups(wsId) {
   const gens = store.generations.filter(g => g.workspaceId === wsId)
-  return groupConversationsByDate(deriveConversations(gens, store.titleOverrides))
+  const groups = groupConversationsByDate(deriveConversations(gens, store.titleOverrides))
+  // 当前空白会话(新建创作后还没生成)也显示在树里,避免「幽灵会话」不可见
+  if (
+    wsId === store.activeWorkspaceId
+    && store.conversationId
+    && !gens.some((g) => convIdOf(g) === store.conversationId)
+  ) {
+    const draft = {
+      id: store.conversationId,
+      title: store.titleOverrides[store.conversationId] || '新创作',
+      createdAt: Date.now(),
+      lastAt: Date.now(),
+      count: 0,
+      draft: true,
+    }
+    let today = groups.find((g) => g.key === 'today')
+    if (!today) {
+      today = { key: 'today', label: '今天', order: 0, items: [] }
+      groups.unshift(today)
+    }
+    // 草稿置顶
+    today.items = [draft, ...today.items.filter((c) => c.id !== draft.id)]
+  }
+  return groups
 }
 function wsCount(wsId) {
   return store.generations.filter(g => g.workspaceId === wsId).length
 }
 function wsHasConversations(wsId) {
-  return store.generations.some(g => g.workspaceId === wsId)
+  if (store.generations.some(g => g.workspaceId === wsId)) return true
+  // 当前工作区有空白会话时也算「有会话」
+  return wsId === store.activeWorkspaceId && !!store.conversationId
 }
 
 function openMenu(id, e) { e?.stopPropagation(); menuFor.value = menuFor.value === id ? null : id }
@@ -74,8 +104,9 @@ const vFocus = { mounted: (el) => el.focus() }
   <div class="side">
     <div v-if="menuFor || wsMenuFor" class="menu-backdrop" @click="menuFor = null; wsMenuFor = null" />
     <div class="side-top">
-      <button class="btn btn-primary new-btn" @click="store.createWorkspace()">
-        <AppIcon name="plus" :size="15" /> 新建工作区
+      <!-- 高频:新会话;工作区降级到树底部次级入口 -->
+      <button class="btn btn-primary new-btn" @click="emit('new-canvas')">
+        <AppIcon name="plus" :size="15" /> 新建创作
       </button>
 
       <!-- 当前接口 -->
@@ -87,9 +118,15 @@ const vFocus = { mounted: (el) => el.focus() }
               {{ p.name || '未命名' }}
             </option>
           </select>
-          <span v-if="active && !active.apiKey" class="badge badge-warn mini-badge">缺 Key</span>
+          <button
+            v-if="active && !active.apiKey"
+            type="button"
+            class="badge badge-warn mini-badge key-badge"
+            @click="emit('open-settings')"
+            title="填写 API Key"
+          >缺 Key</button>
         </div>
-        <button v-else class="btn btn-sm add-first" @click="emit('open-settings')">
+        <button v-else class="btn btn-sm add-first" @click="emit('open-settings', { create: true })">
           <AppIcon name="plus" :size="13" /> 添加接口
         </button>
       </div>
@@ -97,7 +134,7 @@ const vFocus = { mounted: (el) => el.focus() }
       <!-- 工作区树 -->
       <div class="ws-tree" v-if="store.workspaces.length">
         <div v-for="ws in store.workspaces" :key="ws.id" class="ws-block">
-          <!-- 工作区头部 -->
+          <!-- 工作区头部:点名称切换;chevron 只负责展开 -->
           <div
             class="ws-header"
             :class="{ active: ws.id === store.activeWorkspaceId }"
@@ -146,7 +183,8 @@ const vFocus = { mounted: (el) => el.focus() }
                     <button class="hist-item" @click="store.switchConversation(c.id)" :title="c.title">
                       <AppIcon name="image" :size="13" />
                       <span class="hist-title">{{ c.title }}</span>
-                      <span class="hist-count tnum">{{ c.count }}</span>
+                      <span v-if="c.draft" class="hist-draft">草稿</span>
+                      <span v-else class="hist-count tnum">{{ c.count }}</span>
                     </button>
                     <button class="hist-menu" @click="openMenu(c.id, $event)" aria-label="会话操作">⋯</button>
                     <div v-if="menuFor === c.id" class="menu conv-menu" @click.stop>
@@ -157,12 +195,12 @@ const vFocus = { mounted: (el) => el.focus() }
                 </div>
               </div>
             </template>
-            <p v-else class="hist-empty helper">还没有会话。</p>
-            <button class="btn btn-sm new-conv-btn" @click="emit('new-canvas')">
-              <AppIcon name="plus" :size="11" /> 新建创作
-            </button>
+            <p v-else class="hist-empty helper">还没有会话。点上方「新建创作」开始。</p>
           </div>
         </div>
+        <button class="btn btn-sm new-ws-btn" @click="store.createWorkspace()">
+          <AppIcon name="plus" :size="11" /> 新建工作区
+        </button>
       </div>
       <p v-else class="hist-empty helper">还没有工作区。新建一个工作区开始创作。</p>
     </div>
@@ -170,7 +208,7 @@ const vFocus = { mounted: (el) => el.focus() }
     <div class="side-bottom">
       <button class="nav-item" @click="emit('open-storage')">
         <AppIcon name="image" :size="16" /> 数据保护
-        <span class="nav-meta tnum">{{ store.assets.length }}</span>
+        <span v-if="store.assets.length" class="nav-meta tnum">{{ store.assets.length }}</span>
       </button>
       <button class="nav-item" @click="emit('open-settings')">
         <AppIcon name="settings" :size="16" /> 接口设置
@@ -233,6 +271,8 @@ const vFocus = { mounted: (el) => el.focus() }
   min-height: 34px;
 }
 .mini-badge { flex-shrink: 0; }
+.key-badge { cursor: pointer; border: none; font: inherit; }
+.key-badge:hover { filter: brightness(1.05); }
 .add-first { width: 100%; border-radius: 999px; }
 
 /* 工作区树 */
@@ -285,6 +325,9 @@ const vFocus = { mounted: (el) => el.focus() }
 }
 .ws-header:hover .ws-menu-toggle, .ws-header.active .ws-menu-toggle { opacity: 1; }
 .ws-menu-toggle:hover { background: color-mix(in srgb, var(--color-border) 80%, transparent); color: var(--color-fg); }
+@media (hover: none) {
+  .ws-menu-toggle { opacity: 0.85; }
+}
 
 /* 工作区内联重命名 */
 .ws-rename-input { flex: 1; }
@@ -321,6 +364,12 @@ const vFocus = { mounted: (el) => el.focus() }
 .hist-row.active .hist-item { font-weight: 550; }
 .hist-row.active .hist-item :deep(svg) { color: var(--color-fg-muted); }
 .hist-title { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-draft {
+  font-size: 10px; color: var(--color-primary); flex-shrink: 0;
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--color-primary-soft);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
 .hist-count {
   font-size: 10px; color: var(--color-fg-subtle); flex-shrink: 0;
   min-width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;
@@ -335,6 +384,9 @@ const vFocus = { mounted: (el) => el.focus() }
 .hist-menu { flex-shrink: 0; width: 24px; height: 24px; margin-right: 2px; border-radius: var(--radius-sm); color: var(--color-fg-subtle); font-size: 15px; line-height: 1; opacity: 0; transition: opacity var(--dur) var(--ease); }
 .hist-row:hover .hist-menu, .hist-row.active .hist-menu { opacity: 1; }
 .hist-menu:hover { background: var(--color-border); color: var(--color-fg); }
+@media (hover: none) {
+  .hist-menu { opacity: 0.85; }
+}
 
 /* 菜单 */
 .menu { position: absolute; top: calc(100% - 2px); right: 4px; z-index: 20; min-width: 140px; padding: var(--space-1); background: var(--color-elevated); border: 1px solid var(--color-border-strong); border-radius: var(--radius); box-shadow: var(--shadow-pop); display: flex; flex-direction: column; gap: 1px; }
@@ -347,11 +399,11 @@ const vFocus = { mounted: (el) => el.focus() }
 
 .rename-input { width: 100%; padding: var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--color-primary); background: var(--color-surface); color: var(--color-fg); font-size: 13px; }
 
-.new-conv-btn {
-  width: 100%; justify-content: center; margin-top: var(--space-1);
+.new-ws-btn {
+  width: 100%; justify-content: center; margin-top: var(--space-2); flex-shrink: 0;
   border-style: dashed; color: var(--color-fg-muted); background: transparent;
 }
-.new-conv-btn:hover { color: var(--color-fg); border-color: var(--color-border-strong); background: var(--color-surface-2); }
+.new-ws-btn:hover { color: var(--color-fg); border-color: var(--color-border-strong); background: var(--color-surface-2); }
 
 .hist-empty { padding: 0 var(--space-2); font-size: 12px; }
 
