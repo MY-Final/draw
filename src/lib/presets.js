@@ -17,7 +17,27 @@ function uid() {
 export function loadPresets() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+
+    // 旧版曾保存 chat / auto / 缺省 protocol。请求层早已统一走 images，
+    // 这里把持久数据也一次性收敛，避免旧语义继续进入生成记录和分享配方。
+    let changed = false
+    const normalized = []
+    for (const preset of parsed) {
+      if (!preset || typeof preset !== 'object') {
+        changed = true
+        continue
+      }
+      if (preset.protocol === PROTOCOL_IMAGES) normalized.push(preset)
+      else {
+        changed = true
+        normalized.push({ ...preset, protocol: PROTOCOL_IMAGES })
+      }
+    }
+    if (changed) persist(normalized)
+    return normalized
   } catch {
     return []
   }

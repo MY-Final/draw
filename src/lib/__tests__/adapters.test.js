@@ -33,6 +33,16 @@ describe('generate 端点分派', () => {
     expect(calls[0].opts.headers['Content-Type']).toBeUndefined()
   })
 
+  it('旧 chat/auto protocol 也强制按参考图状态走 images 端点', async () => {
+    install()
+    await generate({ preset: preset('chat'), prompt: '猫', refImages: [], params: {} })
+    const blob = new Blob(['img'], { type: 'image/png' })
+    await generate({ preset: preset('auto'), prompt: '改图', refImages: [{ blob, mime: 'image/png' }], params: {} })
+
+    expect(calls[0].url).toContain('/v1/images/generations')
+    expect(calls[1].url).toContain('/v1/images/edits')
+  })
+
   it('images 多张参考图仅取第一张发 edits', async () => {
     install()
     const b1 = new Blob(['1'], { type: 'image/png' })

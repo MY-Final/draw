@@ -26,8 +26,8 @@ vi.mock('../adapters.js', () => ({
 }))
 
 const { runGeneration } = await import('../generationService.js')
-const { listAssets } = await import('../assetRepo.js')
-const { deleteGeneration } = await import('../generationRepo.js')
+const { listAssets, putAsset } = await import('../assetRepo.js')
+const { listGenerations, deleteGeneration } = await import('../generationRepo.js')
 const { getDB } = await import('../db.js')
 
 const AK = 'api' + 'Key'
@@ -61,6 +61,34 @@ describe('runGeneration 取消', () => {
     expect(result.status).toBe('failed')
     expect(result.error).toBe('已取消')
     expect((await listAssets()).length).toBe(0)
+  })
+
+  it('参考图 id 失效时明确失败，不静默降级为文生图', async () => {
+    await expect(runGeneration({
+      preset,
+      prompt: '基于参考图修改',
+      refImageIds: ['missing-asset'],
+      workspaceId: 'ws_default',
+    })).rejects.toThrow('参考图已不存在')
+
+    const [gen] = await listGenerations()
+    expect(gen.status).toBe('failed')
+    expect(gen.error).toContain('参考图已不存在')
+    expect((await listAssets()).length).toBe(0)
+  })
+
+  it('存在的参考图仍进入适配调用等待，可被正常取消', async () => {
+    const ref = await putAsset({
+      blob: new Blob(['ref'], { type: 'image/png' }),
+      mime: 'image/png',
+      source: 'reference-uploaded',
+    })
+    const controller = new AbortController()
+    const p = runGeneration({ preset, prompt: '改图', refImageIds: [ref.id], signal: controller.signal })
+    await new Promise((r) => setTimeout(r, 20))
+    controller.abort()
+    const result = await p
+    expect(result.error).toBe('已取消')
   })
 
   it('记录被删后 cancel 不抛', async () => {

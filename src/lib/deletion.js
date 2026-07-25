@@ -4,6 +4,17 @@
 //   ① 未被收藏  且  ② 未被任何"删除后仍存活"的 generation 当参考图引用
 // 时才可连带删除。参考图 refImageIds 永不参与连带删除。
 
+// 返回仍被任一生成记录引用的素材 id。素材库主动删除时用它阻止历史参考图/结果裂图。
+export function collectReferencedAssetIds({ assetIds, generations }) {
+  const candidates = assetIds instanceof Set ? assetIds : new Set(assetIds)
+  const referenced = new Set()
+  for (const g of generations) {
+    for (const id of g.refImageIds || []) if (candidates.has(id)) referenced.add(id)
+    for (const id of g.outputImageIds || []) if (candidates.has(id)) referenced.add(id)
+  }
+  return [...referenced]
+}
+
 // 收集要删的 generation 的产出图中,真正可以连带删除的 asset id。
 //   deletingGenIds: Set|Array  —— 本次要删的 generation id
 //   generations:    全部 generation(用于算存活集合与引用)

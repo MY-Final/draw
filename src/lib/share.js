@@ -1,7 +1,7 @@
 import JSZip from 'jszip'
 import { listAssets, getAsset, getAssets, putAsset } from './assetRepo.js'
 import { listGenerations, putGenerationRecord, createGeneration } from './generationRepo.js'
-import { loadPresets, savePreset } from './presets.js'
+import { loadPresets, savePreset, PROTOCOL_IMAGES } from './presets.js'
 import { listWorkspaces, putWorkspace } from './workspaceRepo.js'
 import { loadPrompts, savePrompts } from './promptLibrary.js'
 
@@ -179,8 +179,8 @@ export async function exportRecipe(generation) {
     schemaVersion: SCHEMA_VERSION,
     exportedAt: Date.now(),
     prompt: generation.prompt,
-    params: sanitizeParams(generation.params), // 不含 Key(params 本就不存 Key,双保险)
-    protocol: generation.params?.protocol || 'images',
+    params: { ...sanitizeParams(generation.params), protocol: PROTOCOL_IMAGES }, // 不含 Key,旧协议同步归一
+    protocol: PROTOCOL_IMAGES,
     refs,
   }
 }
@@ -203,13 +203,13 @@ export async function importRecipe(json, availablePresets) {
   const hasMatchingProtocol = presets.some((p) => p.protocol === data.protocol)
   // 协议已统一为 images;旧配方里的 chat 也按 images 处理,仅在完全没有预设时提示。
   const needsProtocolNotice = !presets.length
-    ? '此配方需要一个 images 协议的接口预设,请先添加并填写 Key。'
-    : (!hasMatchingProtocol && data.protocol && data.protocol !== 'images'
+    ? `此配方需要一个 ${PROTOCOL_IMAGES} 协议的接口预设,请先添加并填写 Key。`
+    : (!hasMatchingProtocol && data.protocol && data.protocol !== PROTOCOL_IMAGES
       ? '此配方来自旧版协议,当前工作台统一使用 images 接口,已为你载入参数,请用现有接口复现。'
       : null)
 
   return {
-    prefill: { prompt: data.prompt, params: data.params, protocol: data.protocol, refImageIds },
+    prefill: { prompt: data.prompt, params: data.params, protocol: PROTOCOL_IMAGES, refImageIds },
     needsProtocolNotice,
   }
 }

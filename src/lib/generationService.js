@@ -5,6 +5,7 @@ import { generate } from './adapters.js'
 import { toBlob, ApiError } from './http.js'
 import { putAsset, getAssets, deleteAssets } from './assetRepo.js'
 import { createGeneration, updateGeneration } from './generationRepo.js'
+import { PROTOCOL_IMAGES } from './presets.js'
 
 // refImageIds:素材库中的 asset id 列表(参考图走 images/edits)。
 // onPending:pending 记录落库后立即回调,供 store 做乐观上屏(请求即时上屏)。
@@ -41,7 +42,7 @@ export async function runGeneration({
   const gen = await createGeneration({
     prompt,
     refImageIds,
-    params: { ...params, prompt: fullPrompt || prompt, model: preset.model, protocol: preset.protocol },
+    params: { ...params, prompt: fullPrompt || prompt, model: preset.model, protocol: PROTOCOL_IMAGES },
     statusMessage,
     workspaceId,
   })
@@ -52,8 +53,11 @@ export async function runGeneration({
   try {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
 
-    // 2. 取参考图 Blob
+    // 2. 取参考图 Blob。任一引用失效都必须明确失败，不能静默降级成文生图。
     const refAssets = refImageIds.length ? await getAssets(refImageIds) : []
+    if (refAssets.length !== refImageIds.length) {
+      throw new ApiError('reference', '参考图已不存在，请重新选择后再生成。')
+    }
     const refImages = refAssets.map((a) => ({ blob: a.blob, mime: a.mime }))
 
     // 3. 适配调用(用 fullPrompt 发送,保持 prompt 原始存储)
@@ -77,18 +81,25 @@ export async function runGeneration({
     const outputImageIds = []
     for (const img of images) {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-      const blob = await toBlob(img)
+      const blob = await toBlob(img, signal)
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
       const asset = await putAsset({ blob, mime: blob.type, source: 'generated', workspaceId })
       createdAssetIds.push(asset.id)
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
       outputImageIds.push(asset.id)
     }
 
-    return (await safeUpdate(gen.id, {
+    const updated = await safeUpdate(gen.id, {
       status: 'success',
       outputImageIds,
       elapsedMs: Date.now() - gen.createdAt,
-    })) || { ...gen, status: 'success', outputImageIds }
+    })
+    // 记录在请求期间已被删除（删会话/清空）时，产物不能成为孤儿或重新出现。
+    if (!updated) {
+      if (createdAssetIds.length) await deleteAssets(createdAssetIds)
+      return { ...gen, status: 'failed', error: '生成记录已删除', cancelled: true }
+    }
+    return updated
   } catch (e) {
     // 取消/失败时清掉本轮已落库但未挂到 success 记录上的图
     if (createdAssetIds.length) {
