@@ -24,9 +24,11 @@ A **front-end-only, zero-backend** AI drawing workbench. Plug in your own OpenAI
 ## Features
 
 - **Zero backend**: the browser talks to the endpoint directly. No server, no account, no cloud sync.
-- **Standard images protocol**: text-to-image via `images/generations`; with reference images it automatically uses `images/edits` (OpenAI-compatible).
-- **Reference images / iterative editing**: set any asset (including past results) as a reference and regenerate — multi-turn editing is just "reuse an old image as reference," with no conversation state.
-- **Local asset library**: images are stored as Blobs in IndexedDB, never expiring by default; metadata and image bytes are separated, so one image can be reused in many places without duplicated storage.
+- **Standard images protocol**: text-to-image via `images/generations`; with reference images it automatically uses `images/edits` (OpenAI-compatible). Legacy `chat` / `auto` presets are migrated to `images` automatically.
+- **Reference images / iterative editing**: set any asset (including past results) as a reference and regenerate — multi-turn editing is just "reuse an old image as reference," with no conversation state. Missing references produce a clear error instead of silently falling back to text-to-image.
+- **Local asset library**: images are stored as Blobs in IndexedDB, never expiring by default; metadata and image bytes are separated, so one image can be reused in many places without duplicated storage. Assets still referenced by generation history cannot be deleted directly.
+- **Long-running generation support**: image-generation requests have no automatic client-side timeout and keep waiting for the endpoint; users can cancel manually, while interrupted jobs are reconciled after a page reload. URL-based result downloads retain a 60-second safety timeout.
+- **Workspaces and mobile**: workspaces, conversation history, unified search (`Ctrl/⌘ K`), mobile navigation, and a mobile asset-library entry point.
 - **Storage management**: view usage, delete assets; supports full-library zip export/import and backup reminders.
 - **Backup & sharing** (all **exclude the API key**):
   - Full-library zip export / import (migrate across machines or browsers).
@@ -50,7 +52,9 @@ npm run preview  # preview the build
 npm test         # run tests
 ```
 
-First run: click **New** on the left to create an endpoint preset → fill in Base URL / API Key / Model → **Test Connection** → Save → enter a prompt → Generate.
+First run: click **Add endpoint** → fill in Base URL / API Key / Model → **Test Connection** → Save → enter a prompt → Generate.
+
+> **Long-running requests**: the workbench does not impose a 120-second or other fixed client-side timeout on image generation. Some relay endpoints return paid results after a longer wait; you can still cancel manually. Reloading the page marks the in-flight job as interrupted.
 
 ## Deployment
 
@@ -88,6 +92,7 @@ Every platform offers a free tier; after deploying you get your own public URL. 
 
 - **CORS**: browsers direct-calling third-party endpoints are subject to the same-origin policy. "Supports any endpoint" assumes that endpoint **allows cross-origin** requests; endpoints that don't allow CORS can't be reached directly from a pure front end (error messages distinguish CORS/network, auth, and other cases).
 - **Connectivity probe**: "Test connection" only does `GET /v1/models` and never triggers a billable image generation.
+- **Generation requests**: image-generation API calls have no fixed client-side timeout, so a relay can return a paid result after a long wait; users can cancel explicitly. If the API returns an external image URL, the subsequent download step has a 60-second safety timeout.
 - **Plaintext API key**: a pure front end has no secure hiding place, so the key is stored in plaintext in localStorage. Don't save it on a shared device; the UI provides a "clear credentials" button.
 - **Browser storage**: IndexedDB may be evicted by the browser under storage pressure; export important assets via full-library zip backup.
 
@@ -100,8 +105,9 @@ Vue 3 + Vite · Pinia · idb (IndexedDB) · JSZip · pure-CSS design system (dar
 ```
 Data model : assets (image Blobs) and generations (generation events) are
              separated and reference each other by id.
-Adapter    : unified generate(); no refs → generations, with refs → edits.
-Storage    : Blobs persisted to DB; display via URL.createObjectURL, released centrally.
+Adapter    : unified generate(); no refs → generations, with refs → edits; generation calls have no client timeout.
+Lifecycle  : explicit user cancellation; stale pending jobs reconciled after reload; active jobs and orphan outputs cleaned up on deletion.
+Storage    : Blobs persisted to DB; display via URL.createObjectURL, released centrally; reference-aware deletion protects history.
 Sharing    : all share-level exports are forced through stripKey() to strip the key
              (locked down by tests).
 ```
