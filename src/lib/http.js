@@ -13,9 +13,9 @@ export class ApiError extends Error {
   }
 }
 
-// 接口调用超时(ms):服务端生成较慢,给足时间但不无限等,避免记录永久 pending。
-const API_TIMEOUT_MS = 120000
 // 图片外链下载超时(ms):拿到 url 后下载不应长时间挂起。
+// 生图 API 本身不设客户端超时：部分中转站生成会超过两分钟且已先计费，
+// 客户端只能由用户主动取消、页面刷新/关闭或网络失败来终止。
 const IMAGE_TIMEOUT_MS = 60000
 
 // 合并多个 AbortSignal:任一触发即中止。旧浏览器没有 AbortSignal.any 时手工转发，
@@ -71,14 +71,11 @@ export async function callApi(url, { apiKey, body, signal } = {}) {
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
       body: isForm ? body : JSON.stringify(body),
-      signal: withTimeout(signal, API_TIMEOUT_MS),
+      signal,
     })
   } catch (e) {
-    // 用户主动取消要保留 AbortError 语义，不能误报为接口超时。
+    // 用户主动取消保留 AbortError 语义，交给生成服务收口为“已取消”。
     if (signal?.aborted) throw e
-    if (isTimeout(e)) {
-      throw new ApiError('timeout', `接口在 ${API_TIMEOUT_MS / 1000}s 内未响应(已超时)。`, String(e))
-    }
     // fetch 抛异常 = 网络层失败,浏览器不区分 CORS 与断网(安全策略),统一归类。
     throw new ApiError('network-or-cors', '无法连接接口:可能是网络问题或接口未开放跨域(CORS)。', String(e))
   }

@@ -1,8 +1,25 @@
 import { describe, it, expect, vi } from 'vitest'
 import { combineAbortSignals, callApi } from '../http.js'
 
-describe('callApi 取消语义', () => {
-  it('用户 signal 中止时保留 AbortError，不误包装成 timeout', async () => {
+describe('callApi 请求生命周期', () => {
+  it('生图请求不创建客户端超时，并原样使用用户 signal', async () => {
+    const controller = new AbortController()
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
+    vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
+      expect(options.signal).toBe(controller.signal)
+      return { ok: true, status: 200, json: async () => ({ data: [] }) }
+    }))
+
+    await callApi('https://api.test/v1/images/generations', {
+      body: { prompt: 'long-running image' },
+      signal: controller.signal,
+    })
+
+    expect(timeoutSpy).not.toHaveBeenCalled()
+    timeoutSpy.mockRestore()
+  })
+
+  it('用户 signal 中止时保留 AbortError', async () => {
     const controller = new AbortController()
     vi.stubGlobal('fetch', vi.fn((_url, { signal }) => new Promise((_resolve, reject) => {
       signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
