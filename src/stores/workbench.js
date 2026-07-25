@@ -12,7 +12,7 @@ import {
   deriveConversations, groupConversationsByDate, convIdOf,
   loadTitleOverrides, saveTitleOverrides,
 } from '../lib/conversations.js'
-import { collectDeletableOutputs } from '../lib/deletion.js'
+import { collectDeletableOutputs, collectReferencedAssetIds } from '../lib/deletion.js'
 import { getDB, STORE_WORKSPACES, STORE_ASSETS } from '../lib/db.js'
 import { listWorkspaces, createWorkspace as repoCreateWs, updateWorkspace, deleteWorkspace as repoDeleteWs } from '../lib/workspaceRepo.js'
 import { migrateLegacyPrompts, savePrompts } from '../lib/promptLibrary.js'
@@ -28,7 +28,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     generating: false,
     lastError: null,
     // 当前进行中的生成:用于取消(abort)与删除 pending 时中止网络请求。
-    activeGeneration: null, // { genId, controller }
+    activeGeneration: null, // { genId, conversationId, workspaceId, controller, done }
     // 当前会话(新建创作 = 新会话)。会话只是视图分组,持久保留,可在左侧导航切回。
     conversationId: null,
     favoritesOnly: false,
@@ -109,16 +109,18 @@ export const useWorkbenchStore = defineStore('workbench', {
       return `conv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     },
 
-    // 调和遗留的 pending:页面在生成途中刷新/崩溃会留下永久 pending 记录
-    // (计时器空转、UI 显示上万秒)。启动时把超时(>2min)的 pending 标为失败。
+    // 页面重载后旧请求已不可能继续:AbortController 与 fetch 都已随页面销毁。
+    // 因此所有遗留 pending 都应立即收口,不能只处理已超过某个时长的记录，
+    // 否则刚开始生成就刷新会留下永久 pending。
     async reconcileStalePending() {
-      const STALE_MS = 2 * 60 * 1000
       const now = Date.now()
-      const stale = this.generations.filter((g) => g.status === 'pending' && now - g.createdAt > STALE_MS)
+      const stale = this.generations.filter((g) => g.status === 'pending')
       if (!stale.length) return
-      for (const g of stale) {
-        await updateGeneration(g.id, { status: 'failed', error: '生成中断(页面刷新或超时)', elapsedMs: now - g.createdAt })
-      }
+      await Promise.all(stale.map((g) => updateGeneration(g.id, {
+        status: 'failed',
+        error: '生成中断（页面已刷新）',
+        elapsedMs: Math.max(0, now - g.createdAt),
+      })))
       await this.refreshAll()
     },
 
@@ -197,12 +199,12 @@ export const useWorkbenchStore = defineStore('workbench', {
 
       // 级联:删该工作区下全部 generation + 可连带删除的产出图 + 未再被引用的素材。
       // 与确认框文案一致,避免只删元数据留下孤儿数据占空间。
-      const wsGens = this.generations.filter((g) => g.workspaceId === id)
-      const genIds = wsGens.map((g) => g.id)
+      let genIds = this.generations.filter((g) => g.workspaceId === id).map((g) => g.id)
 
-      // 先取消进行中的生成(若属于本工作区)
-      if (this.activeGeneration && genIds.includes(this.activeGeneration.genId)) {
-        this.cancelActiveGeneration()
+      // 先取消进行中的生成(若属于本工作区)，等待收口后重新取列表，覆盖 pending 刚落库的窗口。
+      if (this.activeGeneration?.workspaceId === id || (this.activeGeneration && genIds.includes(this.activeGeneration.genId))) {
+        await this.cancelAndWaitActiveGeneration()
+        genIds = this.generations.filter((g) => g.workspaceId === id).map((g) => g.id)
       }
       // 清掉该工作区相关的软删定时器,直接提交
       for (const gid of genIds) {
@@ -224,11 +226,10 @@ export const useWorkbenchStore = defineStore('workbench', {
       const remainingAssets = this.assets.filter((a) => a.workspaceId === id)
       if (remainingAssets.length) {
         const otherGens = this.generations.filter((g) => g.workspaceId !== id)
-        const stillReferenced = new Set()
-        for (const g of otherGens) {
-          for (const rid of g.refImageIds || []) stillReferenced.add(rid)
-          for (const oid of g.outputImageIds || []) stillReferenced.add(oid)
-        }
+        const stillReferenced = new Set(collectReferencedAssetIds({
+          assetIds: remainingAssets.map((a) => a.id),
+          generations: otherGens,
+        }))
         const favoritesToo = remainingAssets
           .filter((a) => !stillReferenced.has(a.id))
           .map((a) => a.id)
@@ -293,6 +294,13 @@ export const useWorkbenchStore = defineStore('workbench', {
     },
 
     // ── 生成 ──
+    async cancelAndWaitActiveGeneration() {
+      const active = this.activeGeneration
+      if (!active) return
+      this.cancelActiveGeneration()
+      try { await active.done } catch { /* generate 已负责落失败态/清理孤儿图 */ }
+    },
+
     cancelActiveGeneration() {
       const ag = this.activeGeneration
       if (!ag) return
@@ -315,7 +323,15 @@ export const useWorkbenchStore = defineStore('workbench', {
       this.generating = true
       this.lastError = null
       const controller = new AbortController()
-      this.activeGeneration = { genId: null, controller }
+      let resolveDone
+      const done = new Promise((resolve) => { resolveDone = resolve })
+      this.activeGeneration = {
+        genId: null,
+        conversationId: this.conversationId,
+        workspaceId: this.activeWorkspaceId,
+        controller,
+        done,
+      }
       try {
         // 把当前会话 id 和 workspace id 记进这次生成。
         const gen = await runGeneration({
@@ -350,6 +366,7 @@ export const useWorkbenchStore = defineStore('workbench', {
         await this.refreshAll()
         return { ok: false, error: this.lastError }
       } finally {
+        resolveDone()
         this.generating = false
         this.activeGeneration = null
       }
@@ -431,7 +448,12 @@ export const useWorkbenchStore = defineStore('workbench', {
 
     // ── 删除整段会话(立即,连带删图)──
     async deleteConversation(id) {
-      const ids = this.generations.filter((g) => convIdOf(g) === id).map((g) => g.id)
+      let ids = this.generations.filter((g) => convIdOf(g) === id).map((g) => g.id)
+      // 删除包含活跃生成的会话时先中止并等待；随后重新取列表，覆盖 pending 刚落库的窗口。
+      if (this.activeGeneration?.conversationId === id || (this.activeGeneration && ids.includes(this.activeGeneration.genId))) {
+        await this.cancelAndWaitActiveGeneration()
+        ids = this.generations.filter((g) => convIdOf(g) === id).map((g) => g.id)
+      }
       await this._deleteGensAndOrphans(ids)
       // 清除该会话的标题覆盖
       if (this.titleOverrides[id]) {
@@ -458,6 +480,8 @@ export const useWorkbenchStore = defineStore('workbench', {
 
     // ── 清空全部(删所有生成 + 素材,保留预设/Key)──
     async resetWorkbench() {
+      // 清空期间若仍有请求，先中止并等待其清理完成，防止与 clear 交错后又写回。
+      await this.cancelAndWaitActiveGeneration()
       // 先落库任何待删项,避免定时器残留
       for (const id of Object.keys(this.pendingDeletes)) clearTimeout(this.pendingDeletes[id].timer)
       this.pendingDeletes = {}
@@ -478,8 +502,16 @@ export const useWorkbenchStore = defineStore('workbench', {
       return asset
     },
     async removeAssets(ids) {
-      await deleteAssets(ids)
+      const uniqueIds = [...new Set(ids)].filter(Boolean)
+      const blockedIds = collectReferencedAssetIds({
+        assetIds: uniqueIds,
+        generations: this.generations,
+      })
+      const blocked = new Set(blockedIds)
+      const deletableIds = uniqueIds.filter((id) => !blocked.has(id))
+      if (deletableIds.length) await deleteAssets(deletableIds)
       await this.refreshAll()
+      return { deletedIds: deletableIds, blockedIds }
     },
     async toggleAssetFavorite(id) {
       await toggleFavorite(id)

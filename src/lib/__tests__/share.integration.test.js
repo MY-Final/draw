@@ -14,7 +14,7 @@ vi.stubGlobal('localStorage', {
 
 const { putAsset, listAssets, deleteAssets } = await import('../assetRepo.js')
 const { createGeneration, updateGeneration, listGenerations } = await import('../generationRepo.js')
-const { exportLibraryZip, importLibraryZip, exportPresets } = await import('../share.js')
+const { exportLibraryZip, importLibraryZip, exportPresets, exportRecipe } = await import('../share.js')
 const { savePreset, loadPresets } = await import('../presets.js')
 
 function blob(text = 'PNGDATA') {
@@ -64,6 +64,18 @@ describe('整库 zip 往返', () => {
     expect(JSON.stringify(data)).not.toContain('sk-LIVE-9999')
     // 本机预设仍保留 Key
     expect(loadPresets()[0].apiKey).toBe('sk-LIVE-9999')
+  })
+
+  it('导出旧历史配方时顶层和 params 协议都归一为 images', async () => {
+    const generation = {
+      id: 'legacy-gen',
+      prompt: '旧版配方',
+      refImageIds: [],
+      params: { protocol: 'chat', quality: 'high' },
+    }
+    const recipe = await exportRecipe(generation)
+    expect(recipe.protocol).toBe('images')
+    expect(recipe.params.protocol).toBe('images')
   })
 
   it('导入无效 zip 被拒绝', async () => {

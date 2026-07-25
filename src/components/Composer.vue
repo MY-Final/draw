@@ -1,11 +1,12 @@
 <script setup>
 // 底部固定输入区(composer,对话式布局)。prompt + 内联参数 + 参考图 chips + 生成。
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AppIcon from './AppIcon.vue'
 import AssetImage from './AssetImage.vue'
 import { addPrompt, removePrompt, getAllPrompts } from '../lib/promptLibrary.js'
 import { imageFromClipboard } from '../lib/clipboard.js'
+import { uploadInOrder } from '../lib/referenceUploads.js'
 
 // ── 尺寸计算(宽高比 × 分辨率组合,design D1)──
 const RES_MAP = { '1k': 1024, '2k': 2048, '4k': 4096 }
@@ -108,13 +109,32 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('paste', onPaste)
+  if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
 })
 
 // 参考图走 images/edits 改图;多张时只用第一张。
+const assetById = computed(() => new Map(store.assets.map((asset) => [asset.id, asset])))
 const refAssets = computed(() =>
-  refImageIds.value.map((id) => store.assets.find((a) => a.id === id)).filter(Boolean)
+  refImageIds.value.map((id) => assetById.value.get(id)).filter(Boolean)
 )
-const multiRefOnImages = computed(() => refImageIds.value.length > 1)
+const multiRefOnImages = computed(() => refAssets.value.length > 1)
+const referenceNotice = ref('')
+let referenceNoticeTimer = null
+
+// 素材可能在另一处被删除/导入覆盖。同步清掉失效 id 并提示，避免缩略图消失后状态仍暗中残留。
+watch([
+  () => [...assetById.value.keys()],
+  () => [...refImageIds.value],
+], ([assetIds]) => {
+  const available = new Set(assetIds)
+  const valid = refImageIds.value.filter((id) => available.has(id))
+  const removed = refImageIds.value.length - valid.length
+  if (!removed) return
+  refImageIds.value = valid
+  referenceNotice.value = `${removed} 张参考图已不存在，已从本次生成中移除。`
+  if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
+  referenceNoticeTimer = setTimeout(() => { referenceNotice.value = '' }, 5000)
+})
 
 function addReference(id) {
   if (!refImageIds.value.includes(id)) refImageIds.value = [...refImageIds.value, id]
@@ -155,7 +175,7 @@ function onDragOver(e) {
 function onDragLeave() {
   dropActive.value = false
 }
-function onDrop(e) {
+async function onDrop(e) {
   e.preventDefault()
   dropActive.value = false
   // 1) 素材库拖入(application/json)
@@ -172,8 +192,8 @@ function onDrop(e) {
   // 2) 系统文件 / 访达拖入
   const files = Array.from(e.dataTransfer?.files || []).filter((f) => f.type.startsWith('image/'))
   if (files.length) {
-    // 多文件时逐张入库;改图协议实际只用第一张,但允许用户先摆好再删
-    files.forEach((f) => uploadRefImage(f))
+    // 串行入库以保留 DataTransfer.files 的用户顺序；接口实际发送第一张。
+    await uploadInOrder(files, uploadRefImage)
   }
 }
 function applyPrefill(prefill) {
@@ -310,6 +330,10 @@ function onErrorAction() {
       </button>
     </div>
 
+    <div v-if="referenceNotice" class="ref-notice" role="status" aria-live="polite">
+      <AppIcon name="alert" :size="13" /> {{ referenceNotice }}
+    </div>
+
     <!-- 参考图 chips 与上传 + DnD 目标(上传按钮始终可见) -->
     <div
       class="ref-strip" :class="{ 'drop-active': dropActive }"
@@ -318,7 +342,7 @@ function onErrorAction() {
       <div
         v-for="(a, i) in refAssets" :key="a.id"
         class="ref-thumb" :class="{ secondary: i > 0 }"
-        :title="i > 0 ? '不会发送:改图协议仅用第一张' : '将作为参考图发送'"
+        :title="i > 0 ? '不会发送：带参考图时仅使用第一张' : '将作为参考图发送'"
       >
         <AssetImage :asset="a" alt="参考图" />
         <span v-if="i === 0 && multiRefOnImages" class="ref-badge">用</span>
@@ -493,6 +517,13 @@ function onErrorAction() {
   border-radius: 999px; color: var(--color-destructive);
 }
 .err-close:hover { background: color-mix(in srgb, var(--color-destructive) 12%, transparent); }
+.ref-notice {
+  display: flex; align-items: center; gap: 7px;
+  margin-bottom: var(--space-2); padding: 8px 12px; border-radius: 12px;
+  font-size: 12px; color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 24%, transparent);
+}
 
 .ref-strip {
   display: flex; align-items: center; gap: var(--space-2);

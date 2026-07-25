@@ -1,6 +1,6 @@
 <script setup>
 // 右栏(安静):素材库网格 + 设为参考 + 预览 + 删除。用量/备份已移入抽屉。
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
@@ -10,6 +10,9 @@ const store = useWorkbenchStore()
 const emit = defineEmits(['use-as-reference', 'preview'])
 const selected = ref(new Set())
 const confirmDelAssets = ref(false)
+const deleteNotice = ref('')
+let deleteNoticeTimer = null
+onUnmounted(() => { if (deleteNoticeTimer) clearTimeout(deleteNoticeTimer) })
 
 function toggleSelect(id) {
   const s = new Set(selected.value)
@@ -23,8 +26,17 @@ function askDeleteSelected() {
 async function doDeleteSelected() {
   confirmDelAssets.value = false
   if (!selected.value.size) return
-  await store.removeAssets([...selected.value])
-  selected.value = new Set()
+  const result = await store.removeAssets([...selected.value])
+  selected.value = new Set(result.blockedIds)
+  deleteNotice.value = ''
+  if (deleteNoticeTimer) clearTimeout(deleteNoticeTimer)
+  if (result.blockedIds.length) {
+    deleteNotice.value = result.deletedIds.length
+      ? `已删除 ${result.deletedIds.length} 张；${result.blockedIds.length} 张仍被生成记录引用，已保留。`
+      : `所选素材仍被生成记录引用，不能直接删除。请先删除相关生成记录。`
+    if (deleteNoticeTimer) clearTimeout(deleteNoticeTimer)
+    deleteNoticeTimer = setTimeout(() => { deleteNotice.value = '' }, 5000)
+  }
 }
 </script>
 
@@ -45,6 +57,11 @@ async function doDeleteSelected() {
         </button>
         <span v-else class="lib-count tnum">{{ store.workspaceAssets.length }} 张</span>
       </div>
+    </div>
+
+    <div v-if="deleteNotice" class="delete-notice" role="status" aria-live="polite">
+      <AppIcon name="alert" :size="13" />
+      <span>{{ deleteNotice }}</span>
     </div>
 
     <div v-if="!store.workspaceAssets.length" class="lib-empty">
@@ -89,7 +106,7 @@ async function doDeleteSelected() {
     <ConfirmDialog
       v-if="confirmDelAssets"
       title="删除素材"
-      :message="`将删除选中的 ${selected.size} 张素材,不可撤销。`"
+      :message="`将删除选中的 ${selected.size} 张素材。仍被生成记录引用的素材会保留，其余删除后不可恢复。`"
       confirm-text="删除" danger
       @confirm="doDeleteSelected" @cancel="confirmDelAssets = false"
     />
@@ -114,6 +131,14 @@ async function doDeleteSelected() {
 }
 .filter-btn.on :deep(svg) { fill: var(--color-heart); }
 .lib-title { font-size: 12px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-fg-subtle); }
+.delete-notice {
+  display: flex; align-items: flex-start; gap: 7px;
+  padding: 8px 10px; border-radius: 10px;
+  font-size: 11px; line-height: 1.45; color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 24%, transparent);
+}
+.delete-notice svg { flex-shrink: 0; margin-top: 1px; }
 .lib-count {
   font-size: 11px; color: var(--color-fg-subtle);
   min-height: 22px; padding: 0 8px; border-radius: 999px;

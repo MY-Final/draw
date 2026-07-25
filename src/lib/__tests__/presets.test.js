@@ -9,7 +9,7 @@ vi.stubGlobal('localStorage', {
   clear: () => map.clear(),
 })
 
-const { savePreset, loadPresets, clearAllKeys } = await import('../presets.js')
+const { savePreset, loadPresets, clearAllKeys, PROTOCOL_IMAGES } = await import('../presets.js')
 
 const AK = 'api' + 'Key'
 const K1 = 'key-one'
@@ -44,6 +44,28 @@ describe('savePreset preserveExistingKey', () => {
     const a = savePreset(preset({ [AK]: KLIVE }))
     savePreset(preset({ id: a.id, [AK]: KNEW }), { preserveExistingKey: true })
     expect(loadPresets()[0][AK]).toBe(KNEW)
+  })
+
+  it('旧 chat/auto/缺省协议读取时迁移并持久化为 images', () => {
+    map.set('workbench.presets.v1', JSON.stringify([
+      preset({ id: 'chat', protocol: 'chat' }),
+      preset({ id: 'auto', protocol: 'auto' }),
+      preset({ id: 'missing' }),
+      preset({ id: 'images', protocol: PROTOCOL_IMAGES }),
+    ]))
+
+    const loaded = loadPresets()
+    expect(loaded.map((p) => p.protocol)).toEqual([
+      PROTOCOL_IMAGES, PROTOCOL_IMAGES, PROTOCOL_IMAGES, PROTOCOL_IMAGES,
+    ])
+    const persisted = JSON.parse(map.get('workbench.presets.v1'))
+    expect(persisted.every((p) => p.protocol === PROTOCOL_IMAGES)).toBe(true)
+  })
+
+  it('保存时忽略旧 protocol 并强制 images', () => {
+    const saved = savePreset(preset({ protocol: 'chat' }))
+    expect(saved.protocol).toBe(PROTOCOL_IMAGES)
+    expect(loadPresets()[0].protocol).toBe(PROTOCOL_IMAGES)
   })
 
   it('clearAllKeys 仍清空', () => {

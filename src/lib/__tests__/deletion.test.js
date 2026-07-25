@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { collectDeletableOutputs } from '../deletion.js'
+import { collectDeletableOutputs, collectReferencedAssetIds } from '../deletion.js'
 
 // gen 工厂:{ id, outputImageIds, refImageIds }
 function gen(id, outputs = [], refs = []) {
@@ -8,6 +8,26 @@ function gen(id, outputs = [], refs = []) {
 function asset(id, favorite = false) {
   return { id, favorite }
 }
+
+describe('collectReferencedAssetIds', () => {
+  it('同时识别历史参考图和产出图引用', () => {
+    const generations = [
+      gen('g1', ['out1'], ['ref1']),
+      gen('g2', ['out2'], ['ref2']),
+    ]
+    expect(collectReferencedAssetIds({
+      assetIds: ['out1', 'ref2', 'free'],
+      generations,
+    }).sort()).toEqual(['out1', 'ref2'])
+  })
+
+  it('忽略未被任何记录引用的素材', () => {
+    expect(collectReferencedAssetIds({
+      assetIds: ['free'],
+      generations: [gen('g1', ['out1'], ['ref1'])],
+    })).toEqual([])
+  })
+})
 
 describe('collectDeletableOutputs', () => {
   it('未收藏且无引用 → 连带删', () => {

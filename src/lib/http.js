@@ -8,7 +8,7 @@ export class ApiError extends Error {
   constructor(category, message, detail = null) {
     super(message)
     this.name = 'ApiError'
-    this.category = category // 'network-or-cors' | 'auth' | 'api' | 'unknown'
+    this.category = category // 'network-or-cors' | 'auth' | 'api' | 'timeout' | 'reference' | 'unknown'
     this.detail = detail
   }
 }
@@ -18,13 +18,40 @@ const API_TIMEOUT_MS = 120000
 // 图片外链下载超时(ms):拿到 url 后下载不应长时间挂起。
 const IMAGE_TIMEOUT_MS = 60000
 
+// 合并多个 AbortSignal:任一触发即中止。旧浏览器没有 AbortSignal.any 时手工转发，
+// 不能丢掉用户主动取消的 signal。
+export function combineAbortSignals(signals) {
+  const active = signals.filter(Boolean)
+  if (!active.length) return undefined
+  if (active.length === 1) return active[0]
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any(active)
+
+  const controller = new AbortController()
+  const listeners = new Map()
+  const cleanup = () => {
+    for (const [source, listener] of listeners) source.removeEventListener('abort', listener)
+    listeners.clear()
+  }
+  const abortFrom = (source) => {
+    if (controller.signal.aborted) return
+    cleanup()
+    try { controller.abort(source.reason) } catch { controller.abort() }
+  }
+  for (const source of active) {
+    if (source.aborted) {
+      abortFrom(source)
+      break
+    }
+    const listener = () => abortFrom(source)
+    listeners.set(source, listener)
+    source.addEventListener('abort', listener, { once: true })
+  }
+  return controller.signal
+}
+
 // 合并外部 signal 与超时 signal:任一触发即中止。
 function withTimeout(signal, ms) {
-  const timeoutSignal = AbortSignal.timeout(ms)
-  if (!signal) return timeoutSignal
-  // AbortSignal.any 合并多个来源(现代浏览器均支持)。
-  if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeoutSignal])
-  return timeoutSignal
+  return combineAbortSignals([signal, AbortSignal.timeout(ms)])
 }
 
 // 判断一个 fetch 异常是否为超时(AbortSignal.timeout 触发时 name 为 TimeoutError)。
@@ -47,6 +74,8 @@ export async function callApi(url, { apiKey, body, signal } = {}) {
       signal: withTimeout(signal, API_TIMEOUT_MS),
     })
   } catch (e) {
+    // 用户主动取消要保留 AbortError 语义，不能误报为接口超时。
+    if (signal?.aborted) throw e
     if (isTimeout(e)) {
       throw new ApiError('timeout', `接口在 ${API_TIMEOUT_MS / 1000}s 内未响应(已超时)。`, String(e))
     }
@@ -70,16 +99,18 @@ export async function callApi(url, { apiKey, body, signal } = {}) {
 
 // 把一张提取图片规整为 Blob。
 //   kind='dataUrl' → 解码 base64;kind='url' → fetch 下载(design:拿到即落库,不依赖外链)。
-export async function toBlob(image) {
+export async function toBlob(image, signal) {
   if (image.kind === 'dataUrl') {
     return dataUrlToBlob(image.value)
   }
   // url:立即下载为 Blob
   try {
-    const resp = await fetch(image.value, { signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) })
+    const resp = await fetch(image.value, { signal: withTimeout(signal, IMAGE_TIMEOUT_MS) })
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     return await resp.blob()
   } catch (e) {
+    // 外部 signal 表示用户主动取消，保留原始 AbortError 语义给上层收口。
+    if (signal?.aborted) throw e
     if (isTimeout(e)) {
       throw new ApiError('timeout', `图片外链下载超过 ${IMAGE_TIMEOUT_MS / 1000}s(已超时)。`, String(e))
     }
