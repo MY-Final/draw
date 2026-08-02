@@ -7,6 +7,40 @@
 
 import { callApi } from './http.js'
 
+// 从各种响应形态中提取图片,尽量不丢图:
+//  标准:data[].b64_json / data[].url
+//  兜底:output[].content[].image_url / content[].url / content[].b64_json / 顶层 images[]
+//  url 字段也可能是 data: 前缀的 base64,统一按 dataUrl 处理,避免外链下载走弯路。
+function extractImages(raw) {
+  const images = []
+  const push = (value, isData = false) => {
+    if (typeof value !== 'string' || !value) return
+    const data = isData || value.startsWith('data:')
+    images.push({ kind: data ? 'dataUrl' : 'url', value })
+  }
+
+  for (const d of raw?.data || []) {
+    if (d?.b64_json) push(`data:image/png;base64,${d.b64_json}`, true)
+    else if (d?.url) push(d.url)
+    else if (typeof d?.image === 'string') push(d.image)
+  }
+  if (images.length) return images
+
+  for (const item of raw?.output || []) {
+    for (const c of item?.content || []) {
+      const u = c?.image_url || c?.imageUrl
+      if (typeof u === 'string') push(u)
+      else if (u && typeof u === 'object' && typeof u.url === 'string') push(u.url)
+      else if (typeof c?.url === 'string') push(c.url)
+      else if (typeof c?.b64_json === 'string') push(`data:image/png;base64,${c.b64_json}`, true)
+    }
+  }
+  if (!images.length && Array.isArray(raw?.images)) {
+    for (const u of raw.images) push(u)
+  }
+  return images
+}
+
 // ImagesAdapter —— POST /v1/images/generations
 async function generateViaImages({ preset, prompt, params, signal }) {
   const url = `${preset.baseURL}/v1/images/generations`
@@ -26,11 +60,7 @@ async function generateViaImages({ preset, prompt, params, signal }) {
 
   const raw = await callApi(url, { apiKey: preset.apiKey, body, signal })
 
-  const images = []
-  for (const d of raw?.data || []) {
-    if (d.b64_json) images.push({ kind: 'dataUrl', value: `data:image/png;base64,${d.b64_json}` })
-    else if (d.url) images.push({ kind: 'url', value: d.url })
-  }
+  const images = extractImages(raw)
   return { images, raw, snippet: images.length ? null : safeSnippet(raw) }
 }
 
@@ -58,11 +88,7 @@ async function generateViaImagesEdit({ preset, prompt, refImages, params, signal
 
   const raw = await callApi(url, { apiKey: preset.apiKey, body: form, signal })
 
-  const images = []
-  for (const d of raw?.data || []) {
-    if (d.b64_json) images.push({ kind: 'dataUrl', value: `data:image/png;base64,${d.b64_json}` })
-    else if (d.url) images.push({ kind: 'url', value: d.url })
-  }
+  const images = extractImages(raw)
   return { images, raw, snippet: images.length ? null : safeSnippet(raw) }
 }
 

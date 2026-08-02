@@ -77,6 +77,11 @@ export async function runGeneration({
       })) || { ...gen, status: 'empty' }
     }
 
+    // 4.1 数量核对:请求 N 张但接口只返回 M 张时不能静默当成功,
+    //     保留已拿到的图(用户已计费),同时打上 partial 告警 + 原始响应片段便于核对。
+    const requested = Math.max(1, Number(params.n) || 1)
+    const partial = requested > 1 && images.length < requested
+
     // 5. 逐张规整为 Blob 并落库;中途取消则清掉已写入的孤儿图
     const outputImageIds = []
     for (const img of images) {
@@ -93,6 +98,10 @@ export async function runGeneration({
       status: 'success',
       outputImageIds,
       elapsedMs: Date.now() - gen.createdAt,
+      ...(partial ? {
+        partialNote: `请求 ${requested} 张，接口实际返回 ${images.length} 张`,
+        rawResponseSnippet: snippet,
+      } : {}),
     })
     // 记录在请求期间已被删除（删会话/清空）时，产物不能成为孤儿或重新出现。
     if (!updated) {

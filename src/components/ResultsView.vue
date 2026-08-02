@@ -182,6 +182,13 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
             <div v-else-if="gen.status === 'empty'" class="note note-warn">
               <div>接口未返回可识别图片。<code class="snippet">{{ gen.rawResponseSnippet }}</code></div>
             </div>
+            <div v-else-if="gen.status === 'success' && gen.partialNote" class="note note-warn">
+              <AppIcon name="alert" :size="14" />
+              <div class="note-text">
+                {{ gen.partialNote }}——请核对接口是否支持批量生成及计费。
+                <code v-if="gen.rawResponseSnippet" class="snippet">{{ gen.rawResponseSnippet }}</code>
+              </div>
+            </div>
             <!-- 生成中:本轮自身的骨架占位 + 取消 -->
             <div v-else-if="gen.status === 'pending'" class="pending-block">
               <div class="skeleton" />

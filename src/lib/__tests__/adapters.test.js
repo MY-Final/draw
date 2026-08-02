@@ -77,6 +77,58 @@ describe('generate 端点分派', () => {
   })
 })
 
+describe('多图响应解析(批量生成不丢图)', () => {
+  let calls
+  beforeEach(() => { calls = [] })
+  function install(body = okData) {
+    global.fetch = vi.fn(async (url, opts) => {
+      calls.push({ url, opts })
+      return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) }
+    })
+  }
+
+  it('data[] 含 4 张 b64_json → 全部解析', async () => {
+    install({ data: [
+      { b64_json: 'AAAA' }, { b64_json: 'AAAB' }, { b64_json: 'AAAC' }, { b64_json: 'AAAD' },
+    ] })
+    const { images } = await generate({ preset: preset('images'), prompt: 'p', params: { n: 4 } })
+    expect(images.length).toBe(4)
+    expect(images.every((i) => i.kind === 'dataUrl')).toBe(true)
+  })
+
+  it('data[] 含 4 张 url → 全部解析', async () => {
+    install({ data: [
+      { url: 'https://a/1.png' }, { url: 'https://a/2.png' }, { url: 'https://a/3.png' }, { url: 'https://a/4.png' },
+    ] })
+    const { images } = await generate({ preset: preset('images'), prompt: 'p', params: {} })
+    expect(images.length).toBe(4)
+    expect(images.every((i) => i.kind === 'url')).toBe(true)
+  })
+
+  it('data: 前缀的 url 按 dataUrl 处理(不走去外链下载)', async () => {
+    install({ data: [{ url: 'data:image/png;base64,AAAA' }] })
+    const { images } = await generate({ preset: preset('images'), prompt: 'p', params: {} })
+    expect(images[0].kind).toBe('dataUrl')
+  })
+
+  it('非标准 output[].content[].image_url 形态也能解析', async () => {
+    install({ output: [{ content: [
+      { image_url: { url: 'https://a/1.png' } },
+      { image_url: 'data:image/png;base64,AAAB' },
+    ] }] })
+    const { images } = await generate({ preset: preset('images'), prompt: 'p', params: {} })
+    expect(images.length).toBe(2)
+    expect(images[0].kind).toBe('url')
+    expect(images[1].kind).toBe('dataUrl')
+  })
+
+  it('顶层 images[] 字符串数组也能解析', async () => {
+    install({ images: ['https://a/1.png', 'https://a/2.png', 'https://a/3.png'] })
+    const { images } = await generate({ preset: preset('images'), prompt: 'p', params: {} })
+    expect(images.length).toBe(3)
+  })
+})
+
 describe('图像端点参数:b64 / quality / size', () => {
   let calls
   beforeEach(() => { calls = [] })

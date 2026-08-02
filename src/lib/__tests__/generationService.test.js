@@ -26,6 +26,7 @@ vi.mock('../adapters.js', () => ({
 }))
 
 const { runGeneration } = await import('../generationService.js')
+const { generate: mockedGenerate } = await import('../adapters.js')
 const { listAssets, putAsset } = await import('../assetRepo.js')
 const { listGenerations, deleteGeneration } = await import('../generationRepo.js')
 const { getDB } = await import('../db.js')
@@ -107,5 +108,45 @@ describe('runGeneration 取消', () => {
     const result = await p
     // safeUpdate 失败时仍返回带 cancelled 语义的结果
     expect(result.error === '已取消' || result.cancelled || result.status === 'failed').toBe(true)
+  })
+})
+
+describe('runGeneration 批量生成(n>1)', () => {
+  beforeEach(async () => {
+    map.clear()
+    const db = await getDB()
+    await db.clear('assets')
+    await db.clear('generations')
+  })
+
+  it('请求 4 张且接口返回 4 张:全部落库并挂到 outputImageIds', async () => {
+    vi.mocked(mockedGenerate).mockResolvedValueOnce({
+      images: [
+        { kind: 'dataUrl', value: 'data:image/png;base64,AAAA' },
+        { kind: 'dataUrl', value: 'data:image/png;base64,AAAB' },
+        { kind: 'dataUrl', value: 'data:image/png;base64,AAAC' },
+        { kind: 'dataUrl', value: 'data:image/png;base64,AAAD' },
+      ],
+      snippet: null,
+    })
+    const gen = await runGeneration({ preset, prompt: '批量', params: { n: 4 }, workspaceId: 'ws_default' })
+    expect(gen.status).toBe('success')
+    expect(gen.outputImageIds.length).toBe(4)
+    expect(gen.partialNote).toBeUndefined()
+    expect((await listAssets()).length).toBe(4)
+  })
+
+  it('请求 4 张但接口只返回 1 张:保留已得图并明确 partial 告警,不静默', async () => {
+    vi.mocked(mockedGenerate).mockResolvedValueOnce({
+      images: [{ kind: 'dataUrl', value: 'data:image/png;base64,AAAA' }],
+      snippet: '{"data":[{"b64_json":"..."}]}',
+    })
+    const gen = await runGeneration({ preset, prompt: '批量', params: { n: 4 }, workspaceId: 'ws_default' })
+    expect(gen.status).toBe('success')
+    expect(gen.outputImageIds.length).toBe(1)
+    expect(gen.partialNote).toContain('请求 4 张')
+    expect(gen.rawResponseSnippet).toBeTruthy()
+    // 已计费的图不删
+    expect((await listAssets()).length).toBe(1)
   })
 })
