@@ -63,6 +63,8 @@ const refImageIds = ref([])
 const showPromptLib = ref(false)
 const savedPrompts = ref([])
 const promptLibToast = ref(null)
+// 接口切换(跟随生成上下文,放输入区而非侧栏导航树)
+const presetMenuOpen = ref(false)
 // 次要参数(画质/数量)默认收起,给输入区更多呼吸感;非默认值时自动展开提示。
 const moreParamsOpen = ref(false)
 // 与默认「标准(1K+中)」不一致即视为已自定义
@@ -115,6 +117,9 @@ function togglePromptLib() {
   if (showPromptLib.value) loadSavedPrompts()
 }
 
+function togglePresetMenu() { presetMenuOpen.value = !presetMenuOpen.value }
+function selectPresetUi(id) { store.selectPreset(id); presetMenuOpen.value = false }
+
 function saveCurrentPrompt() {
   const t = prompt.value.trim()
   if (!t) return
@@ -140,9 +145,9 @@ function deletePrompt(id) {
 
 // 点击外部关闭 popover
 function onDocClick(e) {
-  if (!showPromptLib.value) return
   const el = e.target
-  if (!el.closest('.prompt-lib-wrap')) showPromptLib.value = false
+  if (showPromptLib.value && !el.closest('.prompt-lib-wrap')) showPromptLib.value = false
+  if (presetMenuOpen.value && !el.closest('.preset-pick-wrap')) presetMenuOpen.value = false
 }
 
 onMounted(() => {
@@ -199,6 +204,42 @@ function removeReference(id) {
   refImageIds.value = refImageIds.value.filter((x) => x !== id)
 }
 
+// ── 参考图排序:拖拽 chip 调整顺序(多图改图时顺序 = 图 1 / 图 2)──
+const dragRefId = ref(null)
+const dragOverRefId = ref(null)
+function onRefDragStart(e, id) {
+  dragRefId.value = id
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', id)
+}
+function onRefDragOver(e, id) {
+  e.preventDefault()
+  e.stopPropagation()
+  dragOverRefId.value = id
+}
+function onRefDrop(e, targetId) {
+  e.preventDefault()
+  e.stopPropagation()
+  const from = dragRefId.value || e.dataTransfer.getData('text/plain')
+  dragRefId.value = null
+  dragOverRefId.value = null
+  if (!from || from === targetId) return
+  const list = [...refImageIds.value]
+  const fromIdx = list.indexOf(from)
+  const toIdx = list.indexOf(targetId)
+  if (fromIdx < 0 || toIdx < 0) return
+  list.splice(fromIdx, 1)
+  list.splice(toIdx, 0, from)
+  refImageIds.value = list
+}
+function onRefDragEnd() {
+  dragRefId.value = null
+  dragOverRefId.value = null
+}
+function hasDraft() {
+  return !!prompt.value.trim() || refImageIds.value.length > 0
+}
+
 // ── 参考图上传(design D3)──
 const fileInput = ref(null)
 const dropActive = ref(false)
@@ -232,18 +273,22 @@ function onPaste(e) {
 
 // ── DnD(design D4):整个输入区都是拖放目标。用深度计数避免在子元素间移动时闪烁。
 function onDragEnter(e) {
+  if (dragRefId.value) return // chip 排序拖拽不走整区拖放
   e.preventDefault()
   dragDepth += 1
   dropActive.value = true
 }
 function onDragOver(e) {
+  if (dragRefId.value) return
   e.preventDefault()
 }
 function onDragLeave() {
+  if (dragRefId.value) return
   dragDepth = Math.max(0, dragDepth - 1)
   if (!dragDepth) dropActive.value = false
 }
 async function onDrop(e) {
+  if (dragRefId.value) { dragRefId.value = null; return }
   e.preventDefault()
   dropActive.value = false
   dragDepth = 0
@@ -306,7 +351,7 @@ function clear() {
   prompt.value = ''
   refImageIds.value = []
 }
-defineExpose({ addReference, applyPrefill, clear, fillPrompt })
+defineExpose({ addReference, applyPrefill, clear, fillPrompt, hasDraft })
 
 async function submit() {
   if (!canGenerate.value) {
@@ -315,6 +360,7 @@ async function submit() {
     }
     return
   }
+  presetMenuOpen.value = false
   const text = prompt.value.trim()
   const refs = [...refImageIds.value]
   const sizeVal = computeSize(ratio.value, resolution.value)
@@ -420,8 +466,13 @@ function onErrorAction() {
     <div class="ref-strip">
       <div
         v-for="(a, i) in refAssets" :key="a.id"
-        class="ref-thumb"
-        title="将作为参考图发送"
+        class="ref-thumb" :class="{ 'drag-over': dragOverRefId === a.id, dragging: dragRefId === a.id }"
+        draggable="true"
+        title="将作为参考图发送（可拖拽排序）"
+        @dragstart="onRefDragStart($event, a.id)"
+        @dragover="onRefDragOver($event, a.id)"
+        @drop="onRefDrop($event, a.id)"
+        @dragend="onRefDragEnd"
       >
         <AssetImage :asset="a" alt="参考图" />
         <span class="ref-badge tnum">{{ i + 1 }}</span>
@@ -477,7 +528,7 @@ function onErrorAction() {
 
         <!-- 画质预设:标准/高清/超清 快捷项 + 高级设置(原位展开) -->
         <div class="params-row">
-          <span class="params-tag-label">画质</span>
+          <span class="params-tag-label">预设</span>
           <div class="tag-group">
             <button
               v-for="p in QUALITY_PRESETS" :key="p.key"
@@ -541,6 +592,46 @@ function onErrorAction() {
 
       <div class="composer-bar">
         <span class="proto-tip">{{ refAssets.length ? '改图 · 带参考图' : '文生图' }}</span>
+
+        <!-- 当前接口:跟随生成上下文,紧挨输入区切换 -->
+        <div class="preset-pick-wrap">
+          <button
+            class="preset-pick" :class="{ open: presetMenuOpen }"
+            @click="togglePresetMenu"
+            :aria-expanded="presetMenuOpen" aria-haspopup="listbox"
+            :title="store.activePreset ? store.activePreset.name || '未命名' : ''"
+          >
+            <AppIcon name="settings" :size="12" />
+            <span class="preset-pick-name">{{ store.activePreset?.name || '未命名' }}</span>
+            <span
+              v-if="store.activePreset && !store.activePreset.apiKey"
+              class="badge badge-warn preset-key-badge"
+              @click.stop="presetMenuOpen = false; emit('open-settings')"
+              title="填写 API Key"
+            >缺 Key</span>
+            <AppIcon name="chevron-down" :size="11" class="preset-pick-chev" />
+          </button>
+          <div v-if="presetMenuOpen" class="preset-pop" role="listbox" aria-label="选择接口">
+            <div class="preset-pop-head">切换接口</div>
+            <button
+              v-for="p in store.presets" :key="p.id"
+              class="preset-pop-item" :class="{ active: p.id === store.activePresetId }"
+              role="option" :aria-selected="p.id === store.activePresetId"
+              @click="selectPresetUi(p.id)"
+            >
+              <span class="preset-pop-main">
+                <span class="preset-pop-name">{{ p.name || '未命名' }}</span>
+                <span class="preset-pop-meta">{{ p.model || '未设模型' }} · {{ p.baseURL || '' }}</span>
+              </span>
+              <span v-if="!p.apiKey" class="badge badge-warn preset-key-badge">缺 Key</span>
+              <AppIcon v-if="p.id === store.activePresetId" name="check" :size="12" />
+            </button>
+            <div class="preset-pop-divider" />
+            <button class="preset-pop-item" @click="presetMenuOpen = false; emit('open-settings')">
+              <AppIcon name="settings" :size="13" /> 管理接口
+            </button>
+          </div>
+        </div>
 
         <div class="spacer" />
 
@@ -688,7 +779,15 @@ function onErrorAction() {
 .ref-thumb {
   position: relative; width: 48px; height: 48px; border-radius: 12px;
   overflow: hidden; border: 1px solid var(--color-border-strong);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-1); cursor: grab;
+  transition: opacity var(--dur) var(--ease), outline-color var(--dur) var(--ease);
+}
+.ref-thumb:active { cursor: grabbing; }
+.ref-thumb.dragging { opacity: 0.45; }
+.ref-thumb.drag-over {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  opacity: 0.8;
 }
 .ref-badge {
   position: absolute; top: 3px; left: 3px;
@@ -765,6 +864,7 @@ function onErrorAction() {
     background var(--dur) var(--ease);
 }
 .settings-summary:hover { color: var(--color-fg); border-color: var(--color-border-strong); }
+.settings-summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-summary.open {
   color: var(--color-primary);
   border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
@@ -858,6 +958,9 @@ function onErrorAction() {
   background: var(--color-surface-2); border: 1px solid var(--color-border);
 }
 .n-input:focus { outline: none; border-color: var(--color-primary); }
+.n-input::-webkit-outer-spin-button,
+.n-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.n-input { -moz-appearance: textfield; }
 .tnum {
   width: 52px; min-height: 30px; border-radius: 999px;
   background: var(--color-surface-2); border-color: transparent; text-align: center;
@@ -867,6 +970,54 @@ function onErrorAction() {
   padding: 4px 10px; border-radius: 999px;
   background: var(--color-surface-2); border: 1px solid var(--color-border);
 }
+.preset-pick-wrap { position: relative; }
+.preset-pick {
+  display: inline-flex; align-items: center; gap: 5px;
+  max-width: 200px; min-height: 28px; padding: 0 10px;
+  border-radius: 999px; font-size: 12px; color: var(--color-fg-muted);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.preset-pick:hover, .preset-pick.open {
+  color: var(--color-fg); border-color: var(--color-border-strong);
+  background: var(--color-elevated);
+}
+.preset-pick-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preset-key-badge { flex-shrink: 0; padding: 1px 6px; font-size: 10px; }
+.preset-pick-chev { flex-shrink: 0; color: var(--color-fg-subtle); transition: transform var(--dur) var(--ease); }
+.preset-pick.open .preset-pick-chev { transform: rotate(180deg); }
+.preset-pop {
+  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 35;
+  width: min(300px, 80vw); max-height: 300px; overflow-y: auto;
+  padding: var(--space-1);
+  background: var(--color-elevated); border: 1px solid var(--color-border-strong);
+  border-radius: 14px; box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.preset-pop-head {
+  padding: 6px 10px 4px; font-size: 10px; font-weight: 650;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-fg-subtle);
+}
+.preset-pop-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 8px 10px; border-radius: 8px; font-size: 12.5px; color: var(--color-fg-muted);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.preset-pop-item:hover { background: var(--color-surface-2); color: var(--color-fg); }
+.preset-pop-item.active { background: var(--color-primary-soft); color: var(--color-primary); }
+.preset-pop-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.preset-pop-name {
+  color: inherit; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preset-pop-meta {
+  font-size: 10.5px; opacity: 0.75;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preset-pop-divider { height: 1px; background: var(--color-border); margin: 4px 8px; }
 .spacer { flex: 1; }
 
 /* Prompt 收藏 */
