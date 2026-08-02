@@ -173,6 +173,7 @@ button {
 }
 
 .btn:focus-visible,
+button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {

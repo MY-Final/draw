@@ -7,15 +7,33 @@ import AppIcon from './AppIcon.vue'
 import { downloadBlob, imageFileName } from '../lib/download.js'
 import { sourceFullLabel } from '../lib/assetSource.js'
 
-const props = defineProps({ asset: Object })
-const emit = defineEmits(['close', 'use-as-reference'])
+const props = defineProps({
+  asset: Object,
+  // 相邻图片列表:多图生成/素材库内浏览时支持左右切换
+  list: { type: Array, default: () => [] },
+})
+const emit = defineEmits(['close', 'use-as-reference', 'change'])
 const store = useWorkbenchStore()
 
+const idx = computed(() => {
+  const i = props.list.findIndex((a) => a?.id === props.asset?.id)
+  return i >= 0 ? i : 0
+})
+const current = computed(() => props.list[idx.value] || props.asset)
+const canNav = computed(() => props.list.length > 1)
 // 用 store 里的实时素材,收藏后 UI 立刻更新
-const live = computed(() => store.assets.find((a) => a.id === props.asset?.id) || props.asset)
+const live = computed(() => store.assets.find((a) => a.id === current.value?.id) || current.value)
+
+function step(dir) {
+  if (!canNav.value) return
+  const next = (idx.value + dir + props.list.length) % props.list.length
+  emit('change', props.list[next])
+}
 
 function onKey(e) {
   if (e.key === 'Escape') emit('close')
+  if (e.key === 'ArrowLeft') step(-1)
+  if (e.key === 'ArrowRight') step(1)
 }
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))
@@ -39,6 +57,15 @@ function download() {
       <div class="viewer-bar tnum">
         <span>{{ live.width && live.height ? `${live.width}×${live.height}` : '' }} {{ live.mime }}</span>
         <span class="src-chip">{{ sourceFullLabel(live.source) }}</span>
+        <div v-if="canNav" class="viewer-nav">
+          <button class="btn btn-sm btn-ghost" @click="step(-1)" aria-label="上一张">
+            <AppIcon name="chevron-left" :size="13" />
+          </button>
+          <span class="nav-count tnum">{{ idx + 1 }} / {{ list.length }}</span>
+          <button class="btn btn-sm btn-ghost" @click="step(1)" aria-label="下一张">
+            <AppIcon name="chevron-right" :size="13" />
+          </button>
+        </div>
         <div class="spacer" />
         <button
           class="btn btn-sm"
@@ -83,6 +110,9 @@ function download() {
   color: var(--color-fg-muted); background: var(--color-surface-2);
   border: 1px solid var(--color-border);
 }
+.viewer-nav { display: inline-flex; align-items: center; gap: 2px; }
+.viewer-nav .btn { min-height: 28px; padding: 0 8px; }
+.nav-count { font-size: 11px; color: var(--color-fg-muted); min-width: 40px; text-align: center; }
 .spacer { flex: 1; min-width: 8px; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 </style>

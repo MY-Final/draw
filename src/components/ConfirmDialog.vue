@@ -26,7 +26,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       </div>
       <p v-if="message" class="dlg-msg">{{ message }}</p>
       <div class="dlg-actions">
-        <button class="btn btn-sm" @click="emit('cancel')">{{ cancelText }}</button>
+        <!-- 危险操作默认聚焦「取消」,避免回车误触发删除 -->
+        <button class="btn btn-sm" autofocus @click="emit('cancel')">{{ cancelText }}</button>
         <button class="btn btn-sm" :class="danger ? 'btn-danger' : 'btn-primary'" @click="emit('confirm')">{{ confirmText }}</button>
       </div>
     </div>

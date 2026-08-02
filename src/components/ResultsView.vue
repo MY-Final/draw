@@ -214,7 +214,7 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
                 @mouseenter="focusAsset(gen.id, a.id)"
                 @focusin="focusAsset(gen.id, a.id)"
               >
-                <button class="fig-img" @click="focusAsset(gen.id, a.id); emit('preview', a)" aria-label="放大预览">
+                <button class="fig-img" @click="focusAsset(gen.id, a.id); emit('preview', { asset: a, list: outputsOf(gen) })" aria-label="放大预览">
                   <AssetImage :asset="a" :alt="gen.prompt" />
                 </button>
                 <button

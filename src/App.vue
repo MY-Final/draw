@@ -11,11 +11,13 @@ import BackupTools from './components/BackupTools.vue'
 import ImageLightbox from './components/ImageLightbox.vue'
 import UnifiedSearch from './components/UnifiedSearch.vue'
 import BackupReminderDialog from './components/BackupReminderDialog.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 import AppIcon from './components/AppIcon.vue'
 
 const store = useWorkbenchStore()
 const composer = ref(null)
 const preview = ref(null)
+const previewList = ref([])
 const settingsOpen = ref(false)
 const storageOpen = ref(false)
 // 打开接口弹窗时是否直接进入「新建」表单(侧栏「添加接口」)
@@ -88,7 +90,7 @@ function onSearchJump(item) {
       composer.value?.fillPrompt?.(item.label)
       break
     case 'asset':
-      preview.value = item.asset
+      openPreview({ asset: item.asset, list: [item.asset] })
       break
   }
 }
@@ -101,7 +103,34 @@ function setTheme(t) {
 function toggleTheme() { setTheme(theme.value === 'dark' ? 'light' : 'dark') }
 
 function useAsReference(id) { composer.value?.addReference(id) }
-function onRecipeImported(prefill) { composer.value?.applyPrefill(prefill); storageOpen.value = false }
+const pendingRecipe = ref(null)
+function applyRecipe(prefill) {
+  composer.value?.applyPrefill(prefill)
+  storageOpen.value = false
+}
+function onRecipeImported(prefill) {
+  // 输入区有草稿(prompt/参考图)时先确认,避免配方导入静默覆盖用户已填内容
+  if (composer.value?.hasDraft?.()) {
+    pendingRecipe.value = prefill
+    return
+  }
+  applyRecipe(prefill)
+}
+function confirmApplyRecipe() {
+  applyRecipe(pendingRecipe.value)
+  pendingRecipe.value = null
+}
+
+// 预览大图:带相邻图片列表,支持左右切换(多图生成/素材库内浏览)。
+function openPreview(payload) {
+  const asset = payload?.asset || payload
+  preview.value = asset
+  previewList.value = Array.isArray(payload?.list) && payload.list.length ? payload.list : [asset]
+}
+function closePreview() {
+  preview.value = null
+  previewList.value = []
+}
 
 // 切换会话/工作区后输入区回到空白:避免把上一段会话的 prompt/参考图带到新上下文发出去。
 watch(() => [store.conversationId, store.activeWorkspaceId], () => {
@@ -111,7 +140,7 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
 function onNewCanvas() {
   store.newConversation()   // 开一段空白会话(旧会话与图仍保留、可从左侧切回)
   composer.value?.clear()
-  preview.value = null
+  closePreview()
   mobileNavOpen.value = false
 }
 function openSettings(opts) {
@@ -176,7 +205,7 @@ function openStorage() {
       <div class="stream">
         <ResultsView
           @use-as-reference="useAsReference"
-          @preview="preview = $event"
+          @preview="openPreview"
           @reuse="(prefill) => composer?.applyPrefill?.(prefill)"
           @open-settings="openSettings"
         />
@@ -195,7 +224,7 @@ function openStorage() {
         <AppIcon :name="rightOpen ? 'chevron-right' : 'layers'" :size="14" />
       </button>
       <div v-if="rightOpen" class="assets-body">
-        <LibraryPanel @use-as-reference="useAsReference" @preview="preview = $event" />
+        <LibraryPanel @use-as-reference="useAsReference" @preview="openPreview" />
       </div>
     </aside>
 
@@ -248,7 +277,7 @@ function openStorage() {
             </button>
           </div>
           <div class="mobile-assets-body">
-            <LibraryPanel @use-as-reference="(id) => { useAsReference(id); mobileAssetsOpen = false }" @preview="preview = $event" />
+            <LibraryPanel @use-as-reference="(id) => { useAsReference(id); mobileAssetsOpen = false }" @preview="openPreview" />
           </div>
         </div>
       </div>
@@ -271,9 +300,10 @@ function openStorage() {
 
     <ImageLightbox
       v-if="preview"
-      :asset="preview"
-      @close="preview = null"
-      @use-as-reference="(id) => { useAsReference(id); preview = null }"
+      :asset="preview" :list="previewList"
+      @change="preview = $event"
+      @close="closePreview"
+      @use-as-reference="(id) => { useAsReference(id); closePreview() }"
     />
 
     <UnifiedSearch :visible="searchOpen" @close="searchOpen = false" @jump="onSearchJump" />
@@ -281,6 +311,14 @@ function openStorage() {
     <BackupReminderDialog
       v-if="showBackupReminder" :business-bytes="reminderBytes"
       @close="onReminderClose"
+    />
+
+    <ConfirmDialog
+      v-if="pendingRecipe"
+      title="导入配方将覆盖当前输入"
+      message="当前输入框已有 prompt 或参考图，导入配方会覆盖它们。确定导入吗？"
+      confirm-text="覆盖导入" danger
+      @confirm="confirmApplyRecipe" @cancel="pendingRecipe = null"
     />
   </div>
 </template>
@@ -526,8 +564,8 @@ function openStorage() {
   display: none;
   position: fixed;
   right: 16px;
-  /* 抬高,避开底部 Composer,减少误触 */
-  bottom: calc(148px + env(safe-area-inset-bottom, 0px));
+  /* 抬高,避开底部 Composer(参数区改版后更高),减少误触 */
+  bottom: calc(248px + env(safe-area-inset-bottom, 0px));
   z-index: 40;
   width: 52px;
   height: 52px;

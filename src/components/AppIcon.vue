@@ -27,6 +27,7 @@ const paths = {
   folder: 'M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2v11z',
   'chevron-down': 'M6 9l6 6 6-6',
   'chevron-right': 'M9 6l6 6-6 6',
+  'chevron-left': 'M15 18l-6-6 6-6',
   menu: 'M4 6h16M4 12h16M4 18h16',
   user: 'M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z',
   message: 'M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z',

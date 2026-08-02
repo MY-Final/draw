@@ -1,6 +1,6 @@
 <script setup>
 // 右栏(安静):素材库网格 + 来源筛选 + 设为参考 + 预览 + 删除。用量/备份已移入抽屉。
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
@@ -27,6 +27,10 @@ const filteredAssets = computed(() => {
   const f = store.assetSourceFilter
   if (f === 'all') return list
   return list.filter((a) => normalizeSource(a.source) === f)
+})
+// 切换筛选/收藏后清空选择:避免选中项被过滤隐藏,删除按钮数字却还带着它们
+watch(() => [store.assetSourceFilter, store.favoritesOnly], () => {
+  selected.value = new Set()
 })
 
 function toggleSelect(id) {
@@ -116,7 +120,7 @@ async function doDeleteSelected() {
         draggable="true"
         @dragstart="(e) => { e.dataTransfer.setData('application/json', JSON.stringify({ assetId: a.id })) }"
       >
-        <button class="cell-img" @click="emit('preview', a)" aria-label="预览大图">
+        <button class="cell-img" @click="emit('preview', { asset: a, list: filteredAssets })" aria-label="预览大图">
           <AssetImage :asset="a" />
         </button>
         <span v-if="a.favorite" class="fav-dot" aria-hidden="true"><AppIcon name="heart" :size="11" /></span>
