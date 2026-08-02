@@ -25,6 +25,16 @@ function isAbortError(e, signal) {
     || (e && (e.name === 'AbortError' || e.name === 'TimeoutError' && signal?.aborted))
 }
 
+// 截断的响应片段(诊断用):适配层仅在无图时返回 snippet,partial 场景由服务层自行兜底。
+function snippetOf(raw) {
+  try {
+    const s = JSON.stringify(raw)
+    return s.length > 2000 ? s.slice(0, 2000) + '…(truncated)' : s
+  } catch {
+    return String(raw)
+  }
+}
+
 // 安全更新:记录可能已被用户删除(取消/软删),不因 missing 再抛二次错误。
 async function safeUpdate(id, patch) {
   try {
@@ -62,7 +72,7 @@ export async function runGeneration({
 
     // 3. 适配调用(用 fullPrompt 发送,保持 prompt 原始存储)
     const apiPrompt = fullPrompt || prompt
-    const { images, snippet } = await generate({
+    const { images, snippet, raw } = await generate({
       preset, prompt: apiPrompt, refImages, params, signal,
     })
 
@@ -76,6 +86,11 @@ export async function runGeneration({
         elapsedMs: Date.now() - gen.createdAt,
       })) || { ...gen, status: 'empty' }
     }
+
+    // 4.1 数量核对:请求 N 张但接口只返回 M 张时不能静默当成功,
+    //     保留已拿到的图(用户已计费),同时打上 partial 告警 + 原始响应片段便于核对。
+    const requested = Math.max(1, Number(params.n) || 1)
+    const partial = requested > 1 && images.length < requested
 
     // 5. 逐张规整为 Blob 并落库;中途取消则清掉已写入的孤儿图
     const outputImageIds = []
@@ -93,6 +108,10 @@ export async function runGeneration({
       status: 'success',
       outputImageIds,
       elapsedMs: Date.now() - gen.createdAt,
+      ...(partial ? {
+        partialNote: `请求 ${requested} 张，接口实际返回 ${images.length} 张`,
+        rawResponseSnippet: snippet || snippetOf(raw),
+      } : {}),
     })
     // 记录在请求期间已被删除（删会话/清空）时，产物不能成为孤儿或重新出现。
     if (!updated) {

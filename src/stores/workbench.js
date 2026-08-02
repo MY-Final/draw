@@ -32,6 +32,8 @@ export const useWorkbenchStore = defineStore('workbench', {
     // 当前会话(新建创作 = 新会话)。会话只是视图分组,持久保留,可在左侧导航切回。
     conversationId: null,
     favoritesOnly: false,
+    // 素材来源筛选:'all' | 'generated' | 'reference-uploaded' | 'imported'(与收藏筛选叠加)。
+    assetSourceFilter: 'all',
     // 会话标题手动覆盖(design D4)。
     titleOverrides: {},
     // 单条删除的待落库定时器:genId -> { timer, record }(延迟提交,可撤销)。
@@ -519,6 +521,9 @@ export const useWorkbenchStore = defineStore('workbench', {
     },
     setFavoritesOnly(v) {
       this.favoritesOnly = v
+    },
+    setAssetSourceFilter(v) {
+      this.assetSourceFilter = v
     },
 
     // ── 备份提醒 ──

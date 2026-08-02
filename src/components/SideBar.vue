@@ -1,6 +1,6 @@
 <script setup>
 // 左侧栏:工作区树 + 会话列表(按日期分组)+ 底部导航。
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import { deriveConversations, groupConversationsByDate, convIdOf } from '../lib/conversations.js'
 import AppIcon from './AppIcon.vue'
@@ -9,8 +9,6 @@ import ConfirmDialog from './ConfirmDialog.vue'
 const store = useWorkbenchStore()
 const emit = defineEmits(['open-settings', 'open-storage', 'toggle-theme', 'new-canvas'])
 const props = defineProps({ theme: String })
-
-const active = computed(() => store.activePreset)
 
 // ── 工作区 ──
 const expandedWs = ref(new Set())
@@ -108,28 +106,6 @@ const vFocus = { mounted: (el) => el.focus() }
       <button class="btn btn-primary new-btn" @click="emit('new-canvas')">
         <AppIcon name="plus" :size="15" /> 新建创作
       </button>
-
-      <!-- 当前接口 -->
-      <div class="block">
-        <div class="block-label">当前接口</div>
-        <div v-if="store.presets.length" class="preset-select">
-          <select :value="store.activePresetId" @change="store.selectPreset($event.target.value)" aria-label="选择接口">
-            <option v-for="p in store.presets" :key="p.id" :value="p.id">
-              {{ p.name || '未命名' }}
-            </option>
-          </select>
-          <button
-            v-if="active && !active.apiKey"
-            type="button"
-            class="badge badge-warn mini-badge key-badge"
-            @click="emit('open-settings')"
-            title="填写 API Key"
-          >缺 Key</button>
-        </div>
-        <button v-else class="btn btn-sm add-first" @click="emit('open-settings', { create: true })">
-          <AppIcon name="plus" :size="13" /> 添加接口
-        </button>
-      </div>
 
       <!-- 工作区树 -->
       <div class="ws-tree" v-if="store.workspaces.length">
@@ -264,17 +240,6 @@ const vFocus = { mounted: (el) => el.focus() }
   background: var(--color-surface-2);
 }
 .block-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-fg-subtle); margin-bottom: var(--space-2); }
-.preset-select { display: flex; align-items: center; gap: var(--space-2); }
-.preset-select select {
-  background: var(--color-bg);
-  border-radius: 999px;
-  min-height: 34px;
-}
-.mini-badge { flex-shrink: 0; }
-.key-badge { cursor: pointer; border: none; font: inherit; }
-.key-badge:hover { filter: brightness(1.05); }
-.add-first { width: 100%; border-radius: 999px; }
-
 /* 工作区树 */
 .ws-tree { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; flex: 1; margin: 0 calc(-1 * var(--space-1)); padding: 0 var(--space-1); }
 .ws-block { display: flex; flex-direction: column; }

@@ -5,7 +5,7 @@ import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
 import { exportRecipe } from '../lib/share.js'
-import { downloadBlob, downloadJson } from '../lib/download.js'
+import { downloadBlob, downloadJson, imageFileName } from '../lib/download.js'
 
 const store = useWorkbenchStore()
 const emit = defineEmits(['use-as-reference', 'preview', 'reuse', 'open-settings'])
@@ -76,9 +76,9 @@ function elapsedText(gen) {
 }
 
 async function shareRecipe(gen) { downloadJson(await exportRecipe(gen), `recipe-${gen.id}.json`) }
-function downloadImage(a) {
+function downloadImage(a, gen) {
   const ext = (a.mime.split('/')[1] || 'png').replace('jpeg', 'jpg')
-  downloadBlob(a.blob, `${a.id}.${ext}`)
+  downloadBlob(a.blob, imageFileName({ id: a.id, prompt: gen?.prompt, name: a.name, ext }))
 }
 
 // 多图时记住每轮「当前图」(hover / 点击选中);操作作用在当前图而非永远第一张。
@@ -182,6 +182,13 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
             <div v-else-if="gen.status === 'empty'" class="note note-warn">
               <div>接口未返回可识别图片。<code class="snippet">{{ gen.rawResponseSnippet }}</code></div>
             </div>
+            <div v-else-if="gen.status === 'success' && gen.partialNote" class="note note-warn">
+              <AppIcon name="alert" :size="14" />
+              <div class="note-text">
+                {{ gen.partialNote }}——请核对接口是否支持批量生成及计费。
+                <code v-if="gen.rawResponseSnippet" class="snippet">{{ gen.rawResponseSnippet }}</code>
+              </div>
+            </div>
             <!-- 生成中:本轮自身的骨架占位 + 取消 -->
             <div v-else-if="gen.status === 'pending'" class="pending-block">
               <div class="skeleton" />
@@ -207,7 +214,7 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
                 @mouseenter="focusAsset(gen.id, a.id)"
                 @focusin="focusAsset(gen.id, a.id)"
               >
-                <button class="fig-img" @click="focusAsset(gen.id, a.id); emit('preview', a)" aria-label="放大预览">
+                <button class="fig-img" @click="focusAsset(gen.id, a.id); emit('preview', { asset: a, list: outputsOf(gen) })" aria-label="放大预览">
                   <AssetImage :asset="a" :alt="gen.prompt" />
                 </button>
                 <button
@@ -238,7 +245,7 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
               </button>
               <button
                 class="act"
-                @click="downloadImage(activeOutput(gen))"
+                @click="downloadImage(activeOutput(gen), gen)"
                 :disabled="!activeOutput(gen)"
                 :title="outputsOf(gen).length > 1 ? '下载当前选中图' : '下载'"
               >

@@ -1,6 +1,6 @@
 <script setup>
 // 接口预设:居中弹窗。列表为主,新建/编辑在同一弹窗内切换(不叠第二层)。
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AppIcon from './AppIcon.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -20,6 +20,10 @@ const testResult = ref(null)
 const showKey = ref(false)
 const confirmRemove = ref(false)
 const confirmClear = ref(false)
+// 未保存编辑保护:点外面/X 不再直接丢表单(用户填了半天被误关)。
+const confirmDiscard = ref(false)
+const originalJson = ref('')
+const dirty = computed(() => JSON.stringify({ ...form }) !== originalJson.value)
 
 const title = computed(() => {
   if (mode.value === 'list') return '接口设置'
@@ -28,6 +32,7 @@ const title = computed(() => {
 
 function blankForm() {
   Object.assign(form, { id: null, name: '', baseURL: '', apiKey: '', model: '', protocol: 'images' })
+  originalJson.value = JSON.stringify({ ...form })
   testResult.value = null
   showKey.value = false
 }
@@ -39,6 +44,7 @@ function startNew() {
 
 function startEdit(p) {
   Object.assign(form, { ...p })
+  originalJson.value = JSON.stringify({ ...form })
   testResult.value = null
   showKey.value = false
   mode.value = 'edit'
@@ -101,6 +107,19 @@ function doClearKeys() {
   store.clearKeys()
 }
 
+// 统一关闭入口:编辑态且有未保存修改时先确认,避免误关丢数据。
+function close() {
+  if (mode.value === 'edit' && dirty.value) {
+    confirmDiscard.value = true
+    return
+  }
+  emit('close')
+}
+function doDiscard() {
+  confirmDiscard.value = false
+  emit('close')
+}
+
 function usePreset(p) {
   store.selectPreset(p.id)
 }
@@ -110,18 +129,9 @@ function enterInitial() {
   else mode.value = 'list'
 }
 
-function onKey(e) {
-  if (e.key === 'Escape') {
-    if (mode.value === 'edit' && store.presets.length) cancelEdit()
-    else emit('close')
-  }
-}
-
 onMounted(() => {
   enterInitial()
-  window.addEventListener('keydown', onKey)
 })
-onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 watch(() => props.startCreate, (v) => {
   if (v) startNew()
@@ -129,7 +139,8 @@ watch(() => props.startCreate, (v) => {
 </script>
 
 <template>
-  <div class="scrim" @click.self="emit('close')">
+  <!-- 点弹窗外层不关闭:误触概率太高;只保留叉号关闭,避免白填 -->
+  <div class="scrim">
     <div class="modal" role="dialog" :aria-label="title">
       <header class="modal-head">
         <div class="head-left">
@@ -143,7 +154,7 @@ watch(() => props.startCreate, (v) => {
           </button>
           <strong>{{ title }}</strong>
         </div>
-        <button class="icon-btn" @click="emit('close')" aria-label="关闭">
+        <button class="icon-btn" @click="close" aria-label="关闭">
           <AppIcon name="x" :size="15" />
         </button>
       </header>
@@ -260,6 +271,13 @@ watch(() => props.startCreate, (v) => {
         message="将清除所有接口预设中的 API Key(其余配置保留)。用于离开公共设备时快速抹除。"
         confirm-text="清除" danger
         @confirm="doClearKeys" @cancel="confirmClear = false"
+      />
+      <ConfirmDialog
+        v-if="confirmDiscard"
+        title="放弃编辑"
+        message="表单有未保存的修改，关闭后将丢失。确定放弃吗？"
+        confirm-text="放弃" danger
+        @confirm="doDiscard" @cancel="confirmDiscard = false"
       />
     </div>
   </div>

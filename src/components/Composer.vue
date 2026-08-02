@@ -20,6 +20,8 @@ const RATIOS = [
   { key: '3:2', label: '3:2' },
   { key: '2:3', label: '2:3' },
 ]
+// 比例:Auto 单独隔开,其余进 4 列网格
+const RATIO_GRID = RATIOS.filter((r) => r.key !== 'auto')
 const RESOLUTIONS = [
   { key: '1k', label: '1K' },
   { key: '2k', label: '2K' },
@@ -30,6 +32,14 @@ const QUALITIES = [
   { key: 'high', label: '高' },
   { key: 'medium', label: '中' },
   { key: 'low', label: '低' },
+]
+const RES_LABELS = { '1k': '1K', '2k': '2K', '4k': '4K' }
+const Q_LABELS = { high: '高', medium: '中', low: '低' }
+// 画质预设:分辨率 × 画质 的快捷组合;「标准」为默认(1K+中)
+const QUALITY_PRESETS = [
+  { key: 'standard', label: '标准', res: '1k', q: 'medium' },
+  { key: 'hd', label: '高清', res: '2k', q: 'high' },
+  { key: 'uhd', label: '超清', res: '4k', q: 'high' },
 ]
 
 function computeSize(r, res) {
@@ -47,15 +57,51 @@ const emit = defineEmits(['open-settings'])
 const prompt = ref('')
 const ratio = ref('auto')
 const resolution = ref('1k')
-const quality = ref('high')
+const quality = ref('medium')
 const n = ref(1)
 const refImageIds = ref([])
 const showPromptLib = ref(false)
 const savedPrompts = ref([])
 const promptLibToast = ref(null)
+// 接口切换(跟随生成上下文,放输入区而非侧栏导航树)
+const presetMenuOpen = ref(false)
 // 次要参数(画质/数量)默认收起,给输入区更多呼吸感;非默认值时自动展开提示。
 const moreParamsOpen = ref(false)
-const moreParamsDirty = computed(() => quality.value !== 'high' || Number(n.value) !== 1)
+// 与默认「标准(1K+中)」不一致即视为已自定义
+const moreParamsDirty = computed(() =>
+  resolution.value !== '1k' || quality.value !== 'medium' || Number(n.value) !== 1
+)
+// 预设快捷项:分辨率×画质命中某档预设时高亮
+const activePresetKey = computed(() =>
+  QUALITY_PRESETS.find((p) => p.res === resolution.value && p.q === quality.value)?.key || null
+)
+// 常驻设置摘要:点击展开高级设置
+const settingsSummary = computed(() => {
+  const ratioLabel = ratio.value === 'auto' ? 'Auto' : ratio.value
+  const resLabel = RES_LABELS[resolution.value] || resolution.value
+  const qLabel = Q_LABELS[quality.value] || quality.value
+  return `${ratioLabel} · ${resLabel} · ${qLabel}画质 · 生成 ${clampN(n.value)} 张`
+})
+
+function selectPreset(p) { resolution.value = p.res; quality.value = p.q }
+function toggleAdvanced() { moreParamsOpen.value = !moreParamsOpen.value }
+function clampN(v) { return Math.min(4, Math.max(1, Number(v) || 1)) }
+function stepN(delta) { n.value = clampN(n.value + delta) }
+
+// 数量步进器:长按连续增减(延迟 400ms 后每 120ms 一次)
+let nHoldTimer = null
+let nHoldInterval = null
+function nHoldStart(delta) {
+  stepN(delta)
+  nHoldTimer = setTimeout(() => {
+    nHoldInterval = setInterval(() => stepN(delta), 120)
+  }, 400)
+}
+function nHoldStop() {
+  if (nHoldTimer) { clearTimeout(nHoldTimer); nHoldTimer = null }
+  if (nHoldInterval) { clearInterval(nHoldInterval); nHoldInterval = null }
+}
+function onNChange() { n.value = clampN(n.value) }
 const missingKey = computed(() => !!(store.activePreset && !store.activePreset.apiKey))
 const canGenerate = computed(() =>
   !!prompt.value.trim() && !!store.activePreset && !missingKey.value && !store.generating
@@ -70,6 +116,9 @@ function togglePromptLib() {
   showPromptLib.value = !showPromptLib.value
   if (showPromptLib.value) loadSavedPrompts()
 }
+
+function togglePresetMenu() { presetMenuOpen.value = !presetMenuOpen.value }
+function selectPresetUi(id) { store.selectPreset(id); presetMenuOpen.value = false }
 
 function saveCurrentPrompt() {
   const t = prompt.value.trim()
@@ -96,9 +145,9 @@ function deletePrompt(id) {
 
 // 点击外部关闭 popover
 function onDocClick(e) {
-  if (!showPromptLib.value) return
   const el = e.target
-  if (!el.closest('.prompt-lib-wrap')) showPromptLib.value = false
+  if (showPromptLib.value && !el.closest('.prompt-lib-wrap')) showPromptLib.value = false
+  if (presetMenuOpen.value && !el.closest('.preset-pick-wrap')) presetMenuOpen.value = false
 }
 
 onMounted(() => {
@@ -110,6 +159,7 @@ onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('paste', onPaste)
   if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
+  nHoldStop()
 })
 
 // 参考图走 images/edits 改图;多张参考图全部发送(官方上限 16 张)。
@@ -121,6 +171,12 @@ const refAssets = computed(() =>
 const referenceNotice = ref('')
 let referenceNoticeTimer = null
 
+function showReferenceNotice(text) {
+  referenceNotice.value = text
+  if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
+  referenceNoticeTimer = setTimeout(() => { referenceNotice.value = '' }, 5000)
+}
+
 // 素材可能在另一处被删除/导入覆盖。同步清掉失效 id 并提示，避免缩略图消失后状态仍暗中残留。
 watch([
   () => [...assetById.value.keys()],
@@ -131,38 +187,79 @@ watch([
   const removed = refImageIds.value.length - valid.length
   if (!removed) return
   refImageIds.value = valid
-  referenceNotice.value = `${removed} 张参考图已不存在，已从本次生成中移除。`
-  if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
-  referenceNoticeTimer = setTimeout(() => { referenceNotice.value = '' }, 5000)
+  showReferenceNotice(`${removed} 张参考图已不存在，已从本次生成中移除。`)
 })
 
-function addReference(id) {
+// quiet:内部路径(上传/拖入)不弹提示,缩略图就在眼前;外部路径(素材库/预览设为参考)给反馈。
+function addReference(id, { quiet = false } = {}) {
   if (refImageIds.value.includes(id)) return
   if (refImageIds.value.length >= MAX_REFERENCES) {
-    referenceNotice.value = `参考图最多 ${MAX_REFERENCES} 张，已忽略新添加的图片。`
-    if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
-    referenceNoticeTimer = setTimeout(() => { referenceNotice.value = '' }, 5000)
+    showReferenceNotice(`参考图最多 ${MAX_REFERENCES} 张，已忽略新添加的图片。`)
     return
   }
   refImageIds.value = [...refImageIds.value, id]
+  if (!quiet) showReferenceNotice(`已加入参考图（当前 ${refImageIds.value.length} 张）`)
 }
 function removeReference(id) {
   refImageIds.value = refImageIds.value.filter((x) => x !== id)
 }
 
+// ── 参考图排序:拖拽 chip 调整顺序(多图改图时顺序 = 图 1 / 图 2)──
+const dragRefId = ref(null)
+const dragOverRefId = ref(null)
+function onRefDragStart(e, id) {
+  dragRefId.value = id
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', id)
+}
+function onRefDragOver(e, id) {
+  e.preventDefault()
+  e.stopPropagation()
+  dragOverRefId.value = id
+}
+function onRefDrop(e, targetId) {
+  e.preventDefault()
+  e.stopPropagation()
+  const from = dragRefId.value || e.dataTransfer.getData('text/plain')
+  dragRefId.value = null
+  dragOverRefId.value = null
+  if (!from || from === targetId) return
+  const list = [...refImageIds.value]
+  const fromIdx = list.indexOf(from)
+  const toIdx = list.indexOf(targetId)
+  if (fromIdx < 0 || toIdx < 0) return
+  list.splice(fromIdx, 1)
+  list.splice(toIdx, 0, from)
+  refImageIds.value = list
+}
+function onRefDragEnd() {
+  dragRefId.value = null
+  dragOverRefId.value = null
+}
+function hasDraft() {
+  return !!prompt.value.trim() || refImageIds.value.length > 0
+}
+
 // ── 参考图上传(design D3)──
 const fileInput = ref(null)
 const dropActive = ref(false)
+let dragDepth = 0
 async function uploadRefImage(file) {
   if (!file || !file.type.startsWith('image/')) return
-  // 走 store:落库并刷新响应式 assets,否则 refAssets 找不到新图、缩略图不显示。
-  const asset = await store.addReferenceAsset(file)
-  addReference(asset.id)
-  if (fileInput.value) fileInput.value.value = ''
+  try {
+    // 走 store:落库并刷新响应式 assets,否则 refAssets 找不到新图、缩略图不显示。
+    const asset = await store.addReferenceAsset(file)
+    addReference(asset.id, { quiet: true })
+  } catch (e) {
+    showReferenceNotice(`参考图添加失败：${e?.message || '请重试'}`)
+  } finally {
+    if (fileInput.value) fileInput.value.value = ''
+  }
 }
 function onFilePick(e) {
-  const file = e.target?.files?.[0]
-  if (file) uploadRefImage(file)
+  // 支持一次多选:按选择顺序逐张入库(与拖入/粘贴行为一致)
+  const files = Array.from(e.target?.files || []).filter((f) => f.type.startsWith('image/'))
+  if (files.length) uploadInOrder(files, uploadRefImage)
 }
 // 从剪贴板事件提取第一张图片(files / items 两条路径,见 lib/clipboard.js)
 function onPaste(e) {
@@ -174,17 +271,27 @@ function onPaste(e) {
   }
 }
 
-// ── DnD 从素材库拖放(design D4)──
-function onDragOver(e) {
+// ── DnD(design D4):整个输入区都是拖放目标。用深度计数避免在子元素间移动时闪烁。
+function onDragEnter(e) {
+  if (dragRefId.value) return // chip 排序拖拽不走整区拖放
   e.preventDefault()
+  dragDepth += 1
   dropActive.value = true
 }
+function onDragOver(e) {
+  if (dragRefId.value) return
+  e.preventDefault()
+}
 function onDragLeave() {
-  dropActive.value = false
+  if (dragRefId.value) return
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (!dragDepth) dropActive.value = false
 }
 async function onDrop(e) {
+  if (dragRefId.value) { dragRefId.value = null; return }
   e.preventDefault()
   dropActive.value = false
+  dragDepth = 0
   // 1) 素材库拖入(application/json)
   try {
     const raw = e.dataTransfer?.getData('application/json')
@@ -199,7 +306,7 @@ async function onDrop(e) {
   // 2) 系统文件 / 访达拖入
   const files = Array.from(e.dataTransfer?.files || []).filter((f) => f.type.startsWith('image/'))
   if (files.length) {
-    // 串行入库以保留 DataTransfer.files 的用户顺序；接口实际发送第一张。
+    // 串行入库以保留 DataTransfer.files 的用户顺序；全部参考图随请求一并发送。
     await uploadInOrder(files, uploadRefImage)
   }
 }
@@ -232,7 +339,7 @@ function applyPrefill(prefill) {
     ratio.value = 'auto'
     if (prefill.params.resolution) resolution.value = prefill.params.resolution
   }
-  if (prefill.params?.n) n.value = prefill.params.n
+  if (prefill.params?.n) n.value = clampN(prefill.params.n)
   if (prefill.params?.quality) quality.value = prefill.params.quality
   // 配方回填同样收敛到官方上限，避免把必然失败的请求发出去。
   refImageIds.value = Array.isArray(prefill.refImageIds)
@@ -244,7 +351,7 @@ function clear() {
   prompt.value = ''
   refImageIds.value = []
 }
-defineExpose({ addReference, applyPrefill, clear, fillPrompt })
+defineExpose({ addReference, applyPrefill, clear, fillPrompt, hasDraft })
 
 async function submit() {
   if (!canGenerate.value) {
@@ -253,6 +360,7 @@ async function submit() {
     }
     return
   }
+  presetMenuOpen.value = false
   const text = prompt.value.trim()
   const refs = [...refImageIds.value]
   const sizeVal = computeSize(ratio.value, resolution.value)
@@ -268,7 +376,7 @@ async function submit() {
       ratio: ratio.value,
       resolution: resolution.value,
       quality: quality.value,
-      n: Number(n.value),
+      n: clampN(n.value),
     },
   })
   // 失败/空结果时回填,避免长 prompt 白打;主动取消不回填(用户通常想空着)。
@@ -308,7 +416,17 @@ function onErrorAction() {
 </script>
 
 <template>
-  <div class="composer-wrap">
+  <div
+    class="composer-wrap"
+    @dragenter="onDragEnter" @dragover="onDragOver"
+    @dragleave="onDragLeave" @drop="onDrop"
+  >
+    <!-- 整区拖放提示:覆盖整个输入区,松开即添加 -->
+    <div v-if="dropActive" class="drop-overlay" aria-hidden="true">
+      <AppIcon name="layers" :size="18" />
+      <span>松开以添加参考图</span>
+    </div>
+
     <!-- 无接口 / 缺 Key:提示本身可点,文案不写死「左侧」(移动端侧栏在汉堡里) -->
     <button
       v-if="!store.activePreset"
@@ -345,14 +463,16 @@ function onErrorAction() {
     </div>
 
     <!-- 参考图 chips 与上传 + DnD 目标(上传按钮始终可见) -->
-    <div
-      class="ref-strip" :class="{ 'drop-active': dropActive }"
-      @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
-    >
+    <div class="ref-strip">
       <div
         v-for="(a, i) in refAssets" :key="a.id"
-        class="ref-thumb"
-        title="将作为参考图发送"
+        class="ref-thumb" :class="{ 'drag-over': dragOverRefId === a.id, dragging: dragRefId === a.id }"
+        draggable="true"
+        title="将作为参考图发送（可拖拽排序）"
+        @dragstart="onRefDragStart($event, a.id)"
+        @dragover="onRefDragOver($event, a.id)"
+        @drop="onRefDrop($event, a.id)"
+        @dragend="onRefDragEnd"
       >
         <AssetImage :asset="a" alt="参考图" />
         <span class="ref-badge tnum">{{ i + 1 }}</span>
@@ -363,58 +483,102 @@ function onErrorAction() {
       <button class="ref-add" @click="fileInput?.click()" title="上传参考图" aria-label="上传参考图">
         <AppIcon name="plus" :size="14" />
       </button>
-      <input ref="fileInput" type="file" accept="image/*" class="hidden-input" @change="onFilePick" />
+      <input ref="fileInput" type="file" accept="image/*" multiple class="hidden-input" @change="onFilePick" />
       <span class="ref-tip">{{ refAssets.length ? `${refAssets.length} 张参考图` : '上传、粘贴或拖入参考图（可多张）' }}</span>
     </div>
 
     <!-- 主输入框 -->
     <div class="composer" :class="{ disabled: !store.activePreset }">
-      <!-- 生成参数:比例/分辨率常驻;画质/数量默认折叠(design D2/D3 + 呼吸感) -->
+      <!-- 生成参数:分组+折叠。摘要常驻;比例网格;画质预设;高级原位展开 -->
       <div class="params-tags">
+        <!-- 当前设置摘要(常驻,点击展开高级) -->
+        <button
+          class="settings-summary" type="button"
+          :class="{ open: moreParamsOpen }"
+          @click="toggleAdvanced"
+          :aria-expanded="moreParamsOpen"
+          title="点击展开高级设置"
+        >
+          <AppIcon name="settings" :size="12" />
+          <span>当前：{{ settingsSummary }}</span>
+          <AppIcon :name="moreParamsOpen ? 'chevron-down' : 'chevron-right'" :size="11" />
+        </button>
+
+        <!-- 比例:Auto 单独隔开,其余 4 列网格 -->
         <div class="params-row">
           <span class="params-tag-label">比例</span>
-          <div class="tag-group">
+          <div class="ratio-grid">
             <button
-              v-for="r in RATIOS" :key="r.key"
+              class="tag ratio-auto" :class="{ active: ratio === 'auto' }"
+              @click="ratio = 'auto'"
+            >
+              <AppIcon v-if="ratio === 'auto'" name="check" :size="10" />
+              Auto
+            </button>
+            <button
+              v-for="r in RATIO_GRID" :key="r.key"
               class="tag" :class="{ active: ratio === r.key }"
               @click="ratio = r.key"
-            >{{ r.label }}</button>
+            >
+              <AppIcon v-if="ratio === r.key" name="check" :size="10" />
+              {{ r.label }}
+            </button>
           </div>
         </div>
+
+        <!-- 画质预设:标准/高清/超清 快捷项 + 高级设置(原位展开) -->
         <div class="params-row">
-          <span class="params-tag-label">分辨率</span>
+          <span class="params-tag-label">预设</span>
           <div class="tag-group">
             <button
-              v-for="r in RESOLUTIONS" :key="r.key"
-              class="tag" :class="{ active: resolution === r.key }"
-              @click="resolution = r.key"
-            >{{ r.label }}</button>
+              v-for="p in QUALITY_PRESETS" :key="p.key"
+              class="tag preset-tag" :class="{ active: activePresetKey === p.key }"
+              @click="selectPreset(p)"
+            >
+              <AppIcon v-if="activePresetKey === p.key" name="check" :size="10" />
+              {{ p.label }}
+            </button>
           </div>
           <button
             class="more-params-btn"
             :class="{ open: moreParamsOpen, dirty: moreParamsDirty }"
             :aria-expanded="moreParamsOpen"
-            @click="moreParamsOpen = !moreParamsOpen"
-            :title="moreParamsOpen ? '收起更多参数' : '画质与数量'"
+            @click="toggleAdvanced"
+            :title="moreParamsOpen ? '收起高级设置' : '展开高级设置'"
           >
-            <span class="more-params-label">更多</span>
+            <AppIcon name="settings" :size="12" />
+            <span class="more-params-label">高级设置</span>
             <span v-if="moreParamsDirty && !moreParamsOpen" class="more-params-summary tnum">
-              {{ quality === 'high' ? '高' : quality === 'medium' ? '中' : '低' }} · {{ n }}
+              {{ RES_LABELS[resolution] }} · {{ Q_LABELS[quality] }}
             </span>
             <AppIcon :name="moreParamsOpen ? 'chevron-down' : 'chevron-right'" :size="12" />
           </button>
         </div>
+
+        <!-- 高级展开:独立的分辨率 + 画质 -->
         <div v-if="moreParamsOpen" class="params-row params-row-more">
-          <span class="params-tag-label">画质</span>
+          <span class="params-tag-label">分辨率</span>
+          <div class="tag-group">
+            <button
+              v-for="r in RESOLUTIONS" :key="r.key"
+              class="tag accent-tag" :class="{ active: resolution === r.key }"
+              @click="resolution = r.key"
+            >
+              <AppIcon v-if="resolution === r.key" name="check" :size="10" />
+              {{ r.label }}
+            </button>
+          </div>
+          <span class="params-tag-label params-tag-label-n">画质</span>
           <div class="tag-group">
             <button
               v-for="q in QUALITIES" :key="q.key"
-              class="tag" :class="{ active: quality === q.key }"
+              class="tag accent-tag" :class="{ active: quality === q.key }"
               @click="quality = q.key"
-            >{{ q.label }}</button>
+            >
+              <AppIcon v-if="quality === q.key" name="check" :size="10" />
+              {{ q.label }}
+            </button>
           </div>
-          <span class="params-tag-label params-tag-label-n">数量</span>
-          <input class="tnum" type="number" min="1" max="4" v-model="n" />
         </div>
       </div>
 
@@ -429,7 +593,69 @@ function onErrorAction() {
       <div class="composer-bar">
         <span class="proto-tip">{{ refAssets.length ? '改图 · 带参考图' : '文生图' }}</span>
 
+        <!-- 当前接口:跟随生成上下文,紧挨输入区切换 -->
+        <div class="preset-pick-wrap">
+          <button
+            class="preset-pick" :class="{ open: presetMenuOpen }"
+            @click="togglePresetMenu"
+            :aria-expanded="presetMenuOpen" aria-haspopup="listbox"
+            :title="store.activePreset ? store.activePreset.name || '未命名' : ''"
+          >
+            <AppIcon name="settings" :size="12" />
+            <span class="preset-pick-name">{{ store.activePreset?.name || '未命名' }}</span>
+            <span
+              v-if="store.activePreset && !store.activePreset.apiKey"
+              class="badge badge-warn preset-key-badge"
+              @click.stop="presetMenuOpen = false; emit('open-settings')"
+              title="填写 API Key"
+            >缺 Key</span>
+            <AppIcon name="chevron-down" :size="11" class="preset-pick-chev" />
+          </button>
+          <div v-if="presetMenuOpen" class="preset-pop" role="listbox" aria-label="选择接口">
+            <div class="preset-pop-head">切换接口</div>
+            <button
+              v-for="p in store.presets" :key="p.id"
+              class="preset-pop-item" :class="{ active: p.id === store.activePresetId }"
+              role="option" :aria-selected="p.id === store.activePresetId"
+              @click="selectPresetUi(p.id)"
+            >
+              <span class="preset-pop-main">
+                <span class="preset-pop-name">{{ p.name || '未命名' }}</span>
+                <span class="preset-pop-meta">{{ p.model || '未设模型' }} · {{ p.baseURL || '' }}</span>
+              </span>
+              <span v-if="!p.apiKey" class="badge badge-warn preset-key-badge">缺 Key</span>
+              <AppIcon v-if="p.id === store.activePresetId" name="check" :size="12" />
+            </button>
+            <div class="preset-pop-divider" />
+            <button class="preset-pop-item" @click="presetMenuOpen = false; emit('open-settings')">
+              <AppIcon name="settings" :size="13" /> 管理接口
+            </button>
+          </div>
+        </div>
+
         <div class="spacer" />
+
+        <!-- 数量:独立于图像属性,紧挨生成按钮 -->
+        <div class="n-stepper" title="生成数量（1-4）">
+          <button
+            class="n-btn" type="button" aria-label="减少数量"
+            @pointerdown.prevent="nHoldStart(-1)"
+            @pointerup="nHoldStop" @pointerleave="nHoldStop" @pointercancel="nHoldStop"
+          >
+            <AppIcon name="minus" :size="12" />
+          </button>
+          <input
+            class="n-input" type="number" min="1" max="4"
+            v-model.number="n" @change="onNChange" aria-label="生成数量"
+          />
+          <button
+            class="n-btn" type="button" aria-label="增加数量"
+            @pointerdown.prevent="nHoldStart(1)"
+            @pointerup="nHoldStop" @pointerleave="nHoldStop" @pointercancel="nHoldStop"
+          >
+            <AppIcon name="plus" :size="12" />
+          </button>
+        </div>
 
         <div class="prompt-lib-wrap">
           <button
@@ -490,7 +716,19 @@ function onErrorAction() {
 </template>
 
 <style scoped>
-.composer-wrap { width: 100%; max-width: 780px; margin: 0 auto; }
+.composer-wrap {
+  width: 100%; max-width: 780px; margin: 0 auto; position: relative;
+}
+.drop-overlay {
+  position: absolute; inset: 0; z-index: 30;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; border-radius: 20px;
+  background: color-mix(in srgb, var(--color-bg) 80%, transparent);
+  border: 2px dashed var(--color-primary);
+  color: var(--color-primary); font-size: 14px; font-weight: 650;
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
 .hint {
   display: flex; align-items: center; gap: 8px; font-size: 12px;
   color: var(--color-warning); margin-bottom: var(--space-2);
@@ -537,21 +775,19 @@ function onErrorAction() {
 .ref-strip {
   display: flex; align-items: center; gap: var(--space-2);
   margin-bottom: var(--space-2); flex-wrap: wrap;
-  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
-}
-.ref-strip.drop-active {
-  border: 1.5px dashed var(--color-primary);
-  border-radius: var(--radius);
-  padding: var(--space-2);
-  margin-left: calc(-1 * var(--space-2));
-  margin-right: calc(-1 * var(--space-2));
-  position: relative; z-index: 1;
-  background: var(--color-primary-soft);
 }
 .ref-thumb {
   position: relative; width: 48px; height: 48px; border-radius: 12px;
   overflow: hidden; border: 1px solid var(--color-border-strong);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-1); cursor: grab;
+  transition: opacity var(--dur) var(--ease), outline-color var(--dur) var(--ease);
+}
+.ref-thumb:active { cursor: grabbing; }
+.ref-thumb.dragging { opacity: 0.45; }
+.ref-thumb.drag-over {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  opacity: 0.8;
 }
 .ref-badge {
   position: absolute; top: 3px; left: 3px;
@@ -560,10 +796,16 @@ function onErrorAction() {
   color: #fff; background: rgba(0,0,0,0.62); backdrop-filter: blur(4px);
 }
 .ref-remove {
-  position: absolute; top: 2px; right: 2px; width: 18px; height: 18px;
+  position: absolute; top: 2px; right: 2px; width: 15px; height: 15px;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.62); color: #fff; border-radius: 999px;
+  background: rgba(0,0,0,0.5); color: #fff; border-radius: 999px;
   backdrop-filter: blur(4px);
+  opacity: 0.55;
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.ref-thumb:hover .ref-remove { opacity: 1; background: rgba(0,0,0,0.72); }
+@media (hover: none) {
+  .ref-remove { opacity: 0.9; }
 }
 .ref-add {
   width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
@@ -598,7 +840,7 @@ function onErrorAction() {
 }
 .composer-input:focus { outline: none; }
 
-.composer-bar { display: flex; align-items: center; gap: var(--space-2); margin-top: 4px; position: relative; }
+.composer-bar { display: flex; align-items: center; gap: var(--space-2); margin-top: 4px; position: relative; flex-wrap: wrap; }
 .chip {
   display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--color-fg-muted);
   padding: 6px 10px; border-radius: 999px; border: 1px solid var(--color-border);
@@ -612,12 +854,33 @@ function onErrorAction() {
   margin-bottom: 8px; padding: 2px 2px 10px;
   border-bottom: 1px solid var(--color-border);
 }
+.settings-summary {
+  display: inline-flex; align-items: center; gap: 6px;
+  align-self: flex-start; max-width: 100%;
+  padding: 5px 12px; border-radius: 999px;
+  font-size: 11.5px; color: var(--color-fg-muted);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.settings-summary:hover { color: var(--color-fg); border-color: var(--color-border-strong); }
+.settings-summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-summary.open {
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
+  background: var(--color-primary-soft);
+}
 .params-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .params-tag-label {
   font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.05em;
   color: var(--color-fg-subtle); flex-shrink: 0;
 }
 .params-tag-label-n { margin-left: 4px; }
+.ratio-grid {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px;
+  flex: 1; min-width: 220px;
+}
+.ratio-auto { border-style: dashed; }
 .params-row-more {
   padding-top: 2px;
   animation: params-in 160ms var(--ease-out);
@@ -628,10 +891,11 @@ function onErrorAction() {
 }
 .more-params-btn {
   display: inline-flex; align-items: center; gap: 4px;
-  margin-left: auto; min-height: 28px; padding: 0 10px;
-  border-radius: 999px; font-size: 11px; font-weight: 550;
-  color: var(--color-fg-subtle); border: 1px solid transparent;
-  background: transparent;
+  margin-left: auto; min-height: 28px; padding: 2px 8px;
+  border-radius: 999px; font-size: 11.5px; font-weight: 550;
+  color: var(--color-fg-subtle); border: 1px solid transparent; background: transparent;
+  text-decoration: underline; text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease),
     border-color var(--dur) var(--ease);
 }
@@ -640,17 +904,16 @@ function onErrorAction() {
   border-color: var(--color-border);
 }
 .more-params-btn.open {
-  color: var(--color-fg-muted); background: var(--color-surface-2);
-  border-color: var(--color-border);
+  color: var(--color-primary); background: var(--color-primary-soft);
+  border-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
 }
 .more-params-btn.dirty {
   color: var(--color-primary);
-  border-color: color-mix(in srgb, var(--color-primary) 28%, transparent);
-  background: var(--color-primary-soft);
 }
 .more-params-summary { font-size: 10px; opacity: 0.9; }
 .tag-group { display: flex; gap: 4px; flex-wrap: wrap; }
 .tag {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
   padding: 5px 10px; font-size: 12px; border-radius: 999px;
   border: 1px solid transparent; color: var(--color-fg-muted);
   background: var(--color-surface-2);
@@ -659,10 +922,45 @@ function onErrorAction() {
 }
 .tag:hover { color: var(--color-fg); background: var(--color-elevated); }
 .tag.active {
-  background: var(--color-primary); color: var(--color-on-primary);
-  border-color: color-mix(in srgb, var(--color-primary) 70%, #000);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--color-primary) 28%, transparent);
+  /* 比例维度:primary 蓝 — 描边 + 柔和底 + 微光,不再纯黑底白字 */
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent),
+    0 4px 12px color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
+.tag.accent-tag.active {
+  /* 画质/分辨率维度:accent 绿,与比例维度区分 */
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 15%, transparent),
+    0 4px 12px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+.preset-tag { font-weight: 600; padding: 6px 12px; }
+.n-stepper { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.n-btn {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--color-fg-muted); background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.n-btn:hover {
+  color: var(--color-fg); border-color: var(--color-border-strong);
+  background: var(--color-elevated);
+}
+.n-btn:active { transform: scale(0.92); }
+.n-input {
+  width: 48px; min-height: 30px; border-radius: 999px; text-align: center;
+  font-size: 13px; color: var(--color-fg);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+}
+.n-input:focus { outline: none; border-color: var(--color-primary); }
+.n-input::-webkit-outer-spin-button,
+.n-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.n-input { -moz-appearance: textfield; }
 .tnum {
   width: 52px; min-height: 30px; border-radius: 999px;
   background: var(--color-surface-2); border-color: transparent; text-align: center;
@@ -672,6 +970,54 @@ function onErrorAction() {
   padding: 4px 10px; border-radius: 999px;
   background: var(--color-surface-2); border: 1px solid var(--color-border);
 }
+.preset-pick-wrap { position: relative; }
+.preset-pick {
+  display: inline-flex; align-items: center; gap: 5px;
+  max-width: 200px; min-height: 28px; padding: 0 10px;
+  border-radius: 999px; font-size: 12px; color: var(--color-fg-muted);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.preset-pick:hover, .preset-pick.open {
+  color: var(--color-fg); border-color: var(--color-border-strong);
+  background: var(--color-elevated);
+}
+.preset-pick-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preset-key-badge { flex-shrink: 0; padding: 1px 6px; font-size: 10px; }
+.preset-pick-chev { flex-shrink: 0; color: var(--color-fg-subtle); transition: transform var(--dur) var(--ease); }
+.preset-pick.open .preset-pick-chev { transform: rotate(180deg); }
+.preset-pop {
+  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 35;
+  width: min(300px, 80vw); max-height: 300px; overflow-y: auto;
+  padding: var(--space-1);
+  background: var(--color-elevated); border: 1px solid var(--color-border-strong);
+  border-radius: 14px; box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.preset-pop-head {
+  padding: 6px 10px 4px; font-size: 10px; font-weight: 650;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-fg-subtle);
+}
+.preset-pop-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 8px 10px; border-radius: 8px; font-size: 12.5px; color: var(--color-fg-muted);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.preset-pop-item:hover { background: var(--color-surface-2); color: var(--color-fg); }
+.preset-pop-item.active { background: var(--color-primary-soft); color: var(--color-primary); }
+.preset-pop-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.preset-pop-name {
+  color: inherit; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preset-pop-meta {
+  font-size: 10.5px; opacity: 0.75;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preset-pop-divider { height: 1px; background: var(--color-border); margin: 4px 8px; }
 .spacer { flex: 1; }
 
 /* Prompt 收藏 */
