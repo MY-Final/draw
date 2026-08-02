@@ -20,6 +20,8 @@ const RATIOS = [
   { key: '3:2', label: '3:2' },
   { key: '2:3', label: '2:3' },
 ]
+// 比例:Auto 单独隔开,其余进 4 列网格
+const RATIO_GRID = RATIOS.filter((r) => r.key !== 'auto')
 const RESOLUTIONS = [
   { key: '1k', label: '1K' },
   { key: '2k', label: '2K' },
@@ -30,6 +32,14 @@ const QUALITIES = [
   { key: 'high', label: '高' },
   { key: 'medium', label: '中' },
   { key: 'low', label: '低' },
+]
+const RES_LABELS = { '1k': '1K', '2k': '2K', '4k': '4K' }
+const Q_LABELS = { high: '高', medium: '中', low: '低' }
+// 画质预设:分辨率 × 画质 的快捷组合;「标准」为默认(1K+中)
+const QUALITY_PRESETS = [
+  { key: 'standard', label: '标准', res: '1k', q: 'medium' },
+  { key: 'hd', label: '高清', res: '2k', q: 'high' },
+  { key: 'uhd', label: '超清', res: '4k', q: 'high' },
 ]
 
 function computeSize(r, res) {
@@ -47,7 +57,7 @@ const emit = defineEmits(['open-settings'])
 const prompt = ref('')
 const ratio = ref('auto')
 const resolution = ref('1k')
-const quality = ref('high')
+const quality = ref('medium')
 const n = ref(1)
 const refImageIds = ref([])
 const showPromptLib = ref(false)
@@ -55,7 +65,41 @@ const savedPrompts = ref([])
 const promptLibToast = ref(null)
 // 次要参数(画质/数量)默认收起,给输入区更多呼吸感;非默认值时自动展开提示。
 const moreParamsOpen = ref(false)
-const moreParamsDirty = computed(() => quality.value !== 'high' || Number(n.value) !== 1)
+// 与默认「标准(1K+中)」不一致即视为已自定义
+const moreParamsDirty = computed(() =>
+  resolution.value !== '1k' || quality.value !== 'medium' || Number(n.value) !== 1
+)
+// 预设快捷项:分辨率×画质命中某档预设时高亮
+const activePresetKey = computed(() =>
+  QUALITY_PRESETS.find((p) => p.res === resolution.value && p.q === quality.value)?.key || null
+)
+// 常驻设置摘要:点击展开高级设置
+const settingsSummary = computed(() => {
+  const ratioLabel = ratio.value === 'auto' ? 'Auto' : ratio.value
+  const resLabel = RES_LABELS[resolution.value] || resolution.value
+  const qLabel = Q_LABELS[quality.value] || quality.value
+  return `${ratioLabel} · ${resLabel} · ${qLabel}画质 · 生成 ${clampN(n.value)} 张`
+})
+
+function selectPreset(p) { resolution.value = p.res; quality.value = p.q }
+function toggleAdvanced() { moreParamsOpen.value = !moreParamsOpen.value }
+function clampN(v) { return Math.min(4, Math.max(1, Number(v) || 1)) }
+function stepN(delta) { n.value = clampN(n.value + delta) }
+
+// 数量步进器:长按连续增减(延迟 400ms 后每 120ms 一次)
+let nHoldTimer = null
+let nHoldInterval = null
+function nHoldStart(delta) {
+  stepN(delta)
+  nHoldTimer = setTimeout(() => {
+    nHoldInterval = setInterval(() => stepN(delta), 120)
+  }, 400)
+}
+function nHoldStop() {
+  if (nHoldTimer) { clearTimeout(nHoldTimer); nHoldTimer = null }
+  if (nHoldInterval) { clearInterval(nHoldInterval); nHoldInterval = null }
+}
+function onNChange() { n.value = clampN(n.value) }
 const missingKey = computed(() => !!(store.activePreset && !store.activePreset.apiKey))
 const canGenerate = computed(() =>
   !!prompt.value.trim() && !!store.activePreset && !missingKey.value && !store.generating
@@ -110,6 +154,7 @@ onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('paste', onPaste)
   if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
+  nHoldStop()
 })
 
 // 参考图走 images/edits 改图;多张参考图全部发送(官方上限 16 张)。
@@ -249,7 +294,7 @@ function applyPrefill(prefill) {
     ratio.value = 'auto'
     if (prefill.params.resolution) resolution.value = prefill.params.resolution
   }
-  if (prefill.params?.n) n.value = prefill.params.n
+  if (prefill.params?.n) n.value = clampN(prefill.params.n)
   if (prefill.params?.quality) quality.value = prefill.params.quality
   // 配方回填同样收敛到官方上限，避免把必然失败的请求发出去。
   refImageIds.value = Array.isArray(prefill.refImageIds)
@@ -285,7 +330,7 @@ async function submit() {
       ratio: ratio.value,
       resolution: resolution.value,
       quality: quality.value,
-      n: Math.min(4, Math.max(1, Number(n.value) || 1)),
+      n: clampN(n.value),
     },
   })
   // 失败/空结果时回填,避免长 prompt 白打;主动取消不回填(用户通常想空着)。
@@ -393,52 +438,96 @@ function onErrorAction() {
 
     <!-- 主输入框 -->
     <div class="composer" :class="{ disabled: !store.activePreset }">
-      <!-- 生成参数:比例/分辨率常驻;画质/数量默认折叠(design D2/D3 + 呼吸感) -->
+      <!-- 生成参数:分组+折叠。摘要常驻;比例网格;画质预设;高级原位展开 -->
       <div class="params-tags">
+        <!-- 当前设置摘要(常驻,点击展开高级) -->
+        <button
+          class="settings-summary" type="button"
+          :class="{ open: moreParamsOpen }"
+          @click="toggleAdvanced"
+          :aria-expanded="moreParamsOpen"
+          title="点击展开高级设置"
+        >
+          <AppIcon name="settings" :size="12" />
+          <span>当前：{{ settingsSummary }}</span>
+          <AppIcon :name="moreParamsOpen ? 'chevron-down' : 'chevron-right'" :size="11" />
+        </button>
+
+        <!-- 比例:Auto 单独隔开,其余 4 列网格 -->
         <div class="params-row">
           <span class="params-tag-label">比例</span>
-          <div class="tag-group">
+          <div class="ratio-grid">
             <button
-              v-for="r in RATIOS" :key="r.key"
+              class="tag ratio-auto" :class="{ active: ratio === 'auto' }"
+              @click="ratio = 'auto'"
+            >
+              <AppIcon v-if="ratio === 'auto'" name="check" :size="10" />
+              Auto
+            </button>
+            <button
+              v-for="r in RATIO_GRID" :key="r.key"
               class="tag" :class="{ active: ratio === r.key }"
               @click="ratio = r.key"
-            >{{ r.label }}</button>
+            >
+              <AppIcon v-if="ratio === r.key" name="check" :size="10" />
+              {{ r.label }}
+            </button>
           </div>
         </div>
+
+        <!-- 画质预设:标准/高清/超清 快捷项 + 高级设置(原位展开) -->
         <div class="params-row">
-          <span class="params-tag-label">分辨率</span>
+          <span class="params-tag-label">画质</span>
           <div class="tag-group">
             <button
-              v-for="r in RESOLUTIONS" :key="r.key"
-              class="tag" :class="{ active: resolution === r.key }"
-              @click="resolution = r.key"
-            >{{ r.label }}</button>
+              v-for="p in QUALITY_PRESETS" :key="p.key"
+              class="tag preset-tag" :class="{ active: activePresetKey === p.key }"
+              @click="selectPreset(p)"
+            >
+              <AppIcon v-if="activePresetKey === p.key" name="check" :size="10" />
+              {{ p.label }}
+            </button>
           </div>
           <button
             class="more-params-btn"
             :class="{ open: moreParamsOpen, dirty: moreParamsDirty }"
             :aria-expanded="moreParamsOpen"
-            @click="moreParamsOpen = !moreParamsOpen"
-            :title="moreParamsOpen ? '收起更多参数' : '画质与数量'"
+            @click="toggleAdvanced"
+            :title="moreParamsOpen ? '收起高级设置' : '展开高级设置'"
           >
-            <span class="more-params-label">更多</span>
+            <AppIcon name="settings" :size="12" />
+            <span class="more-params-label">高级设置</span>
             <span v-if="moreParamsDirty && !moreParamsOpen" class="more-params-summary tnum">
-              {{ quality === 'high' ? '高' : quality === 'medium' ? '中' : '低' }} · {{ n }}
+              {{ RES_LABELS[resolution] }} · {{ Q_LABELS[quality] }}
             </span>
             <AppIcon :name="moreParamsOpen ? 'chevron-down' : 'chevron-right'" :size="12" />
           </button>
         </div>
+
+        <!-- 高级展开:独立的分辨率 + 画质 -->
         <div v-if="moreParamsOpen" class="params-row params-row-more">
-          <span class="params-tag-label">画质</span>
+          <span class="params-tag-label">分辨率</span>
+          <div class="tag-group">
+            <button
+              v-for="r in RESOLUTIONS" :key="r.key"
+              class="tag accent-tag" :class="{ active: resolution === r.key }"
+              @click="resolution = r.key"
+            >
+              <AppIcon v-if="resolution === r.key" name="check" :size="10" />
+              {{ r.label }}
+            </button>
+          </div>
+          <span class="params-tag-label params-tag-label-n">画质</span>
           <div class="tag-group">
             <button
               v-for="q in QUALITIES" :key="q.key"
-              class="tag" :class="{ active: quality === q.key }"
+              class="tag accent-tag" :class="{ active: quality === q.key }"
               @click="quality = q.key"
-            >{{ q.label }}</button>
+            >
+              <AppIcon v-if="quality === q.key" name="check" :size="10" />
+              {{ q.label }}
+            </button>
           </div>
-          <span class="params-tag-label params-tag-label-n">数量</span>
-          <input class="tnum" type="number" min="1" max="4" v-model="n" />
         </div>
       </div>
 
@@ -454,6 +543,28 @@ function onErrorAction() {
         <span class="proto-tip">{{ refAssets.length ? '改图 · 带参考图' : '文生图' }}</span>
 
         <div class="spacer" />
+
+        <!-- 数量:独立于图像属性,紧挨生成按钮 -->
+        <div class="n-stepper" title="生成数量（1-4）">
+          <button
+            class="n-btn" type="button" aria-label="减少数量"
+            @pointerdown.prevent="nHoldStart(-1)"
+            @pointerup="nHoldStop" @pointerleave="nHoldStop" @pointercancel="nHoldStop"
+          >
+            <AppIcon name="minus" :size="12" />
+          </button>
+          <input
+            class="n-input" type="number" min="1" max="4"
+            v-model.number="n" @change="onNChange" aria-label="生成数量"
+          />
+          <button
+            class="n-btn" type="button" aria-label="增加数量"
+            @pointerdown.prevent="nHoldStart(1)"
+            @pointerup="nHoldStop" @pointerleave="nHoldStop" @pointercancel="nHoldStop"
+          >
+            <AppIcon name="plus" :size="12" />
+          </button>
+        </div>
 
         <div class="prompt-lib-wrap">
           <button
@@ -586,10 +697,16 @@ function onErrorAction() {
   color: #fff; background: rgba(0,0,0,0.62); backdrop-filter: blur(4px);
 }
 .ref-remove {
-  position: absolute; top: 2px; right: 2px; width: 18px; height: 18px;
+  position: absolute; top: 2px; right: 2px; width: 15px; height: 15px;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.62); color: #fff; border-radius: 999px;
+  background: rgba(0,0,0,0.5); color: #fff; border-radius: 999px;
   backdrop-filter: blur(4px);
+  opacity: 0.55;
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.ref-thumb:hover .ref-remove { opacity: 1; background: rgba(0,0,0,0.72); }
+@media (hover: none) {
+  .ref-remove { opacity: 0.9; }
 }
 .ref-add {
   width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
@@ -624,7 +741,7 @@ function onErrorAction() {
 }
 .composer-input:focus { outline: none; }
 
-.composer-bar { display: flex; align-items: center; gap: var(--space-2); margin-top: 4px; position: relative; }
+.composer-bar { display: flex; align-items: center; gap: var(--space-2); margin-top: 4px; position: relative; flex-wrap: wrap; }
 .chip {
   display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--color-fg-muted);
   padding: 6px 10px; border-radius: 999px; border: 1px solid var(--color-border);
@@ -638,12 +755,32 @@ function onErrorAction() {
   margin-bottom: 8px; padding: 2px 2px 10px;
   border-bottom: 1px solid var(--color-border);
 }
+.settings-summary {
+  display: inline-flex; align-items: center; gap: 6px;
+  align-self: flex-start; max-width: 100%;
+  padding: 5px 12px; border-radius: 999px;
+  font-size: 11.5px; color: var(--color-fg-muted);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.settings-summary:hover { color: var(--color-fg); border-color: var(--color-border-strong); }
+.settings-summary.open {
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
+  background: var(--color-primary-soft);
+}
 .params-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .params-tag-label {
   font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.05em;
   color: var(--color-fg-subtle); flex-shrink: 0;
 }
 .params-tag-label-n { margin-left: 4px; }
+.ratio-grid {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px;
+  flex: 1; min-width: 220px;
+}
+.ratio-auto { border-style: dashed; }
 .params-row-more {
   padding-top: 2px;
   animation: params-in 160ms var(--ease-out);
@@ -654,10 +791,11 @@ function onErrorAction() {
 }
 .more-params-btn {
   display: inline-flex; align-items: center; gap: 4px;
-  margin-left: auto; min-height: 28px; padding: 0 10px;
-  border-radius: 999px; font-size: 11px; font-weight: 550;
-  color: var(--color-fg-subtle); border: 1px solid transparent;
-  background: transparent;
+  margin-left: auto; min-height: 28px; padding: 2px 8px;
+  border-radius: 999px; font-size: 11.5px; font-weight: 550;
+  color: var(--color-fg-subtle); border: 1px solid transparent; background: transparent;
+  text-decoration: underline; text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease),
     border-color var(--dur) var(--ease);
 }
@@ -666,17 +804,16 @@ function onErrorAction() {
   border-color: var(--color-border);
 }
 .more-params-btn.open {
-  color: var(--color-fg-muted); background: var(--color-surface-2);
-  border-color: var(--color-border);
+  color: var(--color-primary); background: var(--color-primary-soft);
+  border-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
 }
 .more-params-btn.dirty {
   color: var(--color-primary);
-  border-color: color-mix(in srgb, var(--color-primary) 28%, transparent);
-  background: var(--color-primary-soft);
 }
 .more-params-summary { font-size: 10px; opacity: 0.9; }
 .tag-group { display: flex; gap: 4px; flex-wrap: wrap; }
 .tag {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
   padding: 5px 10px; font-size: 12px; border-radius: 999px;
   border: 1px solid transparent; color: var(--color-fg-muted);
   background: var(--color-surface-2);
@@ -685,10 +822,42 @@ function onErrorAction() {
 }
 .tag:hover { color: var(--color-fg); background: var(--color-elevated); }
 .tag.active {
-  background: var(--color-primary); color: var(--color-on-primary);
-  border-color: color-mix(in srgb, var(--color-primary) 70%, #000);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--color-primary) 28%, transparent);
+  /* 比例维度:primary 蓝 — 描边 + 柔和底 + 微光,不再纯黑底白字 */
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent),
+    0 4px 12px color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
+.tag.accent-tag.active {
+  /* 画质/分辨率维度:accent 绿,与比例维度区分 */
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 15%, transparent),
+    0 4px 12px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+.preset-tag { font-weight: 600; padding: 6px 12px; }
+.n-stepper { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.n-btn {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--color-fg-muted); background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.n-btn:hover {
+  color: var(--color-fg); border-color: var(--color-border-strong);
+  background: var(--color-elevated);
+}
+.n-btn:active { transform: scale(0.92); }
+.n-input {
+  width: 48px; min-height: 30px; border-radius: 999px; text-align: center;
+  font-size: 13px; color: var(--color-fg);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+}
+.n-input:focus { outline: none; border-color: var(--color-primary); }
 .tnum {
   width: 52px; min-height: 30px; border-radius: 999px;
   background: var(--color-surface-2); border-color: transparent; text-align: center;
