@@ -97,4 +97,18 @@ describe('workbench issue regressions', () => {
     expect(await getAsset(referenced.id)).toBeTruthy()
     expect(await getAsset(free.id)).toBeUndefined()
   })
+
+  it('编辑消息:就地更新 prompt 与 params.prompt,并触发重新生成', async () => {
+    const gen = await pending()
+    store.generations = await listGenerations()
+
+    const result = await store.editPromptAndRegenerate(gen.id, '  修改后的 prompt  ')
+
+    const back = await getGeneration(gen.id)
+    expect(back.prompt).toBe('修改后的 prompt')
+    expect(back.params.prompt).toBe('修改后的 prompt')
+    // 无预设时 regenerate 安全返回失败(不抛错),但消息文本已就地更新
+    expect(result.ok).toBe(false)
+    expect(store.lastError).toMatch(/接口预设/)
+  })
 })

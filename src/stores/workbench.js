@@ -392,6 +392,21 @@ export const useWorkbenchStore = defineStore('workbench', {
       })
     },
 
+    // 编辑消息并再次生成:就地更新该轮 prompt(含已发送的 params.prompt 保持一致),
+    // 然后以新 prompt + 原参数/参考图触发一次新生成;若已有生成进行中则只更新文本。
+    async editPromptAndRegenerate(genId, text) {
+      const t = (text || '').trim()
+      const g = this.generations.find((x) => x.id === genId)
+      if (!g || !t) return { ok: false }
+      await updateGeneration(g.id, {
+        prompt: t,
+        params: { ...(g.params || {}), prompt: t },
+      })
+      await this.refreshAll()
+      if (this.generating) return { ok: true, skipped: true }
+      return this.regenerate(genId)
+    },
+
     clearLastError() {
       this.lastError = null
     },

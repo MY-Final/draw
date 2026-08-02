@@ -110,6 +110,45 @@ function undoDelete() {
   undoToast.value = null
 }
 
+// 编辑消息:气泡内联编辑,保存后更新该轮文本并自动用新 prompt 重新生成。
+const editingGenId = ref(null)
+const editText = ref('')
+const editInput = ref(null)
+function startEdit(gen) {
+  editingGenId.value = gen.id
+  editText.value = gen.prompt || ''
+  // 聚焦并让光标落在文末,进入即可继续输入
+  nextTick(() => {
+    const el = editInput.value
+    if (el) {
+      el.focus()
+      const len = el.value.length
+      el.setSelectionRange(len, len)
+      // rAF 确保布局稳定后再量高度,避免取到未完成布局的 scrollHeight
+      requestAnimationFrame(autogrowEdit)
+    }
+  })
+}
+function cancelEdit() { editingGenId.value = null }
+// 编辑框自适应高度:内容多高撑多高(上限约 80% 视口高),长 prompt 完整展开
+function autogrowEdit() {
+  const el = editInput.value
+  if (!el) return
+  el.style.height = 'auto'
+  void el.offsetHeight // 强制同步回流,确保 scrollHeight 是最终布局值
+  const cap = Math.round((window.innerHeight || 800) * 0.8)
+  el.style.height = Math.min(el.scrollHeight, cap) + 'px'
+}
+// 兜底:编辑态切换 / 内容变化时都重新量一次高度,避免任何时序漏测
+watch(editingGenId, (id) => { if (id) nextTick(() => requestAnimationFrame(autogrowEdit)) })
+watch(editText, () => { nextTick(() => requestAnimationFrame(autogrowEdit)) })
+async function saveEdit(gen) {
+  const t = editText.value.trim()
+  if (!t) return
+  editingGenId.value = null
+  await store.editPromptAndRegenerate(gen.id, t)
+}
+
 function onFeedScroll() {
   const el = scroller.value
   if (!el) return
@@ -143,13 +182,42 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
       <div v-for="gen in feed" :key="gen.id" class="turn">
         <!-- 用户请求气泡(右) -->
         <div class="row row-user">
-          <div class="bubble">
-            <p class="bubble-text">{{ gen.prompt }}</p>
-            <div v-if="refsOf(gen).length" class="bubble-refs">
-              <div v-for="a in refsOf(gen)" :key="a.id" class="bubble-ref">
-                <AssetImage :asset="a" alt="参考图" />
+          <div class="user-stack">
+            <div class="bubble" :class="{ editing: editingGenId === gen.id }">
+              <div v-if="editingGenId === gen.id" class="bubble-edit">
+                <textarea
+                  ref="editInput" v-model="editText" class="bubble-edit-input"
+                  @input="autogrowEdit"
+                  @keydown.enter.exact="saveEdit(gen)" @keydown.esc="cancelEdit"
+                  @keydown.shift.enter.stop
+                />
+                <div class="bubble-edit-actions">
+                  <span class="bubble-edit-hint">Enter 保存并生成 · Esc 取消</span>
+                  <div class="bubble-edit-btns">
+                    <button class="bubble-edit-btn-cancel" @click="cancelEdit">取消</button>
+                    <button class="bubble-edit-btn-save" @click="saveEdit(gen)" :disabled="!editText.trim()">保存并生成</button>
+                  </div>
+                </div>
               </div>
-              <span class="ref-hint">参考图</span>
+              <template v-else>
+                <p class="bubble-text">{{ gen.prompt }}</p>
+              </template>
+              <div v-if="refsOf(gen).length" class="bubble-refs">
+                <div v-for="a in refsOf(gen)" :key="a.id" class="bubble-ref">
+                  <AssetImage :asset="a" alt="参考图" />
+                </div>
+                <span class="ref-hint">参考图</span>
+              </div>
+            </div>
+            <!-- 编辑按钮:贴在用户消息气泡正下方 -->
+            <div v-if="gen.status !== 'pending'" class="user-actions">
+              <button
+                class="user-edit-btn"
+                @click="startEdit(gen)"
+                title="编辑这条消息并重新生成"
+              >
+                <AppIcon name="edit" :size="13" /> 编辑
+              </button>
             </div>
           </div>
           <div class="avatar avatar-user"><AppIcon name="user" :size="15" /></div>
@@ -316,6 +384,25 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
 .row { display: flex; gap: var(--space-3); align-items: flex-start; }
 .row-user { flex-direction: row; justify-content: flex-end; padding-left: 15%; }
 .row-ai { justify-content: flex-start; padding-right: 12%; }
+.user-stack {
+  display: flex; flex-direction: column; align-items: flex-end;
+  gap: 6px; max-width: 100%; min-width: 0;
+  /* 编辑态要让气泡占满可用宽度,否则 textarea 的固有宽度会把气泡拽成小框 */
+  width: min(100%, 680px);
+}
+.user-actions { display: flex; }
+.user-edit-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 12px; border-radius: 999px;
+  font-size: 12px; color: var(--color-fg-muted);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.user-edit-btn:hover {
+  color: var(--color-fg); border-color: var(--color-border-strong);
+  background: var(--color-elevated);
+}
 
 .avatar {
   width: 32px; height: 32px; border-radius: 10px;
@@ -342,6 +429,44 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
   box-shadow: 0 8px 22px color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 .bubble-text { margin: 0; font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.bubble.editing { width: 100%; }
+.bubble-edit { display: flex; flex-direction: column; gap: 10px; }
+.bubble-edit-input {
+  /* 保底高度:即使测量异常也保证有足够编辑空间(200px ~ 360px,随视口) */
+  width: 100%; min-height: clamp(200px, 35vh, 360px); resize: none; overflow-y: auto;
+  padding: 12px 14px; border-radius: 12px;
+  background: rgba(255,255,255,0.14);
+  border: 1px solid rgba(255,255,255,0.42);
+  color: var(--color-on-primary); font-size: 13.5px; line-height: 1.55;
+}
+.bubble-edit-input::placeholder { color: rgba(255,255,255,0.65); }
+.bubble-edit-input:focus {
+  outline: none; border-color: rgba(255,255,255,0.85);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.18);
+}
+.bubble-edit-actions {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; flex-wrap: wrap;
+}
+.bubble-edit-hint { font-size: 11px; color: rgba(255,255,255,0.8); }
+.bubble-edit-btns { display: flex; gap: 8px; }
+.bubble-edit-btn-cancel {
+  padding: 7px 14px; border-radius: 999px; font-size: 12.5px;
+  color: rgba(255,255,255,0.92); border: 1px solid rgba(255,255,255,0.45);
+  transition: background var(--dur) var(--ease);
+}
+.bubble-edit-btn-cancel:hover { background: rgba(255,255,255,0.16); }
+.bubble-edit-btn-save {
+  padding: 7px 16px; border-radius: 999px; font-size: 12.5px; font-weight: 650;
+  color: var(--color-primary); background: #fff;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+.bubble-edit-btn-save:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.24);
+}
+.bubble-edit-btn-save:disabled { opacity: 0.55; cursor: not-allowed; }
 .bubble-refs { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
 .bubble-ref { width: 42px; height: 42px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.35); }
 .ref-hint { font-size: 11px; opacity: 0.85; }
