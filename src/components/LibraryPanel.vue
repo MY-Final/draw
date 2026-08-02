@@ -1,18 +1,33 @@
 <script setup>
-// 右栏(安静):素材库网格 + 设为参考 + 预览 + 删除。用量/备份已移入抽屉。
-import { ref, onUnmounted } from 'vue'
+// 右栏(安静):素材库网格 + 来源筛选 + 设为参考 + 预览 + 删除。用量/备份已移入抽屉。
+import { ref, computed, onUnmounted } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import { normalizeSource, sourceFullLabel, sourceShortLabel } from '../lib/assetSource.js'
 
 const store = useWorkbenchStore()
 const emit = defineEmits(['use-as-reference', 'preview'])
+const SOURCE_FILTERS = [
+  { key: 'all', label: '全部' },
+  { key: 'generated', label: 'AI 生成' },
+  { key: 'reference-uploaded', label: '我的上传' },
+  { key: 'imported', label: '导入' },
+]
 const selected = ref(new Set())
 const confirmDelAssets = ref(false)
 const deleteNotice = ref('')
 let deleteNoticeTimer = null
 onUnmounted(() => { if (deleteNoticeTimer) clearTimeout(deleteNoticeTimer) })
+
+// 来源筛选与收藏筛选叠加;旧记录缺 source 按 generated 处理。
+const filteredAssets = computed(() => {
+  const list = store.workspaceAssets
+  const f = store.assetSourceFilter
+  if (f === 'all') return list
+  return list.filter((a) => normalizeSource(a.source) === f)
+})
 
 function toggleSelect(id) {
   const s = new Set(selected.value)
@@ -55,8 +70,18 @@ async function doDeleteSelected() {
         <button v-if="selected.size" class="btn btn-sm btn-danger" @click="askDeleteSelected">
           <AppIcon name="trash" :size="13" /> {{ selected.size }}
         </button>
-        <span v-else class="lib-count tnum">{{ store.workspaceAssets.length }} 张</span>
+        <span v-else class="lib-count tnum">{{ filteredAssets.length }} 张</span>
       </div>
+    </div>
+
+    <!-- 来源筛选:AI 生成 / 我的上传 / 导入,一眼区分 -->
+    <div class="lib-filters" role="group" aria-label="素材来源筛选">
+      <button
+        v-for="f in SOURCE_FILTERS" :key="f.key"
+        class="src-filter" :class="{ active: store.assetSourceFilter === f.key }"
+        @click="store.setAssetSourceFilter(f.key)"
+        :aria-pressed="store.assetSourceFilter === f.key"
+      >{{ f.label }}</button>
     </div>
 
     <div v-if="deleteNotice" class="delete-notice" role="status" aria-live="polite">
@@ -80,8 +105,14 @@ async function doDeleteSelected() {
       </p>
     </div>
 
+    <div v-else-if="!filteredAssets.length" class="lib-empty">
+      <div class="lib-empty-icon"><AppIcon name="layers" :size="18" /></div>
+      <p class="lib-empty-title">该分类下暂无素材</p>
+      <p class="lib-empty-desc">切换其他来源分类看看。</p>
+    </div>
+
     <div v-else class="grid">
-      <div v-for="a in store.workspaceAssets" :key="a.id" class="cell" :class="{ selected: selected.has(a.id) }"
+      <div v-for="a in filteredAssets" :key="a.id" class="cell" :class="{ selected: selected.has(a.id) }"
         draggable="true"
         @dragstart="(e) => { e.dataTransfer.setData('application/json', JSON.stringify({ assetId: a.id })) }"
       >
@@ -89,6 +120,9 @@ async function doDeleteSelected() {
           <AssetImage :asset="a" />
         </button>
         <span v-if="a.favorite" class="fav-dot" aria-hidden="true"><AppIcon name="heart" :size="11" /></span>
+        <span class="src-badge" :class="normalizeSource(a.source)" :title="sourceFullLabel(a.source)">
+          {{ sourceShortLabel(a.source) }}
+        </span>
         <div class="cell-actions">
           <button class="mini" @click="store.toggleAssetFavorite(a.id)" :class="{ on: a.favorite }" :aria-label="a.favorite ? '取消收藏' : '收藏'">
             <AppIcon name="heart" :size="12" />
@@ -131,6 +165,20 @@ async function doDeleteSelected() {
 }
 .filter-btn.on :deep(svg) { fill: var(--color-heart); }
 .lib-title { font-size: 12px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-fg-subtle); }
+
+.lib-filters { display: flex; gap: 4px; flex-wrap: wrap; }
+.src-filter {
+  padding: 3px 9px; border-radius: 999px; font-size: 11px;
+  color: var(--color-fg-muted); background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.src-filter:hover { color: var(--color-fg); border-color: var(--color-border-strong); }
+.src-filter.active {
+  color: var(--color-on-primary); background: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 70%, #000);
+}
+
 .delete-notice {
   display: flex; align-items: flex-start; gap: 7px;
   padding: 8px 10px; border-radius: 10px;
@@ -213,6 +261,12 @@ async function doDeleteSelected() {
   background: rgba(0,0,0,0.52); color: var(--color-heart); backdrop-filter: blur(4px);
 }
 .fav-dot :deep(svg) { fill: var(--color-heart); }
+.src-badge {
+  position: absolute; left: 6px; bottom: 6px;
+  font-size: 9px; font-weight: 700; line-height: 1;
+  padding: 3px 5px; border-radius: 5px;
+  color: #fff; background: rgba(0,0,0,0.58); backdrop-filter: blur(4px);
+}
 .cell-actions {
   position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
   opacity: 0; transition: opacity var(--dur) var(--ease);

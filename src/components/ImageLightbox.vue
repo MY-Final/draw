@@ -5,6 +5,7 @@ import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
 import { downloadBlob, imageFileName } from '../lib/download.js'
+import { sourceFullLabel } from '../lib/assetSource.js'
 
 const props = defineProps({ asset: Object })
 const emit = defineEmits(['close', 'use-as-reference'])
@@ -37,6 +38,7 @@ function download() {
       </div>
       <div class="viewer-bar tnum">
         <span>{{ live.width && live.height ? `${live.width}×${live.height}` : '' }} {{ live.mime }}</span>
+        <span class="src-chip">{{ sourceFullLabel(live.source) }}</span>
         <div class="spacer" />
         <button
           class="btn btn-sm"
@@ -76,6 +78,11 @@ function download() {
 }
 .viewer-bar .btn.on { color: var(--color-heart); border-color: color-mix(in srgb, var(--color-heart) 40%, transparent); }
 .viewer-bar .btn.on :deep(svg) { fill: var(--color-heart); }
+.src-chip {
+  padding: 2px 8px; border-radius: 999px; font-size: 11px;
+  color: var(--color-fg-muted); background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+}
 .spacer { flex: 1; min-width: 8px; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 </style>
