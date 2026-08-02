@@ -112,12 +112,12 @@ onUnmounted(() => {
   if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
 })
 
-// 参考图走 images/edits 改图;多张时只用第一张。
+// 参考图走 images/edits 改图;多张参考图全部发送(官方上限 16 张)。
+const MAX_REFERENCES = 16
 const assetById = computed(() => new Map(store.assets.map((asset) => [asset.id, asset])))
 const refAssets = computed(() =>
   refImageIds.value.map((id) => assetById.value.get(id)).filter(Boolean)
 )
-const multiRefOnImages = computed(() => refAssets.value.length > 1)
 const referenceNotice = ref('')
 let referenceNoticeTimer = null
 
@@ -137,7 +137,14 @@ watch([
 })
 
 function addReference(id) {
-  if (!refImageIds.value.includes(id)) refImageIds.value = [...refImageIds.value, id]
+  if (refImageIds.value.includes(id)) return
+  if (refImageIds.value.length >= MAX_REFERENCES) {
+    referenceNotice.value = `参考图最多 ${MAX_REFERENCES} 张，已忽略新添加的图片。`
+    if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
+    referenceNoticeTimer = setTimeout(() => { referenceNotice.value = '' }, 5000)
+    return
+  }
+  refImageIds.value = [...refImageIds.value, id]
 }
 function removeReference(id) {
   refImageIds.value = refImageIds.value.filter((x) => x !== id)
@@ -227,7 +234,10 @@ function applyPrefill(prefill) {
   }
   if (prefill.params?.n) n.value = prefill.params.n
   if (prefill.params?.quality) quality.value = prefill.params.quality
-  refImageIds.value = Array.isArray(prefill.refImageIds) ? [...prefill.refImageIds] : []
+  // 配方回填同样收敛到官方上限，避免把必然失败的请求发出去。
+  refImageIds.value = Array.isArray(prefill.refImageIds)
+    ? [...prefill.refImageIds].slice(0, MAX_REFERENCES)
+    : []
 }
 function gcd(a, b) { return b ? gcd(b, a % b) : a }
 function clear() {
@@ -341,12 +351,11 @@ function onErrorAction() {
     >
       <div
         v-for="(a, i) in refAssets" :key="a.id"
-        class="ref-thumb" :class="{ secondary: i > 0 }"
-        :title="i > 0 ? '不会发送：带参考图时仅使用第一张' : '将作为参考图发送'"
+        class="ref-thumb"
+        title="将作为参考图发送"
       >
         <AssetImage :asset="a" alt="参考图" />
-        <span v-if="i === 0 && multiRefOnImages" class="ref-badge">用</span>
-        <span v-else-if="i > 0" class="ref-badge ref-badge-off">未用</span>
+        <span class="ref-badge tnum">{{ i + 1 }}</span>
         <button class="ref-remove" @click="removeReference(a.id)" aria-label="移除参考图">
           <AppIcon name="x" :size="11" />
         </button>
@@ -355,7 +364,7 @@ function onErrorAction() {
         <AppIcon name="plus" :size="14" />
       </button>
       <input ref="fileInput" type="file" accept="image/*" class="hidden-input" @change="onFilePick" />
-      <span class="ref-tip">{{ refAssets.length ? (multiRefOnImages ? '仅第一张会发送,其余未用' : '参考图') : '上传、粘贴或拖入参考图' }}</span>
+      <span class="ref-tip">{{ refAssets.length ? `${refAssets.length} 张参考图` : '上传、粘贴或拖入参考图（可多张）' }}</span>
     </div>
 
     <!-- 主输入框 -->
@@ -544,17 +553,11 @@ function onErrorAction() {
   overflow: hidden; border: 1px solid var(--color-border-strong);
   box-shadow: var(--shadow-1);
 }
-.ref-thumb.secondary { opacity: 0.55; }
-.ref-thumb.secondary:hover { opacity: 0.85; }
 .ref-badge {
-  position: absolute; left: 3px; bottom: 3px;
+  position: absolute; top: 3px; left: 3px;
   font-size: 9px; font-weight: 700; line-height: 1;
   padding: 2px 4px; border-radius: 4px;
   color: #fff; background: rgba(0,0,0,0.62); backdrop-filter: blur(4px);
-}
-.ref-badge-off {
-  background: rgba(0,0,0,0.72);
-  color: color-mix(in srgb, #fff 78%, var(--color-warning));
 }
 .ref-remove {
   position: absolute; top: 2px; right: 2px; width: 18px; height: 18px;

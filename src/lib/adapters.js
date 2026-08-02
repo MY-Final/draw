@@ -35,10 +35,10 @@ async function generateViaImages({ preset, prompt, params, signal }) {
 }
 
 // ImagesEditAdapter —— POST /v1/images/edits(multipart)。images 协议带参考图时改图。
-// 多张参考图仅取第一张(edits 端点通常只接受一张)。
+// 官方 edits 端点(GPT Image 系)支持最多 16 张源图:多图场景每张以 image[] 字段重复
+// 发送;单图沿用 image 字段,兼容 DALL·E 2 与旧中转站。
 async function generateViaImagesEdit({ preset, prompt, refImages, params, signal }) {
   const url = `${preset.baseURL}/v1/images/edits`
-  const first = refImages[0]
   const form = new FormData()
   form.append('model', preset.model || params.model)
   form.append('prompt', prompt)
@@ -49,8 +49,12 @@ async function generateViaImagesEdit({ preset, prompt, refImages, params, signal
   if (params.quality) form.append('quality', params.quality)
   // 默认要 b64_json,绕开外链下载转圈(同 generations)
   form.append('response_format', params.responseFormat || 'b64_json')
-  const ext = (first.mime?.split('/')[1] || 'png').replace('jpeg', 'jpg')
-  form.append('image', first.blob, `image.${ext}`)
+  // 单图字段名保持 image;多图对齐官方写法,每张以 image[] 携带,文件名按序编号。
+  const field = refImages.length > 1 ? 'image[]' : 'image'
+  refImages.forEach((img, i) => {
+    const ext = (img.mime?.split('/')[1] || 'png').replace('jpeg', 'jpg')
+    form.append(field, img.blob, `image-${i + 1}.${ext}`)
+  })
 
   const raw = await callApi(url, { apiKey: preset.apiKey, body: form, signal })
 
