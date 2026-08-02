@@ -1,6 +1,6 @@
 <script setup>
 // 底部固定输入区(composer,对话式布局)。prompt + 内联参数 + 参考图 chips + 生成。
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AppIcon from './AppIcon.vue'
 import AssetImage from './AssetImage.vue'
@@ -55,6 +55,7 @@ const store = useWorkbenchStore()
 const emit = defineEmits(['open-settings'])
 
 const prompt = ref('')
+const composerInput = ref(null)
 const ratio = ref('auto')
 const resolution = ref('1k')
 const quality = ref('medium')
@@ -394,10 +395,15 @@ function onEnter(e) {
 }
 
 function autogrow(e) {
-  const el = e.target
+  const el = e?.target || composerInput.value
+  if (!el) return
   el.style.height = 'auto'
   el.style.height = Math.min(el.scrollHeight, 200) + 'px'
 }
+
+// 程序化改 prompt(清空/填回输入框/导入配方)不会触发 @input,
+// 这里兜底同步高度,避免清空后空输入框仍占着长 prompt 的高度。
+watch(prompt, () => { nextTick(() => autogrow()) })
 
 const settingsRelatedError = computed(() => {
   const msg = store.lastError || ''
@@ -583,6 +589,7 @@ function onErrorAction() {
       </div>
 
       <textarea
+        ref="composerInput"
         v-model="prompt" rows="1" class="composer-input"
         placeholder="描述你想画的,或把图设为参考改图…"
         @input="autogrow"
