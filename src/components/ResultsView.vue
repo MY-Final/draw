@@ -5,7 +5,7 @@ import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
 import { exportRecipe } from '../lib/share.js'
-import { downloadBlob, downloadJson } from '../lib/download.js'
+import { downloadBlob, downloadJson, imageFileName } from '../lib/download.js'
 
 const store = useWorkbenchStore()
 const emit = defineEmits(['use-as-reference', 'preview', 'reuse', 'open-settings'])
@@ -76,9 +76,9 @@ function elapsedText(gen) {
 }
 
 async function shareRecipe(gen) { downloadJson(await exportRecipe(gen), `recipe-${gen.id}.json`) }
-function downloadImage(a) {
+function downloadImage(a, gen) {
   const ext = (a.mime.split('/')[1] || 'png').replace('jpeg', 'jpg')
-  downloadBlob(a.blob, `${a.id}.${ext}`)
+  downloadBlob(a.blob, imageFileName({ id: a.id, prompt: gen?.prompt, name: a.name, ext }))
 }
 
 // 多图时记住每轮「当前图」(hover / 点击选中);操作作用在当前图而非永远第一张。
@@ -238,7 +238,7 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
               </button>
               <button
                 class="act"
-                @click="downloadImage(activeOutput(gen))"
+                @click="downloadImage(activeOutput(gen), gen)"
                 :disabled="!activeOutput(gen)"
                 :title="outputsOf(gen).length > 1 ? '下载当前选中图' : '下载'"
               >

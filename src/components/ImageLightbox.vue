@@ -4,7 +4,7 @@ import { computed, onMounted, onUnmounted } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
-import { downloadBlob } from '../lib/download.js'
+import { downloadBlob, imageFileName } from '../lib/download.js'
 
 const props = defineProps({ asset: Object })
 const emit = defineEmits(['close', 'use-as-reference'])
@@ -23,7 +23,9 @@ function download() {
   const a = live.value
   if (!a) return
   const ext = (a.mime.split('/')[1] || 'png').replace('jpeg', 'jpg')
-  downloadBlob(a.blob, `${a.id}.${ext}`)
+  // 优先用产出该图的生成记录 prompt,其次素材名,保证下载名可读
+  const gen = store.generations.find((g) => (g.outputImageIds || []).includes(a.id))
+  downloadBlob(a.blob, imageFileName({ id: a.id, prompt: gen?.prompt, name: a.name, ext }))
 }
 </script>
 

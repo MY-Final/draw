@@ -191,7 +191,7 @@ buildIndex()
 
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="search-overlay" @click.self="close" @keydown="onKeydown">
+    <div v-if="visible" class="search-overlay" @click.self="close">
       <div class="search-modal">
         <div class="search-input-wrap">
           <AppIcon name="search" :size="16" class="search-icon" />
@@ -205,7 +205,7 @@ buildIndex()
           />
           <kbd class="search-kbd">ESC</kbd>
         </div>
-        <div v-if="results.length" class="search-results">
+        <div v-if="results.length" class="search-results" @keydown="onKeydown">
           <template v-for="(r, i) in results" :key="i">
             <div v-if="r._group" class="result-group-label">
               <AppIcon :name="r.icon" :size="13" />

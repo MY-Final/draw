@@ -121,6 +121,12 @@ const refAssets = computed(() =>
 const referenceNotice = ref('')
 let referenceNoticeTimer = null
 
+function showReferenceNotice(text) {
+  referenceNotice.value = text
+  if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
+  referenceNoticeTimer = setTimeout(() => { referenceNotice.value = '' }, 5000)
+}
+
 // 素材可能在另一处被删除/导入覆盖。同步清掉失效 id 并提示，避免缩略图消失后状态仍暗中残留。
 watch([
   () => [...assetById.value.keys()],
@@ -131,20 +137,18 @@ watch([
   const removed = refImageIds.value.length - valid.length
   if (!removed) return
   refImageIds.value = valid
-  referenceNotice.value = `${removed} 张参考图已不存在，已从本次生成中移除。`
-  if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
-  referenceNoticeTimer = setTimeout(() => { referenceNotice.value = '' }, 5000)
+  showReferenceNotice(`${removed} 张参考图已不存在，已从本次生成中移除。`)
 })
 
-function addReference(id) {
+// quiet:内部路径(上传/拖入)不弹提示,缩略图就在眼前;外部路径(素材库/预览设为参考)给反馈。
+function addReference(id, { quiet = false } = {}) {
   if (refImageIds.value.includes(id)) return
   if (refImageIds.value.length >= MAX_REFERENCES) {
-    referenceNotice.value = `参考图最多 ${MAX_REFERENCES} 张，已忽略新添加的图片。`
-    if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
-    referenceNoticeTimer = setTimeout(() => { referenceNotice.value = '' }, 5000)
+    showReferenceNotice(`参考图最多 ${MAX_REFERENCES} 张，已忽略新添加的图片。`)
     return
   }
   refImageIds.value = [...refImageIds.value, id]
+  if (!quiet) showReferenceNotice(`已加入参考图（当前 ${refImageIds.value.length} 张）`)
 }
 function removeReference(id) {
   refImageIds.value = refImageIds.value.filter((x) => x !== id)
@@ -153,16 +157,23 @@ function removeReference(id) {
 // ── 参考图上传(design D3)──
 const fileInput = ref(null)
 const dropActive = ref(false)
+let dragDepth = 0
 async function uploadRefImage(file) {
   if (!file || !file.type.startsWith('image/')) return
-  // 走 store:落库并刷新响应式 assets,否则 refAssets 找不到新图、缩略图不显示。
-  const asset = await store.addReferenceAsset(file)
-  addReference(asset.id)
-  if (fileInput.value) fileInput.value.value = ''
+  try {
+    // 走 store:落库并刷新响应式 assets,否则 refAssets 找不到新图、缩略图不显示。
+    const asset = await store.addReferenceAsset(file)
+    addReference(asset.id, { quiet: true })
+  } catch (e) {
+    showReferenceNotice(`参考图添加失败：${e?.message || '请重试'}`)
+  } finally {
+    if (fileInput.value) fileInput.value.value = ''
+  }
 }
 function onFilePick(e) {
-  const file = e.target?.files?.[0]
-  if (file) uploadRefImage(file)
+  // 支持一次多选:按选择顺序逐张入库(与拖入/粘贴行为一致)
+  const files = Array.from(e.target?.files || []).filter((f) => f.type.startsWith('image/'))
+  if (files.length) uploadInOrder(files, uploadRefImage)
 }
 // 从剪贴板事件提取第一张图片(files / items 两条路径,见 lib/clipboard.js)
 function onPaste(e) {
@@ -174,17 +185,23 @@ function onPaste(e) {
   }
 }
 
-// ── DnD 从素材库拖放(design D4)──
-function onDragOver(e) {
+// ── DnD(design D4):整个输入区都是拖放目标。用深度计数避免在子元素间移动时闪烁。
+function onDragEnter(e) {
   e.preventDefault()
+  dragDepth += 1
   dropActive.value = true
 }
+function onDragOver(e) {
+  e.preventDefault()
+}
 function onDragLeave() {
-  dropActive.value = false
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (!dragDepth) dropActive.value = false
 }
 async function onDrop(e) {
   e.preventDefault()
   dropActive.value = false
+  dragDepth = 0
   // 1) 素材库拖入(application/json)
   try {
     const raw = e.dataTransfer?.getData('application/json')
@@ -199,7 +216,7 @@ async function onDrop(e) {
   // 2) 系统文件 / 访达拖入
   const files = Array.from(e.dataTransfer?.files || []).filter((f) => f.type.startsWith('image/'))
   if (files.length) {
-    // 串行入库以保留 DataTransfer.files 的用户顺序；接口实际发送第一张。
+    // 串行入库以保留 DataTransfer.files 的用户顺序；全部参考图随请求一并发送。
     await uploadInOrder(files, uploadRefImage)
   }
 }
@@ -268,7 +285,7 @@ async function submit() {
       ratio: ratio.value,
       resolution: resolution.value,
       quality: quality.value,
-      n: Number(n.value),
+      n: Math.min(4, Math.max(1, Number(n.value) || 1)),
     },
   })
   // 失败/空结果时回填,避免长 prompt 白打;主动取消不回填(用户通常想空着)。
@@ -308,7 +325,17 @@ function onErrorAction() {
 </script>
 
 <template>
-  <div class="composer-wrap">
+  <div
+    class="composer-wrap"
+    @dragenter="onDragEnter" @dragover="onDragOver"
+    @dragleave="onDragLeave" @drop="onDrop"
+  >
+    <!-- 整区拖放提示:覆盖整个输入区,松开即添加 -->
+    <div v-if="dropActive" class="drop-overlay" aria-hidden="true">
+      <AppIcon name="layers" :size="18" />
+      <span>松开以添加参考图</span>
+    </div>
+
     <!-- 无接口 / 缺 Key:提示本身可点,文案不写死「左侧」(移动端侧栏在汉堡里) -->
     <button
       v-if="!store.activePreset"
@@ -345,10 +372,7 @@ function onErrorAction() {
     </div>
 
     <!-- 参考图 chips 与上传 + DnD 目标(上传按钮始终可见) -->
-    <div
-      class="ref-strip" :class="{ 'drop-active': dropActive }"
-      @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
-    >
+    <div class="ref-strip">
       <div
         v-for="(a, i) in refAssets" :key="a.id"
         class="ref-thumb"
@@ -363,7 +387,7 @@ function onErrorAction() {
       <button class="ref-add" @click="fileInput?.click()" title="上传参考图" aria-label="上传参考图">
         <AppIcon name="plus" :size="14" />
       </button>
-      <input ref="fileInput" type="file" accept="image/*" class="hidden-input" @change="onFilePick" />
+      <input ref="fileInput" type="file" accept="image/*" multiple class="hidden-input" @change="onFilePick" />
       <span class="ref-tip">{{ refAssets.length ? `${refAssets.length} 张参考图` : '上传、粘贴或拖入参考图（可多张）' }}</span>
     </div>
 
@@ -490,7 +514,19 @@ function onErrorAction() {
 </template>
 
 <style scoped>
-.composer-wrap { width: 100%; max-width: 780px; margin: 0 auto; }
+.composer-wrap {
+  width: 100%; max-width: 780px; margin: 0 auto; position: relative;
+}
+.drop-overlay {
+  position: absolute; inset: 0; z-index: 30;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; border-radius: 20px;
+  background: color-mix(in srgb, var(--color-bg) 80%, transparent);
+  border: 2px dashed var(--color-primary);
+  color: var(--color-primary); font-size: 14px; font-weight: 650;
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
 .hint {
   display: flex; align-items: center; gap: 8px; font-size: 12px;
   color: var(--color-warning); margin-bottom: var(--space-2);
@@ -537,16 +573,6 @@ function onErrorAction() {
 .ref-strip {
   display: flex; align-items: center; gap: var(--space-2);
   margin-bottom: var(--space-2); flex-wrap: wrap;
-  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
-}
-.ref-strip.drop-active {
-  border: 1.5px dashed var(--color-primary);
-  border-radius: var(--radius);
-  padding: var(--space-2);
-  margin-left: calc(-1 * var(--space-2));
-  margin-right: calc(-1 * var(--space-2));
-  position: relative; z-index: 1;
-  background: var(--color-primary-soft);
 }
 .ref-thumb {
   position: relative; width: 48px; height: 48px; border-radius: 12px;

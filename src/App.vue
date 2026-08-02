@@ -102,6 +102,12 @@ function toggleTheme() { setTheme(theme.value === 'dark' ? 'light' : 'dark') }
 
 function useAsReference(id) { composer.value?.addReference(id) }
 function onRecipeImported(prefill) { composer.value?.applyPrefill(prefill); storageOpen.value = false }
+
+// 切换会话/工作区后输入区回到空白:避免把上一段会话的 prompt/参考图带到新上下文发出去。
+watch(() => [store.conversationId, store.activeWorkspaceId], () => {
+  composer.value?.clear()
+})
+
 function onNewCanvas() {
   store.newConversation()   // 开一段空白会话(旧会话与图仍保留、可从左侧切回)
   composer.value?.clear()

@@ -5,6 +5,15 @@ export function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+// 可读文件名:优先用 prompt/素材名,截断并去掉路径非法字符;无可读信息时退回内部 id。
+export function imageFileName({ id = 'image', prompt = '', name = '', ext = 'png' } = {}) {
+  const base = (prompt || name || '')
+    .trim().replace(/\s+/g, ' ')
+    .replace(/[\\/:*?"<>|\r\n]+/g, '')
+    .slice(0, 48)
+  return `${base || id}.${ext}`
+}
+
 export function downloadJson(obj, filename) {
   const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' })
   downloadBlob(blob, filename)
