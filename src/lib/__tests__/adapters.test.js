@@ -43,15 +43,37 @@ describe('generate 端点分派', () => {
     expect(calls[1].url).toContain('/v1/images/edits')
   })
 
-  it('images 多张参考图仅取第一张发 edits', async () => {
+  it('images 单张参考图以 image 字段发送', async () => {
+    install()
+    const b1 = new Blob(['1'], { type: 'image/png' })
+    await generate({ preset: preset('images'), prompt: 'p', refImages: [{ blob: b1, mime: 'image/png' }], params: {} })
+    expect(calls[0].url).toContain('/v1/images/edits')
+    const form = calls[0].opts.body
+    expect(form.getAll('image').length).toBe(1)
+    expect(form.getAll('image[]').length).toBe(0)
+  })
+
+  it('images 多张参考图全部以 image[] 字段发送', async () => {
     install()
     const b1 = new Blob(['1'], { type: 'image/png' })
     const b2 = new Blob(['2'], { type: 'image/png' })
-    await generate({ preset: preset('images'), prompt: 'p', refImages: [{ blob: b1, mime: 'image/png' }, { blob: b2, mime: 'image/png' }], params: {} })
+    const b3 = new Blob(['3'], { type: 'image/jpeg' })
+    await generate({
+      preset: preset('images'), prompt: 'p', params: {},
+      refImages: [
+        { blob: b1, mime: 'image/png' },
+        { blob: b2, mime: 'image/png' },
+        { blob: b3, mime: 'image/jpeg' },
+      ],
+    })
     expect(calls[0].url).toContain('/v1/images/edits')
     const form = calls[0].opts.body
-    // 只 append 了一个 image 字段
-    expect(form.getAll('image').length).toBe(1)
+    // 全部参考图都进了 multipart,且按选择顺序编号命名
+    expect(form.getAll('image').length).toBe(0)
+    expect(form.getAll('image[]').length).toBe(3)
+    expect(form.getAll('image[]').map((f) => f.name)).toEqual([
+      'image-1.png', 'image-2.png', 'image-3.jpg',
+    ])
   })
 })
 

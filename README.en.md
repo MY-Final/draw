@@ -25,7 +25,7 @@ A **front-end-only, zero-backend** AI drawing workbench. Plug in your own OpenAI
 
 - **Zero backend**: the browser talks to the endpoint directly. No server, no account, no cloud sync.
 - **Standard images protocol**: text-to-image via `images/generations`; with reference images it automatically uses `images/edits` (OpenAI-compatible). Legacy `chat` / `auto` presets are migrated to `images` automatically.
-- **Reference images / iterative editing**: set any asset (including past results) as a reference and regenerate — multi-turn editing is just "reuse an old image as reference," with no conversation state. Missing references produce a clear error instead of silently falling back to text-to-image.
+- **Reference images / iterative editing**: set one or more assets (including past results) as references and regenerate (up to 16 per request, all sent together) — multi-turn editing is just "reuse an old image as reference," with no conversation state. Missing references produce a clear error instead of silently falling back to text-to-image.
 - **Local asset library**: images are stored as Blobs in IndexedDB, never expiring by default; metadata and image bytes are separated, so one image can be reused in many places without duplicated storage. Assets still referenced by generation history cannot be deleted directly.
 - **Long-running generation support**: image-generation requests have no automatic client-side timeout and keep waiting for the endpoint; users can cancel manually, while interrupted jobs are reconciled after a page reload. URL-based result downloads retain a 60-second safety timeout.
 - **Workspaces and mobile**: workspaces, conversation history, unified search (`Ctrl/⌘ K`), mobile navigation, and a mobile asset-library entry point.
