@@ -10,6 +10,7 @@
 [![Stars](https://img.shields.io/github/stars/MY-Final/draw?style=social)](https://github.com/MY-Final/draw/stargazers)
 [![Vue 3](https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![Vite](https://img.shields.io/badge/Vite-646cff?logo=vite&logoColor=white)](https://vitejs.dev/)
+[![Vitest](https://img.shields.io/badge/Vitest-6E9F18?logo=vitest&logoColor=white)](https://vitest.dev/)
 
 [**Live Demo**](https://120403.xyz/draw/) · [Quick Start](#quick-start) · [One-Click Deploy](#one-click-deploy)
 
@@ -26,6 +27,9 @@ A **front-end-only, zero-backend** AI drawing workbench. Plug in your own OpenAI
 - **Zero backend**: the browser talks to the endpoint directly. No server, no account, no cloud sync.
 - **Standard images protocol**: text-to-image via `images/generations`; with reference images it automatically uses `images/edits` (OpenAI-compatible). Legacy `chat` / `auto` presets are migrated to `images` automatically.
 - **Reference images / iterative editing**: set one or more assets (including past results) as references and regenerate (up to 16 per request, all sent together) — multi-turn editing is just "reuse an old image as reference," with no conversation state. Missing references produce a clear error instead of silently falling back to text-to-image.
+- **Editable messages**: edit a prompt after generation and regenerate with the new text while keeping the original params and references; the message history updates in place.
+- **Distinguishable asset sources**: filter the library by "AI generated / my uploads / imported" with per-cell source badges, so large libraries stay organized.
+- **Batch count verification**: if N images were requested but the endpoint returned only M, the result card shows an explicit warning with the raw response snippet instead of silently dropping images.
 - **Local asset library**: images are stored as Blobs in IndexedDB, never expiring by default; metadata and image bytes are separated, so one image can be reused in many places without duplicated storage. Assets still referenced by generation history cannot be deleted directly.
 - **Long-running generation support**: image-generation requests have no automatic client-side timeout and keep waiting for the endpoint; users can cancel manually, while interrupted jobs are reconciled after a page reload. URL-based result downloads retain a 60-second safety timeout.
 - **Workspaces and mobile**: workspaces, conversation history, unified search (`Ctrl/⌘ K`), mobile navigation, and a mobile asset-library entry point.
@@ -98,7 +102,15 @@ Every platform offers a free tier; after deploying you get your own public URL. 
 
 ## Tech Stack
 
-Vue 3 + Vite · Pinia · idb (IndexedDB) · JSZip · pure-CSS design system (dark/light dual themes).
+**Frontend**: Vue 3 (Composition API + `<script setup>`) with Pinia state management · Vite build · standard OpenAI images adapter layer (`generations` / `edits` auto-routing).
+
+**Storage**: idb (IndexedDB) stores image Blobs and generation records with metadata kept separate from image bytes, so one image can be reused without duplication; localStorage holds lightweight preferences (presets, theme, conversation titles).
+
+**Testing**: Vitest unit tests with fake-indexeddb, covering the generation pipeline, reference-aware deletion, share sanitization, and workspace regressions.
+
+**Styling**: a pure-CSS design system (design tokens, dark/light dual themes) with no UI framework; icons are inline SVGs (Lucide-style).
+
+**Utilities**: JSZip for full-library zip backup / restore.
 
 ## Architecture Highlights
 

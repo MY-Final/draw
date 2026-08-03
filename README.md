@@ -10,6 +10,7 @@
 [![Stars](https://img.shields.io/github/stars/MY-Final/draw?style=social)](https://github.com/MY-Final/draw/stargazers)
 [![Vue 3](https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![Vite](https://img.shields.io/badge/Vite-646cff?logo=vite&logoColor=white)](https://vitejs.dev/)
+[![Vitest](https://img.shields.io/badge/Vitest-6E9F18?logo=vitest&logoColor=white)](https://vitest.dev/)
 
 [**在线体验**](https://120403.xyz/draw/) · [快速开始](#快速开始) · [一键部署](#一键部署)
 
@@ -26,6 +27,9 @@
 - **零后端**:浏览器直连接口,无服务器、无账号、无云同步。
 - **标准 images 协议**:文生图走 `images/generations`,带参考图自动走 `images/edits`(OpenAI 兼容);旧版 `chat` / `auto` 预设会自动迁移为 `images`。
 - **参考图 / 多轮改图**:把一张或多张素材(含以往生成结果)设为参考图再生成(单次最多 16 张,全部随请求发送)—— 多轮改图就是"拿旧图当参考"的特例,无会话状态;参考图失效时会明确提示,不会静默降级为文生图。
+- **消息可编辑**:生成后可直接编辑该条 prompt,并以新内容 + 原参数/参考图重新生成,历史里的消息文本同步更新。
+- **素材来源可区分**:素材库按「AI 生成 / 我的上传 / 导入」筛选,格子上带来源角标,素材多了也不混。
+- **批量数量核对**:请求 N 张但接口实际只返回 M 张时,结果卡明确告警并保留接口原始返回,不再静默丢图。
 - **本地素材库**:图片以 Blob 存 IndexedDB,默认不过期;元数据与图字节分离,一图可多处复用不重复占用;仍被历史记录引用的素材不会被直接删除。
 - **长任务友好**:生图请求不设置客户端自动超时,会持续等待中转站响应;可随时手动取消,页面刷新后遗留任务会标记为中断。接口已返回外链图片时,图片下载仍有 60 秒保护。
 - **工作区与移动端**:支持工作区、会话历史、统一搜索(`Ctrl/⌘ K`),以及移动端导航抽屉和素材库入口。
@@ -98,7 +102,15 @@ npm test         # 运行测试
 
 ## 技术栈
 
-Vue 3 + Vite · Pinia · idb(IndexedDB)· JSZip · 纯 CSS 设计系统(深/浅双色)。
+**前端**:Vue 3(Composition API + `<script setup>`)+ Pinia 状态管理 · Vite 构建 · 标准 OpenAI images 协议适配层(`generations` / `edits` 自动路由)。
+
+**存储**:idb(IndexedDB)存图 Blob 与生成记录,元数据与图字节分离、一图可多处复用;localStorage 存接口预设、主题、会话标题等轻量偏好。
+
+**测试**:Vitest 单元测试 + fake-indexeddb,覆盖生成管线、删除引用感知、分享脱敏、工作区等回归。
+
+**样式**:纯 CSS 设计系统(design tokens,深/浅双主题),不依赖 UI 框架;图标为内联 SVG(Lucide 风格)。
+
+**工具**:JSZip(整库 zip 备份 / 恢复)。
 
 ## 架构要点
 
