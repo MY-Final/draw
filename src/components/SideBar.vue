@@ -1,6 +1,6 @@
 <script setup>
 // 左侧栏:工作区树 + 会话列表(按日期分组)+ 底部导航。
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import { deriveConversations, groupConversationsByDate, convIdOf } from '../lib/conversations.js'
 import AppIcon from './AppIcon.vue'
@@ -17,8 +17,15 @@ const wsRenaming = ref(null)
 const wsRenameText = ref('')
 const confirmDelWs = ref(null)
 
-// 默认展开当前工作区
-if (store.activeWorkspaceId) expandedWs.value.add(store.activeWorkspaceId)
+// 默认展开当前工作区;初始化是异步的,因此需要同时监听后续注入的 id。
+function ensureWorkspaceExpanded(id) {
+  if (!id || expandedWs.value.has(id)) return
+  const next = new Set(expandedWs.value)
+  next.add(id)
+  expandedWs.value = next
+}
+ensureWorkspaceExpanded(store.activeWorkspaceId)
+watch(() => store.activeWorkspaceId, ensureWorkspaceExpanded)
 
 function toggleWs(id) {
   const s = new Set(expandedWs.value)
@@ -35,13 +42,24 @@ function selectWorkspace(id) {
     expandedWs.value = s
   }
 }
+function onWorkspaceKeydown(event, id) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    selectWorkspace(id)
+  }
+}
 
 function openWsMenu(id, e) { e?.stopPropagation(); wsMenuFor.value = wsMenuFor.value === id ? null : id }
 function startWsRename(ws) { wsMenuFor.value = null; wsRenaming.value = ws.id; wsRenameText.value = ws.name }
 function commitWsRename(id) { store.renameWorkspace(id, wsRenameText.value); wsRenaming.value = null }
 function askWsDelete(ws) { wsMenuFor.value = null; confirmDelWs.value = ws }
 async function doWsDelete() {
-  if (confirmDelWs.value) await store.deleteWorkspace(confirmDelWs.value.id)
+  try {
+    if (confirmDelWs.value) await store.deleteWorkspace(confirmDelWs.value.id)
+  } catch (error) {
+    store.lastError = `删除工作区失败：${error?.message || '请重试'}`
+    await store.refreshAll().catch(() => {})
+  }
   confirmDelWs.value = null
 }
 
@@ -90,7 +108,12 @@ function wsHasConversations(wsId) {
 function openMenu(id, e) { e?.stopPropagation(); menuFor.value = menuFor.value === id ? null : id }
 function askDelete(c) { menuFor.value = null; confirmDel.value = { id: c.id, title: c.title } }
 async function doDelete() {
-  if (confirmDel.value) await store.deleteConversation(confirmDel.value.id)
+  try {
+    if (confirmDel.value) await store.deleteConversation(confirmDel.value.id)
+  } catch (error) {
+    store.lastError = `删除会话失败：${error?.message || '请重试'}`
+    await store.refreshAll().catch(() => {})
+  }
   confirmDel.value = null
 }
 function startRename(c) { menuFor.value = null; renaming.value = c.id; renameText.value = c.title }
@@ -111,19 +134,10 @@ const vFocus = { mounted: (el) => el.focus() }
       <div class="ws-tree" v-if="store.workspaces.length">
         <div v-for="ws in store.workspaces" :key="ws.id" class="ws-block">
           <!-- 工作区头部:点名称切换;chevron 只负责展开 -->
-          <div
-            class="ws-header"
-            :class="{ active: ws.id === store.activeWorkspaceId }"
-            @click="selectWorkspace(ws.id)"
-          >
-            <button class="ws-chevron" @click.stop="toggleWs(ws.id)" aria-label="展开/折叠">
+          <div class="ws-header" :class="{ active: ws.id === store.activeWorkspaceId }">
+            <button class="ws-chevron" @click.stop="toggleWs(ws.id)" :aria-label="expandedWs.has(ws.id) ? '折叠工作区' : '展开工作区'">
               <AppIcon :name="expandedWs.has(ws.id) ? 'chevron-down' : 'chevron-right'" :size="13" />
             </button>
-            <span class="ws-icon">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
-            </span>
             <!-- 重命名态 -->
             <input
               v-if="wsRenaming === ws.id" class="rename-input ws-rename-input"
@@ -131,8 +145,22 @@ const vFocus = { mounted: (el) => el.focus() }
               @keydown.enter="commitWsRename(ws.id)" @keydown.esc="wsRenaming = null"
               @blur="commitWsRename(ws.id)" v-focus
             />
-            <span v-else class="ws-name">{{ ws.name }}</span>
-            <span v-if="ws.id === store.activeWorkspaceId" class="ws-dot" aria-hidden="true" />
+            <button
+              v-else
+              class="ws-select"
+              @click="selectWorkspace(ws.id)"
+              :aria-expanded="expandedWs.has(ws.id)"
+              :aria-label="`${ws.name}工作区`"
+              @keydown="onWorkspaceKeydown($event, ws.id)"
+            >
+              <span class="ws-icon">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-7l-2 3H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2z" />
+                </svg>
+              </span>
+              <span class="ws-name">{{ ws.name }}</span>
+              <span v-if="ws.id === store.activeWorkspaceId" class="ws-dot" aria-hidden="true" />
+            </button>
             <button class="ws-menu-toggle" @click.stop="openWsMenu(ws.id, $event)" aria-label="工作区操作">⋯</button>
             <!-- 工作区菜单 -->
             <div v-if="wsMenuFor === ws.id" class="menu ws-menu" @click.stop>
@@ -265,6 +293,11 @@ const vFocus = { mounted: (el) => el.focus() }
 }
 .ws-chevron:hover { background: color-mix(in srgb, var(--color-border) 80%, transparent); color: var(--color-fg); }
 
+.ws-select {
+  display: flex; align-items: center; gap: var(--space-1); flex: 1; min-width: 0;
+  padding: 0; text-align: left; color: inherit;
+}
+
 .ws-icon { flex-shrink: 0; display: flex; color: var(--color-fg-muted); }
 .ws-header.active .ws-icon { color: var(--color-fg); }
 
@@ -288,7 +321,7 @@ const vFocus = { mounted: (el) => el.focus() }
   color: var(--color-fg-subtle); font-size: 14px; line-height: 1;
   opacity: 0; transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.ws-header:hover .ws-menu-toggle, .ws-header.active .ws-menu-toggle { opacity: 1; }
+.ws-header:hover .ws-menu-toggle, .ws-header:focus-within .ws-menu-toggle, .ws-header.active .ws-menu-toggle { opacity: 1; }
 .ws-menu-toggle:hover { background: color-mix(in srgb, var(--color-border) 80%, transparent); color: var(--color-fg); }
 @media (hover: none) {
   .ws-menu-toggle { opacity: 0.85; }
@@ -347,7 +380,7 @@ const vFocus = { mounted: (el) => el.focus() }
 }
 
 .hist-menu { flex-shrink: 0; width: 24px; height: 24px; margin-right: 2px; border-radius: var(--radius-sm); color: var(--color-fg-subtle); font-size: 15px; line-height: 1; opacity: 0; transition: opacity var(--dur) var(--ease); }
-.hist-row:hover .hist-menu, .hist-row.active .hist-menu { opacity: 1; }
+.hist-row:hover .hist-menu, .hist-row:focus-within .hist-menu, .hist-row.active .hist-menu { opacity: 1; }
 .hist-menu:hover { background: var(--color-border); color: var(--color-fg); }
 @media (hover: none) {
   .hist-menu { opacity: 0.85; }

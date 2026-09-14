@@ -1,7 +1,8 @@
 <script setup>
 // 确认弹窗(破坏性操作用)。危险操作用告警色。走设计系统 token,SVG 图标。
-import { onMounted, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { useDialogA11y } from '../composables/useDialogA11y.js'
 
 const props = defineProps({
   title: { type: String, default: '确认操作' },
@@ -11,18 +12,16 @@ const props = defineProps({
   danger: { type: Boolean, default: false },
 })
 const emit = defineEmits(['confirm', 'cancel'])
-
-function onKey(e) { if (e.key === 'Escape') emit('cancel') }
-onMounted(() => window.addEventListener('keydown', onKey))
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+const dialog = ref(null)
+useDialogA11y(dialog, () => emit('cancel'))
 </script>
 
 <template>
-  <div class="scrim" @click.self="emit('cancel')">
-    <div class="dialog" role="alertdialog" :aria-label="title">
+  <div class="scrim">
+    <div ref="dialog" class="dialog" role="alertdialog" aria-modal="true" :aria-labelledby="`confirm-title-${title}`" tabindex="-1">
       <div class="dlg-head">
         <span v-if="danger" class="dlg-icon danger"><AppIcon name="alert" :size="18" /></span>
-        <strong>{{ title }}</strong>
+        <strong :id="`confirm-title-${title}`">{{ title }}</strong>
       </div>
       <p v-if="message" class="dlg-msg">{{ message }}</p>
       <div class="dlg-actions">

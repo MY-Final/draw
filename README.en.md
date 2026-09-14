@@ -14,7 +14,7 @@
 
 [**Live Demo**](https://120403.xyz/draw/) · [Quick Start](#quick-start) · [One-Click Deploy](#one-click-deploy)
 
-<img src="./docs/hero.png" alt="AI Drawing Workbench preview" width="820">
+<img src="./docs/hero.png" alt="Current AI Drawing Workbench with workspace, standard images endpoint, parameters, and asset library" width="820">
 
 </div>
 
@@ -31,7 +31,7 @@ A **front-end-only, zero-backend** AI drawing workbench. Plug in your own OpenAI
 - **Distinguishable asset sources**: filter the library by "AI generated / my uploads / imported" with per-cell source badges, so large libraries stay organized.
 - **Batch count verification**: if N images were requested but the endpoint returned only M, the result card shows an explicit warning with the raw response snippet instead of silently dropping images.
 - **Local asset library**: images are stored as Blobs in IndexedDB, never expiring by default; metadata and image bytes are separated, so one image can be reused in many places without duplicated storage. Assets still referenced by generation history cannot be deleted directly.
-- **Long-running generation support**: image-generation requests have no automatic client-side timeout and keep waiting for the endpoint; users can cancel manually, while interrupted jobs are reconciled after a page reload. URL-based result downloads retain a 60-second safety timeout.
+- **Long-running generation support**: each endpoint has a configurable 30–1800 second request timeout (180 seconds by default); user cancellation and timeout are recorded separately. Interrupted jobs are reconciled after a page reload, and URL-based result downloads retain a 60-second safety timeout.
 - **Workspaces and mobile**: workspaces, conversation history, unified search (`Ctrl/⌘ K`), mobile navigation, and a mobile asset-library entry point.
 - **Storage management**: view usage, delete assets; supports full-library zip export/import and backup reminders.
 - **Backup & sharing** (all **exclude the API key**):
@@ -42,7 +42,7 @@ A **front-end-only, zero-backend** AI drawing workbench. Plug in your own OpenAI
 ## Demo
 
 <div align="center">
-  <img src="./docs/demo.gif" alt="Full drawing workflow demo" width="720">
+  <img src="./docs/demo.gif" alt="Current workbench, endpoint settings, and data protection flow" width="720">
 </div>
 
 
@@ -58,7 +58,7 @@ npm test         # run tests
 
 First run: click **Add endpoint** → fill in Base URL / API Key / Model → **Test Connection** → Save → enter a prompt → Generate.
 
-> **Long-running requests**: the workbench does not impose a 120-second or other fixed client-side timeout on image generation. Some relay endpoints return paid results after a longer wait; you can still cancel manually. Reloading the page marks the in-flight job as interrupted.
+> **Long-running requests**: each endpoint waits 180 seconds by default and can be configured from 30 to 1800 seconds. Timeouts become failed results, explicit cancellation remains distinct, and reloading marks the in-flight job as interrupted.
 
 ## Deployment
 
@@ -96,7 +96,7 @@ Every platform offers a free tier; after deploying you get your own public URL. 
 
 - **CORS**: browsers direct-calling third-party endpoints are subject to the same-origin policy. "Supports any endpoint" assumes that endpoint **allows cross-origin** requests; endpoints that don't allow CORS can't be reached directly from a pure front end (error messages distinguish CORS/network, auth, and other cases).
 - **Connectivity probe**: "Test connection" only does `GET /v1/models` and never triggers a billable image generation.
-- **Generation requests**: image-generation API calls have no fixed client-side timeout, so a relay can return a paid result after a long wait; users can cancel explicitly. If the API returns an external image URL, the subsequent download step has a 60-second safety timeout.
+- **Generation requests**: image-generation API calls use the endpoint preset timeout and preserve truncated server details on failure. If the API returns an external image URL, the subsequent download step has a 60-second safety timeout.
 - **Plaintext API key**: a pure front end has no secure hiding place, so the key is stored in plaintext in localStorage. Don't save it on a shared device; the UI provides a "clear credentials" button.
 - **Browser storage**: IndexedDB may be evicted by the browser under storage pressure; export important assets via full-library zip backup.
 
@@ -117,7 +117,7 @@ Every platform offers a free tier; after deploying you get your own public URL. 
 ```
 Data model : assets (image Blobs) and generations (generation events) are
              separated and reference each other by id.
-Adapter    : unified generate(); no refs → generations, with refs → edits; generation calls have no client timeout.
+Adapter    : unified generate(); no refs → generations, with refs → edits; generation calls use the endpoint timeout.
 Lifecycle  : explicit user cancellation; stale pending jobs reconciled after reload; active jobs and orphan outputs cleaned up on deletion.
 Storage    : Blobs persisted to DB; display via URL.createObjectURL, released centrally; reference-aware deletion protects history.
 Sharing    : all share-level exports are forced through stripKey() to strip the key

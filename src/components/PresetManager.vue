@@ -4,6 +4,8 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AppIcon from './AppIcon.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import { DEFAULT_REQUEST_TIMEOUT_MS, MIN_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS } from '../lib/presets.js'
+import { useDialogA11y } from '../composables/useDialogA11y.js'
 
 const props = defineProps({
   // 为 true 时直接打开新建表单(侧栏「添加接口」入口用)
@@ -14,7 +16,7 @@ const emit = defineEmits(['close'])
 const store = useWorkbenchStore()
 
 const mode = ref('list') // 'list' | 'edit'
-const form = reactive({ id: null, name: '', baseURL: '', apiKey: '', model: '', protocol: 'images' })
+const form = reactive({ id: null, name: '', baseURL: '', apiKey: '', model: '', protocol: 'images', requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS })
 const testing = ref(false)
 const testResult = ref(null)
 const showKey = ref(false)
@@ -22,8 +24,11 @@ const confirmRemove = ref(false)
 const confirmClear = ref(false)
 // 未保存编辑保护:点外面/X 不再直接丢表单(用户填了半天被误关)。
 const confirmDiscard = ref(false)
+const discardTarget = ref('close')
 const originalJson = ref('')
 const dirty = computed(() => JSON.stringify({ ...form }) !== originalJson.value)
+const modal = ref(null)
+useDialogA11y(modal, close)
 
 const title = computed(() => {
   if (mode.value === 'list') return '接口设置'
@@ -31,7 +36,7 @@ const title = computed(() => {
 })
 
 function blankForm() {
-  Object.assign(form, { id: null, name: '', baseURL: '', apiKey: '', model: '', protocol: 'images' })
+  Object.assign(form, { id: null, name: '', baseURL: '', apiKey: '', model: '', protocol: 'images', requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS })
   originalJson.value = JSON.stringify({ ...form })
   testResult.value = null
   showKey.value = false
@@ -43,7 +48,7 @@ function startNew() {
 }
 
 function startEdit(p) {
-  Object.assign(form, { ...p })
+  Object.assign(form, { ...p, requestTimeoutMs: p.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS })
   originalJson.value = JSON.stringify({ ...form })
   testResult.value = null
   showKey.value = false
@@ -51,6 +56,14 @@ function startEdit(p) {
 }
 
 function cancelEdit() {
+  if (dirty.value) {
+    discardTarget.value = 'list'
+    confirmDiscard.value = true
+    return
+  }
+  leaveEdit()
+}
+function leaveEdit() {
   // 无任何预设时取消 = 关掉弹窗,避免回到空列表再点一次
   if (!store.presets.length) {
     emit('close')
@@ -110,6 +123,7 @@ function doClearKeys() {
 // 统一关闭入口:编辑态且有未保存修改时先确认,避免误关丢数据。
 function close() {
   if (mode.value === 'edit' && dirty.value) {
+    discardTarget.value = 'close'
     confirmDiscard.value = true
     return
   }
@@ -117,11 +131,17 @@ function close() {
 }
 function doDiscard() {
   confirmDiscard.value = false
-  emit('close')
+  if (discardTarget.value === 'list') leaveEdit()
+  else emit('close')
 }
 
 function usePreset(p) {
   store.selectPreset(p.id)
+}
+
+function setTimeoutSeconds(value) {
+  const seconds = Math.min(MAX_REQUEST_TIMEOUT_MS / 1000, Math.max(MIN_REQUEST_TIMEOUT_MS / 1000, Number(value) || DEFAULT_REQUEST_TIMEOUT_MS / 1000))
+  form.requestTimeoutMs = Math.round(seconds) * 1000
 }
 
 function enterInitial() {
@@ -141,7 +161,7 @@ watch(() => props.startCreate, (v) => {
 <template>
   <!-- 点弹窗外层不关闭:误触概率太高;只保留叉号关闭,避免白填 -->
   <div class="scrim">
-    <div class="modal" role="dialog" :aria-label="title">
+    <div ref="modal" class="modal" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1">
       <header class="modal-head">
         <div class="head-left">
           <button
@@ -231,6 +251,16 @@ watch(() => props.startCreate, (v) => {
           <div class="field">
             <label>模型 <span class="req">必填</span></label>
             <input v-model="form.model" placeholder="如:gpt-image-1 / dall-e-3" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label>请求超时 <span class="opt">30–1800 秒</span></label>
+            <input
+              type="number" min="30" max="1800" step="1"
+              :value="Math.round(form.requestTimeoutMs / 1000)"
+              @input="setTimeoutSeconds($event.target.value)"
+              inputmode="numeric"
+            />
+            <p class="helper">超时会标记为失败；用户主动取消会单独显示为已取消。</p>
           </div>
 
           <div v-if="testResult" class="note" :class="{

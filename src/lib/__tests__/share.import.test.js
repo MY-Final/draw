@@ -1,5 +1,6 @@
 // 备份导入:保留 workspaceId / createdAt / favorite;预设不抹 Key。
 import 'fake-indexeddb/auto'
+import JSZip from 'jszip'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const store = new Map()
@@ -99,5 +100,30 @@ describe('整库导入保留 id 与元数据', () => {
     const presets = loadPresets()
     const p = presets.find((x) => x.id === 'preset_shared')
     expect(p[AK]).toBe(KEEP)
+  })
+
+  it('缺少素材文件时在写入前拒绝,不留下工作区', async () => {
+    const zip = new JSZip()
+    zip.file('manifest.json', JSON.stringify({
+      kind: 'library', schemaVersion: 2, assets: [{ id: 'asset_missing', file: 'assets/missing.png', mime: 'image/png' }],
+      generations: [], workspaces: [{ id: 'ws_new', name: '新工作区' }], presets: [], promptLibrary: {},
+    }))
+
+    await expect(importLibraryZip(await zip.generateAsync({ type: 'arraybuffer' }))).rejects.toThrow('缺少素材文件')
+    expect(await listWorkspaces()).toEqual([])
+  })
+
+  it('导入 pending 记录统一收口为已中断失败', async () => {
+    const zip = new JSZip()
+    zip.file('manifest.json', JSON.stringify({
+      kind: 'library', schemaVersion: 2, assets: [],
+      generations: [{ id: 'gen_pending', createdAt: Date.now(), prompt: '中断', refImageIds: [], outputImageIds: [], params: {}, status: 'pending' }],
+      workspaces: [], presets: [], promptLibrary: {},
+    }))
+
+    await importLibraryZip(await zip.generateAsync({ type: 'arraybuffer' }))
+    const [generation] = await listGenerations()
+    expect(generation.status).toBe('failed')
+    expect(generation.error).toBe('导入时已中断')
   })
 })

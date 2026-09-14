@@ -1,6 +1,6 @@
 <script setup>
 // 右栏(安静):素材库网格 + 来源筛选 + 设为参考 + 预览 + 删除。用量/备份已移入抽屉。
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick, onUnmounted } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
@@ -18,6 +18,9 @@ const SOURCE_FILTERS = [
 const selected = ref(new Set())
 const confirmDelAssets = ref(false)
 const deleteNotice = ref('')
+const visibleCount = ref(40)
+const sentinel = ref(null)
+let loadObserver = null
 let deleteNoticeTimer = null
 onUnmounted(() => { if (deleteNoticeTimer) clearTimeout(deleteNoticeTimer) })
 
@@ -28,9 +31,29 @@ const filteredAssets = computed(() => {
   if (f === 'all') return list
   return list.filter((a) => normalizeSource(a.source) === f)
 })
+const renderedAssets = computed(() => filteredAssets.value.slice(0, visibleCount.value))
+
+function loadMore() {
+  visibleCount.value = Math.min(filteredAssets.value.length, visibleCount.value + 40)
+}
+
+function observeSentinel() {
+  if (!sentinel.value || !loadObserver) return
+  loadObserver.observe(sentinel.value)
+}
+
+onMounted(() => {
+  loadObserver = typeof IntersectionObserver === 'undefined' ? null : new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting)) loadMore()
+  }, { rootMargin: '240px' })
+  nextTick(observeSentinel)
+})
+onUnmounted(() => loadObserver?.disconnect())
 // 切换筛选/收藏后清空选择:避免选中项被过滤隐藏,删除按钮数字却还带着它们
 watch(() => [store.assetSourceFilter, store.favoritesOnly], () => {
   selected.value = new Set()
+  visibleCount.value = 40
+  nextTick(observeSentinel)
 })
 
 function toggleSelect(id) {
@@ -42,19 +65,32 @@ function askDeleteSelected() {
   if (!selected.value.size) return
   confirmDelAssets.value = true
 }
+async function toggleFavorite(id) {
+  try {
+    await store.toggleAssetFavorite(id)
+  } catch (e) {
+    await store.refreshAll().catch(() => {})
+    deleteNotice.value = `收藏状态更新失败：${e?.message || '请重试'}`
+  }
+}
 async function doDeleteSelected() {
   confirmDelAssets.value = false
   if (!selected.value.size) return
-  const result = await store.removeAssets([...selected.value])
-  selected.value = new Set(result.blockedIds)
-  deleteNotice.value = ''
-  if (deleteNoticeTimer) clearTimeout(deleteNoticeTimer)
-  if (result.blockedIds.length) {
-    deleteNotice.value = result.deletedIds.length
-      ? `已删除 ${result.deletedIds.length} 张；${result.blockedIds.length} 张仍被生成记录引用，已保留。`
-      : `所选素材仍被生成记录引用，不能直接删除。请先删除相关生成记录。`
+  try {
+    const result = await store.removeAssets([...selected.value])
+    selected.value = new Set(result.blockedIds)
+    deleteNotice.value = ''
     if (deleteNoticeTimer) clearTimeout(deleteNoticeTimer)
-    deleteNoticeTimer = setTimeout(() => { deleteNotice.value = '' }, 5000)
+    if (result.blockedIds.length) {
+      deleteNotice.value = result.deletedIds.length
+        ? `已删除 ${result.deletedIds.length} 张；${result.blockedIds.length} 张仍被生成记录引用，已保留。`
+        : `所选素材仍被生成记录引用，不能直接删除。请先删除相关生成记录。`
+      deleteNoticeTimer = setTimeout(() => { deleteNotice.value = '' }, 5000)
+    }
+  } catch (e) {
+    selected.value = new Set()
+    await store.refreshAll().catch(() => {})
+    deleteNotice.value = `删除素材失败：${e?.message || '请重试'}`
   }
 }
 </script>
@@ -116,7 +152,7 @@ async function doDeleteSelected() {
     </div>
 
     <div v-else class="grid">
-      <div v-for="a in filteredAssets" :key="a.id" class="cell" :class="{ selected: selected.has(a.id) }"
+       <div v-for="a in renderedAssets" :key="a.id" class="cell" :class="{ selected: selected.has(a.id) }"
         draggable="true"
         @dragstart="(e) => { e.dataTransfer.setData('application/json', JSON.stringify({ assetId: a.id })) }"
       >
@@ -128,7 +164,7 @@ async function doDeleteSelected() {
           {{ sourceShortLabel(a.source) }}
         </span>
         <div class="cell-actions">
-          <button class="mini" @click="store.toggleAssetFavorite(a.id)" :class="{ on: a.favorite }" :aria-label="a.favorite ? '取消收藏' : '收藏'">
+          <button class="mini" @click="toggleFavorite(a.id)" :class="{ on: a.favorite }" :aria-label="a.favorite ? '取消收藏' : '收藏'">
             <AppIcon name="heart" :size="12" />
           </button>
           <button class="mini" @click="toggleSelect(a.id)" :aria-label="selected.has(a.id) ? '取消选择' : '选择'">
@@ -139,6 +175,9 @@ async function doDeleteSelected() {
           </button>
         </div>
       </div>
+      <button v-if="renderedAssets.length < filteredAssets.length" ref="sentinel" class="load-more" type="button" @click="loadMore">
+        加载更多素材（{{ filteredAssets.length - renderedAssets.length }}）
+      </button>
     </div>
 
     <ConfirmDialog
@@ -289,4 +328,10 @@ async function doDeleteSelected() {
 .mini:disabled { opacity: 0.4; cursor: not-allowed; }
 .mini.on { color: var(--color-heart); }
 .mini.on :deep(svg) { fill: var(--color-heart); }
+.load-more {
+  width: 100%; min-height: 34px; margin-top: var(--space-2); border-radius: var(--radius-sm);
+  border: 1px dashed var(--color-border-strong); color: var(--color-fg-muted);
+  font-size: 12px; background: transparent;
+}
+.load-more:hover { color: var(--color-fg); background: var(--color-surface-2); }
 </style>

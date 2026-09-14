@@ -28,15 +28,18 @@
 - **THEN** 系统生成包含元数据清单(manifest)与全部图片文件的 zip 供下载
 
 ### Requirement: 整库 zip 导入
-系统 SHALL 支持从本工作台导出的 zip 恢复素材与生成记录。
+系统 SHALL 支持从本工作台导出的 zip 以事务化合并方式恢复素材、工作区与生成记录,不得主动清空本机数据;同 ID 记录幂等覆盖,本机已有 API Key SHALL 保留。
 
 #### Scenario: 导入 zip
 - **WHEN** 用户导入一个本工作台导出的 zip
-- **THEN** 系统按清单回填素材与生成记录到 IndexedDB
+- **THEN** 系统先校验 manifest、字段、图片文件、工作区与引用关系,再在一个 IndexedDB 事务中写入;备份中的 pending 记录转换为“导入时已中断”失败
 
 #### Scenario: 无效 zip
 - **WHEN** 导入的文件不含预期清单或格式不符
 - **THEN** 系统拒绝导入并提示原因,不破坏现有数据
+
+### Requirement: 素材按需读取
+系统 SHALL 将素材元数据与 Blob 分开存储。`listAssets()` 只返回元数据,图片字节 SHALL 通过按需读取接口加载。
 
 ### Requirement: 接口预设分享导出与导入
 系统 SHALL 支持将一个或多个接口预设导出为可分享文件,并支持导入他人分享的预设文件。导出 MUST 强制剥离 API Key,任何情况下都不得将 Key 写入分享文件。

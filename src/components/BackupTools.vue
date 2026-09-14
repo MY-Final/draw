@@ -1,6 +1,6 @@
 <script setup>
 // 数据保护:居中弹窗。存储概览 + 导入导出 + 持久化 + 危险区。
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AppIcon from './AppIcon.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -8,6 +8,7 @@ import { formatBytes } from '../lib/storageUsage.js'
 import { exportLibraryZip, importLibraryZip, exportPresets, importPresets, importRecipe, ImportError } from '../lib/share.js'
 import { loadPresets } from '../lib/presets.js'
 import { downloadBlob, downloadJson, pickFile } from '../lib/download.js'
+import { useDialogA11y } from '../composables/useDialogA11y.js'
 
 const store = useWorkbenchStore()
 const emit = defineEmits(['recipe-imported', 'close'])
@@ -15,6 +16,8 @@ const busy = ref('')
 const toast = ref(null)
 const confirmReset = ref(false)
 const persisted = ref(null) // null = 未检测, true/false
+const modal = ref(null)
+useDialogA11y(modal, () => { if (!confirmReset.value) emit('close') })
 
 function showToast(msg, kind = 'ok') {
   toast.value = { msg, kind }
@@ -52,6 +55,8 @@ async function doExportLibrary() {
     const { blob, filename } = await exportLibraryZip()
     downloadBlob(blob, filename)
     showToast('备份成功')
+  } catch (e) {
+    showToast(`备份失败：${e?.message || '请重试'}`, 'danger')
   } finally { busy.value = '' }
 }
 async function doImportLibrary() {
@@ -80,7 +85,7 @@ async function doImportPresets() {
 async function doImportRecipe() {
   const f = await pickFile('.json'); if (!f) return
   try {
-    const { prefill, needsProtocolNotice } = await importRecipe(await f.text(), store.presets)
+    const { prefill, needsProtocolNotice } = await importRecipe(await f.text(), store.presets, store.activeWorkspaceId)
     await store.refreshAll(); emit('recipe-imported', prefill)
     showToast(needsProtocolNotice || '配方已载入,可在底部发起复现', needsProtocolNotice ? 'warn' : 'ok')
   } catch (e) { showToast(e instanceof ImportError ? e.message : String(e), 'danger') }
@@ -89,23 +94,24 @@ async function doImportRecipe() {
 async function doReset() {
   confirmReset.value = false
   busy.value = 'r'
-  try { await store.resetWorkbench(); showToast('已清空全部素材与记录') }
+  try {
+    await store.resetWorkbench()
+    showToast('已清空全部素材与记录')
+  } catch (e) {
+    await store.refreshAll().catch(() => {})
+    showToast(`清空失败：${e?.message || '请重试'}`, 'danger')
+  }
   finally { busy.value = '' }
 }
 
-function onKey(e) {
-  if (e.key === 'Escape' && !confirmReset.value) emit('close')
-}
 onMounted(() => {
   checkPersisted()
-  window.addEventListener('keydown', onKey)
 })
-onUnmounted(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
   <div class="scrim" @click.self="emit('close')">
-    <div class="modal" role="dialog" aria-label="数据保护">
+    <div ref="modal" class="modal" role="dialog" aria-modal="true" aria-label="数据保护" tabindex="-1">
       <header class="modal-head">
         <strong>数据保护</strong>
         <button class="icon-btn" @click="emit('close')" aria-label="关闭">

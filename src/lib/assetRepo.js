@@ -1,4 +1,4 @@
-import { getDB, newId, STORE_ASSETS } from './db.js'
+import { getDB, newId, STORE_ASSETS, STORE_ASSET_BLOBS } from './db.js'
 
 // Asset 仓库 —— 图片以 Blob 存储(design D5:不转 base64,避免 +33% 膨胀)。
 // 每条 asset 记录:{ id, blob, mime, width, height, size, createdAt, source }
@@ -22,19 +22,38 @@ export async function putAsset({
     favorite: !!favorite,
     workspaceId: workspaceId || null,
   }
-  await db.put(STORE_ASSETS, record)
+  const { blob: assetBlob, ...metadata } = record
+  const tx = db.transaction([STORE_ASSETS, STORE_ASSET_BLOBS], 'readwrite')
+  await Promise.all([
+    tx.objectStore(STORE_ASSETS).put(metadata),
+    tx.objectStore(STORE_ASSET_BLOBS).put({ id: record.id, blob: assetBlob }),
+  ])
+  await tx.done
   return record
 }
 
 export async function getAsset(id) {
   const db = await getDB()
-  return db.get(STORE_ASSETS, id)
+  const tx = db.transaction([STORE_ASSETS, STORE_ASSET_BLOBS], 'readonly')
+  const [metadata, blobRecord] = await Promise.all([
+    tx.objectStore(STORE_ASSETS).get(id),
+    tx.objectStore(STORE_ASSET_BLOBS).get(id),
+  ])
+  await tx.done
+  if (!metadata) return undefined
+  return { ...metadata, blob: blobRecord?.blob || metadata.blob || null }
 }
 
 export async function getAssets(ids) {
   const db = await getDB()
-  const tx = db.transaction(STORE_ASSETS, 'readonly')
-  const results = await Promise.all(ids.map((id) => tx.store.get(id)))
+  const tx = db.transaction([STORE_ASSETS, STORE_ASSET_BLOBS], 'readonly')
+  const results = await Promise.all(ids.map(async (id) => {
+    const [metadata, blobRecord] = await Promise.all([
+      tx.objectStore(STORE_ASSETS).get(id),
+      tx.objectStore(STORE_ASSET_BLOBS).get(id),
+    ])
+    return metadata ? { ...metadata, blob: blobRecord?.blob || metadata.blob || null } : null
+  }))
   await tx.done
   return results.filter(Boolean)
 }
@@ -43,18 +62,36 @@ export async function listAssets() {
   const db = await getDB()
   // 按 createdAt 倒序(最新在前)
   const all = await db.getAllFromIndex(STORE_ASSETS, 'createdAt')
-  return all.reverse()
+  return all.reverse().map(({ blob: _legacyBlob, ...metadata }) => metadata)
+}
+
+// 按需读取图片字节。素材列表只返回元数据，避免首屏读取所有 Blob。
+export async function getAssetBlob(id) {
+  const db = await getDB()
+  const [blobRecord, legacy] = await Promise.all([
+    db.get(STORE_ASSET_BLOBS, id),
+    db.get(STORE_ASSETS, id),
+  ])
+  return blobRecord?.blob || legacy?.blob || null
 }
 
 export async function deleteAsset(id) {
   const db = await getDB()
-  await db.delete(STORE_ASSETS, id)
+  const tx = db.transaction([STORE_ASSETS, STORE_ASSET_BLOBS], 'readwrite')
+  await Promise.all([
+    tx.objectStore(STORE_ASSETS).delete(id),
+    tx.objectStore(STORE_ASSET_BLOBS).delete(id),
+  ])
+  await tx.done
 }
 
 export async function deleteAssets(ids) {
   const db = await getDB()
-  const tx = db.transaction(STORE_ASSETS, 'readwrite')
-  await Promise.all(ids.map((id) => tx.store.delete(id)))
+  const tx = db.transaction([STORE_ASSETS, STORE_ASSET_BLOBS], 'readwrite')
+  await Promise.all(ids.flatMap((id) => [
+    tx.objectStore(STORE_ASSETS).delete(id),
+    tx.objectStore(STORE_ASSET_BLOBS).delete(id),
+  ]))
   await tx.done
 }
 
@@ -88,5 +125,10 @@ export async function countAssets() {
 // 清空全部素材(清空全部;保留预设/Key,由 store 负责)。
 export async function clearAllAssets() {
   const db = await getDB()
-  await db.clear(STORE_ASSETS)
+  const tx = db.transaction([STORE_ASSETS, STORE_ASSET_BLOBS], 'readwrite')
+  await Promise.all([
+    tx.objectStore(STORE_ASSETS).clear(),
+    tx.objectStore(STORE_ASSET_BLOBS).clear(),
+  ])
+  await tx.done
 }

@@ -22,7 +22,7 @@ const STATUS_MESSAGES = [
 
 function isAbortError(e, signal) {
   return (signal && signal.aborted)
-    || (e && (e.name === 'AbortError' || e.name === 'TimeoutError' && signal?.aborted))
+    || (e && e.name === 'AbortError' && !e.category)
 }
 
 // 截断的响应片段(诊断用):适配层仅在无图时返回 snippet,partial 场景由服务层自行兜底。
@@ -65,7 +65,10 @@ export async function runGeneration({
 
     // 2. 取参考图 Blob。任一引用失效都必须明确失败，不能静默降级成文生图。
     const refAssets = refImageIds.length ? await getAssets(refImageIds) : []
-    if (refAssets.length !== refImageIds.length) {
+    if (
+      refAssets.length !== refImageIds.length
+      || (workspaceId && refAssets.some((asset) => asset.workspaceId && asset.workspaceId !== workspaceId))
+    ) {
       throw new ApiError('reference', '参考图已不存在，请重新选择后再生成。')
     }
     const refImages = refAssets.map((a) => ({ blob: a.blob, mime: a.mime }))
@@ -133,6 +136,8 @@ export async function runGeneration({
     const updated = await safeUpdate(gen.id, {
       status: 'failed',
       error: message,
+      errorDetail: e instanceof ApiError ? e.detail : null,
+      failureCategory: e instanceof ApiError ? e.category : 'unknown',
       elapsedMs: Date.now() - gen.createdAt,
     })
 

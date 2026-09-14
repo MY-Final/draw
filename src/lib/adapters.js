@@ -5,7 +5,7 @@
 //   无参考图 → images/generations(文生图);带参考图 → images/edits(改图)
 // 上层拿到 images 后统一交给 http.toBlob 落库。
 
-import { callApi } from './http.js'
+import { callApi, DEFAULT_REQUEST_TIMEOUT_MS } from './http.js'
 
 // 从各种响应形态中提取图片,尽量不丢图:
 //  标准:data[].b64_json / data[].url
@@ -58,7 +58,9 @@ async function generateViaImages({ preset, prompt, params, signal }) {
   // 不指定时由服务端默认(通常返回 url),url 再由 http.toBlob 下载落库(有超时兜底)。
   if (params.responseFormat) body.response_format = params.responseFormat
 
-  const raw = await callApi(url, { apiKey: preset.apiKey, body, signal })
+  const raw = await callApi(url, {
+    apiKey: preset.apiKey, body, signal, timeoutMs: preset.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS,
+  })
 
   const images = extractImages(raw)
   return { images, raw, snippet: images.length ? null : safeSnippet(raw) }
@@ -86,7 +88,9 @@ async function generateViaImagesEdit({ preset, prompt, refImages, params, signal
     form.append(field, img.blob, `image-${i + 1}.${ext}`)
   })
 
-  const raw = await callApi(url, { apiKey: preset.apiKey, body: form, signal })
+  const raw = await callApi(url, {
+    apiKey: preset.apiKey, body: form, signal, timeoutMs: preset.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS,
+  })
 
   const images = extractImages(raw)
   return { images, raw, snippet: images.length ? null : safeSnippet(raw) }

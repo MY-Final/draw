@@ -12,7 +12,7 @@ vi.stubGlobal('localStorage', {
   clear: () => store.clear(),
 })
 
-const { putAsset, listAssets, deleteAssets } = await import('../assetRepo.js')
+const { putAsset, getAsset, listAssets, deleteAssets } = await import('../assetRepo.js')
 const { createGeneration, updateGeneration, listGenerations } = await import('../generationRepo.js')
 const { exportLibraryZip, importLibraryZip, exportPresets, exportRecipe } = await import('../share.js')
 const { savePreset, loadPresets } = await import('../presets.js')
@@ -53,7 +53,7 @@ describe('整库 zip 往返', () => {
     expect(gens[0].prompt).toBe('一只赛博猫')
 
     // 图字节还原正确
-    const restored = assets.find((a) => a.id === a1.id)
+    const restored = await getAsset(a1.id)
     expect(await restored.blob.text()).toBe('img-1')
   })
 

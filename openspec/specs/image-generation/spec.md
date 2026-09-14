@@ -64,7 +64,7 @@
 - **THEN** 系统不将其加入本次生成,并给出最多 16 张的明确提示
 
 ### Requirement: 请求超时与无残留 pending
-系统 SHALL 为接口调用与图片下载设置超时,超时按明确类别(如 timeout)记为失败,不使生成记录永久停留在 pending。系统 SHALL 在应用初始化时将超时仍未完成的历史 pending 记录调和为失败态,并 SHALL 允许用户删除 pending 记录。
+系统 SHALL 为接口调用与图片下载设置超时,超时按明确类别(如 timeout)记为失败,不使生成记录永久停留在 pending。接口调用默认超时 180 秒,可由接口预设配置为 30–1800 秒。用户主动取消与接口超时 SHALL 区分。系统 SHALL 在应用初始化时将未完成的历史 pending 记录调和为失败态,并 SHALL 允许用户删除 pending 记录。
 
 #### Scenario: 请求超时记为失败
 - **WHEN** 接口调用或图片外链下载超过超时阈值仍未返回
@@ -95,6 +95,9 @@
 #### Scenario: 一键重新生成
 - **WHEN** 用户在某条生成上点击"重新生成"
 - **THEN** 系统以相同 prompt/参数/参考图发起一次新的生成,原记录保持不变
+
+### Requirement: 编辑历史 Prompt
+系统 SHALL 在编辑历史 Prompt 时创建新的生成事件,不得先修改原生成记录;生成进行中时历史 Prompt 编辑入口 SHALL 禁用。
 
 ### Requirement: 生成后清空输入
 系统 SHALL 在成功发起一次生成后清空输入框的 prompt 与已选参考图,以便直接开始下一次输入。

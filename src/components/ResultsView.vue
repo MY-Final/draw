@@ -1,11 +1,14 @@
 <script setup>
 // 中栏对话流:每条生成 = 用户请求气泡(右)+ AI 回复卡(左),左右明显错开。
-import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 import { exportRecipe } from '../lib/share.js'
 import { downloadBlob, downloadJson, imageFileName } from '../lib/download.js'
+import { getAsset } from '../lib/assetRepo.js'
+import PendingTimer from './PendingTimer.vue'
 
 const store = useWorkbenchStore()
 const emit = defineEmits(['use-as-reference', 'preview', 'reuse', 'open-settings'])
@@ -22,7 +25,12 @@ const searchModKey = (() => {
 // 时间正序(旧→新);只显示当前会话。
 const feed = computed(() => [...store.canvasGenerations].reverse())
 
-function assetById(id) { return store.assets.find((a) => a.id === id) }
+const assetsById = computed(() => new Map(
+  store.assets
+    .filter((asset) => !store.activeWorkspaceId || asset.workspaceId === store.activeWorkspaceId)
+    .map((asset) => [asset.id, asset]),
+))
+function assetById(id) { return assetsById.value.get(id) }
 function outputsOf(gen) { return gen.outputImageIds.map(assetById).filter(Boolean) }
 function refsOf(gen) { return (gen.refImageIds || []).map(assetById).filter(Boolean) }
 function modelOf(gen) { return gen.params?.model || '模型' }
@@ -52,33 +60,20 @@ function reuseInComposer(gen) {
   })
 }
 
-// ── 生成耗时:pending 轮实时跳秒、完成后定格(design D3)──
-const nowTick = ref(Date.now())
-let ticker = null
-const hasPending = computed(() => feed.value.some((g) => g.status === 'pending'))
-watch(hasPending, (on) => {
-  if (on && !ticker) {
-    nowTick.value = Date.now()
-    ticker = setInterval(() => { nowTick.value = Date.now() }, 100)
-  } else if (!on && ticker) {
-    clearInterval(ticker); ticker = null
-  }
-}, { immediate: true })
-onUnmounted(() => { if (ticker) clearInterval(ticker) })
-
-// 返回该轮耗时文案(秒);pending 用实时差值,否则用落库的 elapsedMs。
+// 已结束的生成只读取落库耗时；pending 的计时由独立组件更新。
 function elapsedText(gen) {
-  const ms = gen.status === 'pending'
-    ? nowTick.value - gen.createdAt
-    : (gen.elapsedMs ?? null)
+  const ms = gen.elapsedMs ?? null
   if (ms == null) return ''
   return (Math.max(0, ms) / 1000).toFixed(1) + 's'
 }
 
 async function shareRecipe(gen) { downloadJson(await exportRecipe(gen), `recipe-${gen.id}.json`) }
-function downloadImage(a, gen) {
-  const ext = (a.mime.split('/')[1] || 'png').replace('jpeg', 'jpg')
-  downloadBlob(a.blob, imageFileName({ id: a.id, prompt: gen?.prompt, name: a.name, ext }))
+async function downloadImage(a, gen) {
+  if (!a) return
+  const full = a.blob ? a : await getAsset(a.id)
+  if (!full?.blob) return
+  const ext = (full.mime.split('/')[1] || 'png').replace('jpeg', 'jpg')
+  downloadBlob(full.blob, imageFileName({ id: full.id, prompt: gen?.prompt, name: full.name, ext }))
 }
 
 // 多图时记住每轮「当前图」(hover / 点击选中);操作作用在当前图而非永远第一张。
@@ -113,10 +108,14 @@ function undoDelete() {
 // 编辑消息:气泡内联编辑,保存后更新该轮文本并自动用新 prompt 重新生成。
 const editingGenId = ref(null)
 const editText = ref('')
+const editOriginalText = ref('')
+const confirmEditDiscard = ref(false)
 const editInput = ref(null)
 function startEdit(gen) {
+  if (store.generating || gen.status === 'pending') return
   editingGenId.value = gen.id
   editText.value = gen.prompt || ''
+  editOriginalText.value = editText.value
   // 聚焦并让光标落在文末,进入即可继续输入
   nextTick(() => {
     const el = editInput.value
@@ -129,7 +128,22 @@ function startEdit(gen) {
     }
   })
 }
-function cancelEdit() { editingGenId.value = null }
+function finishCancelEdit() {
+  confirmEditDiscard.value = false
+  editingGenId.value = null
+}
+function cancelEdit() {
+  if (editText.value !== editOriginalText.value) {
+    confirmEditDiscard.value = true
+    return
+  }
+  finishCancelEdit()
+}
+function onEditEnter(e, gen) {
+  if (e.isComposing || e.keyCode === 229) return
+  e.preventDefault()
+  saveEdit(gen)
+}
 // 编辑框自适应高度:内容多高撑多高(上限约 80% 视口高),长 prompt 完整展开
 function autogrowEdit() {
   const el = editInput.value
@@ -143,6 +157,7 @@ function autogrowEdit() {
 watch(editingGenId, (id) => { if (id) nextTick(() => requestAnimationFrame(autogrowEdit)) })
 watch(editText, () => { nextTick(() => requestAnimationFrame(autogrowEdit)) })
 async function saveEdit(gen) {
+  if (store.generating) return
   const t = editText.value.trim()
   if (!t) return
   editingGenId.value = null
@@ -156,7 +171,7 @@ function onFeedScroll() {
   stickToBottom.value = dist <= NEAR_BOTTOM_PX
 }
 
-watch(() => [feed.value.length, store.generating, hasPending.value], async () => {
+watch(() => [feed.value.length, store.generating], async () => {
   if (!stickToBottom.value) return
   await nextTick()
   scroller.value?.scrollTo({ top: scroller.value.scrollHeight, behavior: 'smooth' })
@@ -188,7 +203,7 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
                 <textarea
                   ref="editInput" v-model="editText" class="bubble-edit-input"
                   @input="autogrowEdit"
-                  @keydown.enter.exact="saveEdit(gen)" @keydown.esc="cancelEdit"
+                  @keydown.enter.exact="onEditEnter($event, gen)" @keydown.esc="cancelEdit"
                   @keydown.shift.enter.stop
                 />
                 <div class="bubble-edit-actions">
@@ -214,6 +229,7 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
               <button
                 class="user-edit-btn"
                 @click="startEdit(gen)"
+                :disabled="store.generating"
                 title="编辑这条消息并重新生成"
               >
                 <AppIcon name="edit" :size="13" /> 编辑
@@ -234,7 +250,8 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
               <span v-else-if="gen.status === 'failed'" class="badge badge-danger">失败</span>
               <span v-else-if="gen.status === 'empty'" class="badge badge-warn">无图片</span>
               <span v-else class="badge"><AppIcon name="refresh" :size="11" class="spin" /> {{ gen.statusMessage || '生成中' }}</span>
-              <span v-if="elapsedText(gen)" class="elapsed tnum">{{ elapsedText(gen) }}</span>
+               <PendingTimer v-if="gen.status === 'pending'" :created-at="gen.createdAt" />
+               <span v-else-if="elapsedText(gen)" class="elapsed tnum">{{ elapsedText(gen) }}</span>
             </div>
 
             <div v-if="gen.status === 'failed'" class="note note-danger">
@@ -246,6 +263,10 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
                 class="note-action"
                 @click="emit('open-settings')"
               >去设置</button>
+              <details v-if="gen.errorDetail" class="error-detail">
+                <summary>查看接口详情</summary>
+                <pre>{{ gen.errorDetail }}</pre>
+              </details>
             </div>
             <div v-else-if="gen.status === 'empty'" class="note note-warn">
               <div>接口未返回可识别图片。<code class="snippet">{{ gen.rawResponseSnippet }}</code></div>
@@ -336,6 +357,13 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
       <span>已删除该条生成</span>
       <button class="undo-btn" @click="undoDelete">撤销</button>
     </div>
+    <ConfirmDialog
+      v-if="confirmEditDiscard"
+      title="放弃编辑"
+      message="当前 Prompt 已修改，关闭后将丢失这些修改。确定放弃吗？"
+      confirm-text="放弃" danger
+      @confirm="finishCancelEdit" @cancel="confirmEditDiscard = false"
+    />
   </div>
 </template>
 
@@ -574,6 +602,14 @@ watch(() => [feed.value.length, store.generating, hasPending.value], async () =>
 .pending-block { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
 .pending-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .pending-del { align-self: flex-start; }
+.error-detail { flex: 1; min-width: 100%; margin-top: var(--space-1); }
+.error-detail summary { cursor: pointer; color: var(--color-fg-muted); }
+.error-detail pre {
+  max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  margin: var(--space-2) 0 0; padding: var(--space-2);
+  border-radius: var(--radius-sm); background: color-mix(in srgb, #000 12%, transparent);
+  color: var(--color-fg-muted); font: 11px/1.5 var(--font-num);
+}
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }

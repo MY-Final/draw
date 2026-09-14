@@ -14,8 +14,8 @@ export class ApiError extends Error {
 }
 
 // 图片外链下载超时(ms):拿到 url 后下载不应长时间挂起。
-// 生图 API 本身不设客户端超时：部分中转站生成会超过两分钟且已先计费，
-// 客户端只能由用户主动取消、页面刷新/关闭或网络失败来终止。
+// 生图 API 的请求超时由接口预设控制；图片外链下载仍固定 60 秒。
+export const DEFAULT_REQUEST_TIMEOUT_MS = 180000
 const IMAGE_TIMEOUT_MS = 60000
 
 // 合并多个 AbortSignal:任一触发即中止。旧浏览器没有 AbortSignal.any 时手工转发，
@@ -51,16 +51,29 @@ export function combineAbortSignals(signals) {
 
 // 合并外部 signal 与超时 signal:任一触发即中止。
 function withTimeout(signal, ms) {
-  return combineAbortSignals([signal, AbortSignal.timeout(ms)])
+  const controller = new AbortController()
+  const timer = setTimeout(() => {
+    try { controller.abort(new DOMException('Timed out', 'TimeoutError')) } catch { controller.abort() }
+  }, ms)
+  const combined = combineAbortSignals([signal, controller.signal])
+  return { signal: combined, dispose: () => clearTimeout(timer), timeoutSignal: controller.signal }
 }
 
 // 判断一个 fetch 异常是否为超时(AbortSignal.timeout 触发时 name 为 TimeoutError)。
 function isTimeout(e) {
-  return e && (e.name === 'TimeoutError' || e.name === 'AbortError')
+  return e && e.name === 'TimeoutError'
 }
 
-export async function callApi(url, { apiKey, body, signal } = {}) {
+export async function callApi(url, { apiKey, body, signal, timeoutMs } = {}) {
   const isForm = typeof FormData !== 'undefined' && body instanceof FormData
+  const timeout = timeoutMs == null ? 0 : Number(timeoutMs)
+  const timeoutController = new AbortController()
+  const timer = Number.isFinite(timeout) && timeout > 0
+    ? setTimeout(() => {
+      try { timeoutController.abort(new DOMException('Timed out', 'TimeoutError')) } catch { timeoutController.abort() }
+    }, timeout)
+    : null
+  const requestSignal = combineAbortSignals([signal, timeout > 0 ? timeoutController.signal : null])
   let resp
   try {
     resp = await fetch(url, {
@@ -71,14 +84,19 @@ export async function callApi(url, { apiKey, body, signal } = {}) {
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
       body: isForm ? body : JSON.stringify(body),
-      signal,
+      signal: requestSignal,
     })
   } catch (e) {
+    if (timer) clearTimeout(timer)
     // 用户主动取消保留 AbortError 语义，交给生成服务收口为“已取消”。
     if (signal?.aborted) throw e
+    if (timeoutController.signal.aborted || isTimeout(e)) {
+      throw new ApiError('timeout', `接口请求超过 ${Math.round(timeout / 1000)} 秒，已超时。`, String(e))
+    }
     // fetch 抛异常 = 网络层失败,浏览器不区分 CORS 与断网(安全策略),统一归类。
     throw new ApiError('network-or-cors', '无法连接接口:可能是网络问题或接口未开放跨域(CORS)。', String(e))
   }
+  if (timer) clearTimeout(timer)
 
   if (resp.status === 401 || resp.status === 403) {
     throw new ApiError('auth', `鉴权失败(HTTP ${resp.status}):请检查 API Key 是否正确、是否有权限。`)
@@ -88,7 +106,7 @@ export async function callApi(url, { apiKey, body, signal } = {}) {
     try {
       detail = await resp.text()
     } catch { /* ignore */ }
-    throw new ApiError('api', `接口返回错误(HTTP ${resp.status})。`, detail.slice(0, 500))
+    throw new ApiError('api', `接口返回错误(HTTP ${resp.status})。`, detail.slice(0, 2000))
   }
 
   return resp.json()
@@ -101,11 +119,15 @@ export async function toBlob(image, signal) {
     return dataUrlToBlob(image.value)
   }
   // url:立即下载为 Blob
+  let timeout
   try {
-    const resp = await fetch(image.value, { signal: withTimeout(signal, IMAGE_TIMEOUT_MS) })
+    timeout = withTimeout(signal, IMAGE_TIMEOUT_MS)
+    const resp = await fetch(image.value, { signal: timeout.signal })
+    timeout.dispose()
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     return await resp.blob()
   } catch (e) {
+    timeout?.dispose()
     // 外部 signal 表示用户主动取消，保留原始 AbortError 语义给上层收口。
     if (signal?.aborted) throw e
     if (isTimeout(e)) {

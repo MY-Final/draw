@@ -4,8 +4,9 @@ import { openDB } from 'idb'
 // 以稳定 id 相互引用。同一张图只存一份 Blob,可被多条 generation 引用。
 
 export const DB_NAME = 'ai-drawing-workbench'
-export const DB_VERSION = 2
+export const DB_VERSION = 3
 export const STORE_ASSETS = 'assets'
+export const STORE_ASSET_BLOBS = 'assetBlobs'
 export const STORE_GENERATIONS = 'generations'
 export const STORE_WORKSPACES = 'workspaces'
 
@@ -14,10 +15,26 @@ let dbPromise = null
 export function getDB() {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db, oldVersion) {
+      upgrade(db, oldVersion, _newVersion, transaction) {
         if (!db.objectStoreNames.contains(STORE_ASSETS)) {
           const assets = db.createObjectStore(STORE_ASSETS, { keyPath: 'id' })
           assets.createIndex('createdAt', 'createdAt')
+        }
+        if (!db.objectStoreNames.contains(STORE_ASSET_BLOBS)) {
+          db.createObjectStore(STORE_ASSET_BLOBS, { keyPath: 'id' })
+        }
+        if (oldVersion < 3) {
+          // v2 将 Blob 与元数据写在同一条记录，升级时迁移到独立对象仓库。
+          const assets = transaction.objectStore(STORE_ASSETS)
+          const blobs = transaction.objectStore(STORE_ASSET_BLOBS)
+          assets.openCursor().onsuccess = (event) => {
+            const cursor = event.target.result
+            if (!cursor) return
+            const { blob, ...metadata } = cursor.value
+            if (blob) blobs.put({ id: metadata.id, blob })
+            cursor.update(metadata)
+            cursor.continue()
+          }
         }
         if (!db.objectStoreNames.contains(STORE_GENERATIONS)) {
           const gens = db.createObjectStore(STORE_GENERATIONS, { keyPath: 'id' })

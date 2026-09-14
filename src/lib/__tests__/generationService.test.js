@@ -27,6 +27,7 @@ vi.mock('../adapters.js', () => ({
 
 const { runGeneration } = await import('../generationService.js')
 const { generate: mockedGenerate } = await import('../adapters.js')
+const { ApiError } = await import('../http.js')
 const { listAssets, putAsset } = await import('../assetRepo.js')
 const { listGenerations, deleteGeneration } = await import('../generationRepo.js')
 const { getDB } = await import('../db.js')
@@ -108,6 +109,19 @@ describe('runGeneration 取消', () => {
     const result = await p
     // safeUpdate 失败时仍返回带 cancelled 语义的结果
     expect(result.error === '已取消' || result.cancelled || result.status === 'failed').toBe(true)
+  })
+
+  it('接口超时落库为 failed/timeout 并保留 detail', async () => {
+    vi.mocked(mockedGenerate).mockRejectedValueOnce(new ApiError('timeout', '接口请求已超时', 'gateway timeout detail'))
+
+    await expect(runGeneration({
+      preset, prompt: '超时', workspaceId: 'ws_default',
+    })).rejects.toMatchObject({ category: 'timeout' })
+
+    const [gen] = await listGenerations()
+    expect(gen.status).toBe('failed')
+    expect(gen.failureCategory).toBe('timeout')
+    expect(gen.errorDetail).toBe('gateway timeout detail')
   })
 })
 

@@ -98,16 +98,31 @@ describe('workbench issue regressions', () => {
     expect(await getAsset(free.id)).toBeUndefined()
   })
 
-  it('编辑消息:就地更新 prompt 与 params.prompt,并触发重新生成', async () => {
+  it('同 conversationId 跨工作区不会串读或误删', async () => {
+    const first = await pending({ conversationId: 'conv_shared' })
+    const second = await createGeneration({
+      prompt: '另一工作区', refImageIds: [], params: { conversationId: 'conv_shared' }, workspaceId: 'ws_other',
+    })
+    store.generations = await listGenerations()
+    store.activeWorkspaceId = 'ws_default'
+    store.conversationId = 'conv_shared'
+
+    expect(store.canvasGenerations.map((g) => g.id)).toEqual([first.id])
+    await store.deleteConversation('conv_shared')
+    expect(await getGeneration(first.id)).toBeUndefined()
+    expect(await getGeneration(second.id)).toBeTruthy()
+  })
+
+  it('编辑消息:无可用接口时保留原记录,不提前修改 prompt', async () => {
     const gen = await pending()
     store.generations = await listGenerations()
 
     const result = await store.editPromptAndRegenerate(gen.id, '  修改后的 prompt  ')
 
     const back = await getGeneration(gen.id)
-    expect(back.prompt).toBe('修改后的 prompt')
-    expect(back.params.prompt).toBe('修改后的 prompt')
-    // 无预设时 regenerate 安全返回失败(不抛错),但消息文本已就地更新
+    expect(back.prompt).toBe('测试生成')
+    expect(back.params.prompt).toBeUndefined()
+    // 无预设时安全返回失败,原记录不被编辑动作污染
     expect(result.ok).toBe(false)
     expect(store.lastError).toMatch(/接口预设/)
   })

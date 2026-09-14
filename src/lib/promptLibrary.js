@@ -2,10 +2,14 @@
 // 独立于 generations,纯文本,不涉 Blob。
 // 按工作区隔离:key = workbench.savedPrompts.<workspaceId>
 
-const KEY_PREFIX = 'workbench.savedPrompts'
+export const PROMPTS_KEY_PREFIX = 'workbench.savedPrompts'
 
 function storageKey(workspaceId) {
-  return workspaceId ? `${KEY_PREFIX}.${workspaceId}` : KEY_PREFIX
+  return workspaceId ? `${PROMPTS_KEY_PREFIX}.${workspaceId}` : PROMPTS_KEY_PREFIX
+}
+
+export function promptStorageKey(workspaceId) {
+  return storageKey(workspaceId)
 }
 
 /** @returns {{ id: string, text: string, createdAt: number }[]} */
@@ -48,7 +52,7 @@ export function getAllPrompts(workspaceId) {
 export function migrateLegacyPrompts(workspaceId) {
   const newKey = storageKey(workspaceId)
   if (localStorage.getItem(newKey)) return // 已迁移
-  const old = localStorage.getItem(KEY_PREFIX)
+  const old = localStorage.getItem(PROMPTS_KEY_PREFIX)
   if (old) {
     localStorage.setItem(newKey, old)
     // 保留旧 key 供回退,暂不删除

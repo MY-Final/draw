@@ -1,11 +1,13 @@
 <script setup>
 // 大图预览(Task 6.3)。modal-motion / escape-routes / scrim(blur-purpose)。
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, ref } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
 import { downloadBlob, imageFileName } from '../lib/download.js'
 import { sourceFullLabel } from '../lib/assetSource.js'
+import { useDialogA11y } from '../composables/useDialogA11y.js'
+import { getAsset } from '../lib/assetRepo.js'
 
 const props = defineProps({
   asset: Object,
@@ -14,6 +16,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'use-as-reference', 'change'])
 const store = useWorkbenchStore()
+const viewer = ref(null)
 
 const idx = computed(() => {
   const i = props.list.findIndex((a) => a?.id === props.asset?.id)
@@ -35,22 +38,23 @@ function onKey(e) {
   if (e.key === 'ArrowLeft') step(-1)
   if (e.key === 'ArrowRight') step(1)
 }
-onMounted(() => window.addEventListener('keydown', onKey))
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+useDialogA11y(viewer, () => emit('close'), onKey)
 
-function download() {
+async function download() {
   const a = live.value
   if (!a) return
-  const ext = (a.mime.split('/')[1] || 'png').replace('jpeg', 'jpg')
+  const full = a.blob ? a : await getAsset(a.id)
+  if (!full?.blob) return
+  const ext = (full.mime.split('/')[1] || 'png').replace('jpeg', 'jpg')
   // 优先用产出该图的生成记录 prompt,其次素材名,保证下载名可读
   const gen = store.generations.find((g) => (g.outputImageIds || []).includes(a.id))
-  downloadBlob(a.blob, imageFileName({ id: a.id, prompt: gen?.prompt, name: a.name, ext }))
+  downloadBlob(full.blob, imageFileName({ id: full.id, prompt: gen?.prompt, name: full.name, ext }))
 }
 </script>
 
 <template>
-  <div class="scrim" @click.self="emit('close')" role="dialog" aria-label="图片预览">
-    <div class="viewer">
+  <div class="scrim" @click.self="emit('close')">
+    <div ref="viewer" class="viewer" role="dialog" aria-modal="true" aria-label="图片预览" tabindex="-1">
       <div class="viewer-img">
         <AssetImage :asset="live" alt="预览" />
       </div>

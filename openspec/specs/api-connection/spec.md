@@ -7,7 +7,9 @@
 ## Requirements
 
 ### Requirement: 接口预设管理
-系统 SHALL 允许用户创建、编辑、删除多个「接口预设」,每个预设包含 baseURL、API Key、model 名称。预设统一走标准 OpenAI images 接口(`/v1/images/generations` 与 `/v1/images/edits`),不再要求用户选择协议。
+系统 SHALL 允许用户创建、编辑、删除多个「接口预设」,每个预设包含 baseURL、API Key、model 名称与 `requestTimeoutMs`。预设统一走标准 OpenAI images 接口(`/v1/images/generations` 与 `/v1/images/edits`),不再要求用户选择协议。
+
+`requestTimeoutMs` 默认 SHALL 为 `180000`,且 SHALL 限制在 30–1800 秒范围内。
 
 #### Scenario: 创建接口预设
 - **WHEN** 用户填写 baseURL、Key、model 并保存
@@ -41,3 +43,6 @@
 #### Scenario: 连通性失败区分原因
 - **WHEN** 连通性检查请求失败
 - **THEN** 系统提示失败类别(如 CORS/网络、401 鉴权、超时、其他接口错误),而非笼统报错
+
+### Requirement: 生成请求超时
+系统 SHALL 使用预设的 `requestTimeoutMs` 中止超时的生成请求;用户主动取消与接口超时 SHALL 保持不同的失败语义。

@@ -3,7 +3,7 @@ import {
   loadPresets, savePreset, deletePreset, getActivePresetId, setActivePresetId, clearAllKeys,
   PROTOCOL_IMAGES,
 } from '../lib/presets.js'
-import { listAssets, deleteAssets, toggleFavorite, clearAllAssets, putAsset } from '../lib/assetRepo.js'
+import { listAssets, getAsset, deleteAssets, toggleFavorite, clearAllAssets, putAsset } from '../lib/assetRepo.js'
 import { listGenerations, deleteGenerations, clearAllGenerations, updateGeneration } from '../lib/generationRepo.js'
 import { runGeneration } from '../lib/generationService.js'
 import { checkConnectivity } from '../lib/connectivity.js'
@@ -41,6 +41,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     // 工作区状态
     workspaces: [],
     activeWorkspaceId: null,
+    initialized: false,
   }),
 
   getters: {
@@ -49,12 +50,17 @@ export const useWorkbenchStore = defineStore('workbench', {
     },
     // 当前会话可见的生成(旧记录用 canvasId 回退,不丢失)。
     canvasGenerations(state) {
-      if (!state.conversationId) return state.generations
-      return state.generations.filter((g) => convIdOf(g) === state.conversationId)
+      if (!state.activeWorkspaceId || !state.conversationId) return []
+      return state.generations.filter((g) =>
+        g.workspaceId === state.activeWorkspaceId && convIdOf(g) === state.conversationId,
+      )
     },
     // 派生的会话列表(供左侧导航)。手动重命名优先。
     conversations(state) {
-      return deriveConversations(state.generations, state.titleOverrides)
+      const generations = state.activeWorkspaceId
+        ? state.generations.filter((g) => g.workspaceId === state.activeWorkspaceId)
+        : []
+      return deriveConversations(generations, state.titleOverrides)
     },
     conversationGroups() {
       return groupConversationsByDate(this.conversations)
@@ -69,11 +75,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     },
     // 当前工作区下的会话(继承 conversations 逻辑但加过滤)。
     workspaceConversations() {
-      if (!this.activeWorkspaceId) return this.conversations
-      return this.conversations.filter((c) => {
-        const gens = this.generations.filter((g) => convIdOf(g) === c.id)
-        return gens.some((g) => g.workspaceId === this.activeWorkspaceId)
-      })
+      return this.conversations
     },
     workspaceConversationGroups() {
       return groupConversationsByDate(this.workspaceConversations)
@@ -86,25 +88,29 @@ export const useWorkbenchStore = defineStore('workbench', {
     },
     // 当前工作区下的生成记录(generations 已按 createdAt 倒序,[0] 为最近一次)。
     workspaceGenerations(state) {
-      if (!state.activeWorkspaceId) return state.generations
+      if (!state.activeWorkspaceId) return []
       return state.generations.filter((g) => g.workspaceId === state.activeWorkspaceId)
     },
   },
 
   actions: {
     async init() {
+      this.initialized = false
       this.presets = loadPresets()
       this.activePresetId = getActivePresetId() || this.presets[0]?.id || null
       this.titleOverrides = loadTitleOverrides()
       await this.refreshAll()
       await this.reconcileStalePending()
       await this.initWorkspaces()
-      // 恢复上次会话;没有则挂到当前工作区最近一次生成的会话,再没有就新开一个。
-      if (!this.conversationId) {
-        this.conversationId = localStorage.getItem('workbench.conversationId')
-          || convIdOf(this.workspaceGenerations[0])
-          || this.newConversationId()
-      }
+      // 只恢复当前工作区内仍存在的会话，非法值回退到最近会话。
+      const savedConversationId = localStorage.getItem('workbench.conversationId')
+      const savedIsValid = savedConversationId
+        && this.workspaceGenerations.some((g) => convIdOf(g) === savedConversationId)
+      this.conversationId = savedIsValid
+        ? savedConversationId
+        : (convIdOf(this.workspaceGenerations[0]) || this.newConversationId())
+      localStorage.setItem('workbench.conversationId', this.conversationId)
+      this.initialized = true
     },
 
     newConversationId() {
@@ -135,9 +141,13 @@ export const useWorkbenchStore = defineStore('workbench', {
 
     // 切到某段历史会话。
     switchConversation(id) {
+      const valid = this.activeWorkspaceId
+        && this.generations.some((g) => g.workspaceId === this.activeWorkspaceId && convIdOf(g) === id)
+      if (!valid && id !== this.conversationId) return false
       this.conversationId = id
       localStorage.setItem('workbench.conversationId', id)
       this.lastError = null
+      return true
     },
 
     // ── 工作区 ──
@@ -162,8 +172,12 @@ export const useWorkbenchStore = defineStore('workbench', {
         const assets = await listAssets()
         for (const a of assets) {
           if (!a.workspaceId) {
-            a.workspaceId = 'ws_default'
-            await db.put(STORE_ASSETS, a)
+            const full = await getAsset(a.id)
+            if (full?.blob) {
+              await putAsset({ ...full, workspaceId: 'ws_default' })
+            } else {
+              await db.put(STORE_ASSETS, { ...a, workspaceId: 'ws_default' })
+            }
           }
         }
         // 迁移 promptLibrary
@@ -251,6 +265,7 @@ export const useWorkbenchStore = defineStore('workbench', {
 
     // 切换工作区(刷新中间和右侧视图)。
     async switchWorkspace(id) {
+      if (!this.workspaces.some((workspace) => workspace.id === id)) return false
       if (id === this.activeWorkspaceId) return
       this.activeWorkspaceId = id
       localStorage.setItem('workbench.activeWorkspaceId', id)
@@ -260,6 +275,7 @@ export const useWorkbenchStore = defineStore('workbench', {
       this.conversationId = last || this.newConversationId()
       localStorage.setItem('workbench.conversationId', this.conversationId)
       this.lastError = null
+      return true
     },
 
     async refreshAll() {
@@ -377,7 +393,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     // 重新生成:复制某条生成的入参,起一次新事件(落当前会话)。
     async regenerate(genId) {
       const g = this.generations.find((x) => x.id === genId)
-      if (!g) return { ok: false }
+      if (!g || (this.activeWorkspaceId && g.workspaceId !== this.activeWorkspaceId)) return { ok: false }
       return this.generate({
         prompt: g.prompt,
         fullPrompt: g.fullPrompt,
@@ -392,19 +408,23 @@ export const useWorkbenchStore = defineStore('workbench', {
       })
     },
 
-    // 编辑消息并再次生成:就地更新该轮 prompt(含已发送的 params.prompt 保持一致),
-    // 然后以新 prompt + 原参数/参考图触发一次新生成;若已有生成进行中则只更新文本。
+    // 编辑历史消息时保留原记录，创建一条新的生成事件。
     async editPromptAndRegenerate(genId, text) {
       const t = (text || '').trim()
       const g = this.generations.find((x) => x.id === genId)
-      if (!g || !t) return { ok: false }
-      await updateGeneration(g.id, {
+      if (!g || (this.activeWorkspaceId && g.workspaceId !== this.activeWorkspaceId) || !t || this.generating) return { ok: false }
+      return this.generate({
         prompt: t,
-        params: { ...(g.params || {}), prompt: t },
+        fullPrompt: t,
+        refImageIds: [...(g.refImageIds || [])],
+        params: {
+          size: g.params?.size,
+          ratio: g.params?.ratio,
+          resolution: g.params?.resolution,
+          quality: g.params?.quality,
+          n: g.params?.n,
+        },
       })
-      await this.refreshAll()
-      if (this.generating) return { ok: true, skipped: true }
-      return this.regenerate(genId)
     },
 
     clearLastError() {
@@ -421,6 +441,7 @@ export const useWorkbenchStore = defineStore('workbench', {
       }
       const idx = this.generations.findIndex((x) => x.id === genId)
       if (idx < 0) return { ok: false }
+      if (this.activeWorkspaceId && this.generations[idx].workspaceId !== this.activeWorkspaceId) return { ok: false }
       const [record] = this.generations.splice(idx, 1)
       const timer = setTimeout(() => { this.commitDelete(genId) }, delayMs)
       this.pendingDeletes = { ...this.pendingDeletes, [genId]: { timer, record } }
@@ -446,8 +467,13 @@ export const useWorkbenchStore = defineStore('workbench', {
       // 连带删图:候选来自被删记录的产出图,需连全量(含已从内存移除的)判定。
       // 用被删记录 + 当前存活记录组成全量集合。
       const full = p?.record ? [p.record, ...this.generations] : this.generations
-      await this._deleteGensAndOrphans([genId], full)
-      await this.refreshAll()
+      try {
+        await this._deleteGensAndOrphans([genId], full)
+        await this.refreshAll()
+      } catch (error) {
+        this.lastError = `删除生成失败：${error?.message || error}`
+        await this.refreshAll().catch(() => {})
+      }
     },
 
     // 内部:删除一批 generation 及其可连带删除的产出图。
@@ -465,11 +491,18 @@ export const useWorkbenchStore = defineStore('workbench', {
 
     // ── 删除整段会话(立即,连带删图)──
     async deleteConversation(id) {
-      let ids = this.generations.filter((g) => convIdOf(g) === id).map((g) => g.id)
+      const targetWorkspaceId = this.activeWorkspaceId
+        || this.activeGeneration?.workspaceId
+        || this.generations.find((g) => convIdOf(g) === id)?.workspaceId
+      let ids = this.generations
+        .filter((g) => g.workspaceId === targetWorkspaceId && convIdOf(g) === id)
+        .map((g) => g.id)
       // 删除包含活跃生成的会话时先中止并等待；随后重新取列表，覆盖 pending 刚落库的窗口。
       if (this.activeGeneration?.conversationId === id || (this.activeGeneration && ids.includes(this.activeGeneration.genId))) {
         await this.cancelAndWaitActiveGeneration()
-        ids = this.generations.filter((g) => convIdOf(g) === id).map((g) => g.id)
+        ids = this.generations
+          .filter((g) => g.workspaceId === targetWorkspaceId && convIdOf(g) === id)
+          .map((g) => g.id)
       }
       await this._deleteGensAndOrphans(ids)
       // 清除该会话的标题覆盖
@@ -481,7 +514,7 @@ export const useWorkbenchStore = defineStore('workbench', {
       await this.refreshAll()
       // 若删的是当前会话,切到最近的其他会话;无则新建空会话
       if (this.conversationId === id) {
-        const next = this.conversations[0]?.id
+        const next = this.workspaceConversations[0]?.id
         if (next) this.switchConversation(next)
         else this.newConversation()
       }
@@ -516,10 +549,17 @@ export const useWorkbenchStore = defineStore('workbench', {
     async addReferenceAsset(file) {
       const asset = await putAsset({ blob: file, mime: file.type, name: file.name, source: 'reference-uploaded', workspaceId: this.activeWorkspaceId })
       await this.refreshAll()
+      // listAssets 只返回元数据，但刚粘贴/上传的图片已经在内存中可用。
+      // 保留这份 Blob 让参考图立即显示，避免等待下一次 IndexedDB 读取时出现空缩略图。
+      this.assets = this.assets.map((item) => item.id === asset.id ? { ...item, blob: asset.blob } : item)
       return asset
     },
     async removeAssets(ids) {
-      const uniqueIds = [...new Set(ids)].filter(Boolean)
+      const uniqueIds = [...new Set(ids)].filter((id) => {
+        if (!id) return false
+        const asset = this.assets.find((item) => item.id === id)
+        return !this.activeWorkspaceId || asset?.workspaceId === this.activeWorkspaceId
+      })
       const blockedIds = collectReferencedAssetIds({
         assetIds: uniqueIds,
         generations: this.generations,

@@ -1,19 +1,19 @@
 <script setup>
 // 通用抽屉(从右侧滑入)。低频操作(接口设置 / 存储备份)放这里,主视图保持干净。
-import { onMounted, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { useDialogA11y } from '../composables/useDialogA11y.js'
 
 const props = defineProps({ title: String })
 const emit = defineEmits(['close'])
 
-function onKey(e) { if (e.key === 'Escape') emit('close') }
-onMounted(() => window.addEventListener('keydown', onKey))
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+const drawer = ref(null)
+useDialogA11y(drawer, () => emit('close'))
 </script>
 
 <template>
   <div class="scrim" @click.self="emit('close')">
-    <div class="drawer" role="dialog" :aria-label="title">
+    <div ref="drawer" class="drawer" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1">
       <header class="drawer-head">
         <strong>{{ title }}</strong>
         <button class="btn btn-sm btn-ghost" @click="emit('close')" aria-label="关闭"><AppIcon name="x" :size="15" /></button>

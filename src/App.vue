@@ -13,9 +13,11 @@ import UnifiedSearch from './components/UnifiedSearch.vue'
 import BackupReminderDialog from './components/BackupReminderDialog.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import AppIcon from './components/AppIcon.vue'
+import { useDialogA11y } from './composables/useDialogA11y.js'
 
 const store = useWorkbenchStore()
 const composer = ref(null)
+const dock = ref(null)
 const preview = ref(null)
 const previewList = ref([])
 const settingsOpen = ref(false)
@@ -27,10 +29,16 @@ const rightOpen = ref(true)
 const mobileAssetsOpen = ref(false)
 // 移动端:侧栏工作区树抽屉
 const mobileNavOpen = ref(false)
+const mobileMenuButton = ref(null)
+const mobileNavPanel = ref(null)
+const mobileAssetsSheet = ref(null)
 const theme = ref('dark')
 const searchOpen = ref(false)
 const showBackupReminder = ref(false)
 const reminderBytes = ref(0)
+const booting = ref(true)
+const bootError = ref('')
+let dockObserver = null
 // Win/Linux 显示 Ctrl,macOS 显示 ⌘
 const isApple = computed(() => {
   if (typeof navigator === 'undefined') return false
@@ -38,14 +46,36 @@ const isApple = computed(() => {
 })
 const searchModKey = computed(() => (isApple.value ? '⌘' : 'Ctrl'))
 
+useDialogA11y(mobileNavPanel, () => { mobileNavOpen.value = false })
+useDialogA11y(mobileAssetsSheet, () => { mobileAssetsOpen.value = false })
+
+async function initialize() {
+  booting.value = true
+  bootError.value = ''
+  try {
+    await store.init()
+    const saved = localStorage.getItem('workbench.theme')
+    setTheme(saved || 'dark')
+    const r = await store.checkBackupReminder()
+    if (r) { showBackupReminder.value = true; reminderBytes.value = store.usage?.businessBytes || 0 }
+  } catch (error) {
+    bootError.value = error?.message || '本地数据初始化失败，请重试。'
+  } finally {
+    booting.value = false
+  }
+}
+
 onMounted(async () => {
-  await store.init()
-  const saved = localStorage.getItem('workbench.theme')
-  setTheme(saved || 'dark')
+  await initialize()
   document.addEventListener('keydown', onGlobalKeydown)
-  // 初始化后检查备份提醒
-  const r = await store.checkBackupReminder()
-  if (r) { showBackupReminder.value = true; reminderBytes.value = store.usage?.businessBytes || 0 }
+  if (typeof ResizeObserver !== 'undefined' && dock.value) {
+    const updateDockHeight = () => {
+      document.documentElement.style.setProperty('--composer-height', `${dock.value?.offsetHeight || 0}px`)
+    }
+    dockObserver = new ResizeObserver(updateDockHeight)
+    dockObserver.observe(dock.value)
+    updateDockHeight()
+  }
 })
 
 // 生成完成后检查备份提醒
@@ -63,6 +93,7 @@ function onReminderClose(action) {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onGlobalKeydown)
+  dockObserver?.disconnect()
 })
 
 function onGlobalKeydown(e) {
@@ -71,25 +102,23 @@ function onGlobalKeydown(e) {
     e.preventDefault()
     searchOpen.value = !searchOpen.value
   }
-  if (e.key === 'Escape') {
-    if (mobileAssetsOpen.value) mobileAssetsOpen.value = false
-    if (mobileNavOpen.value) mobileNavOpen.value = false
-  }
 }
 
-function onSearchJump(item) {
+async function onSearchJump(item) {
   switch (item.type) {
     case 'workspace':
-      store.switchWorkspace(item.wsId)
+      await store.switchWorkspace(item.wsId)
       break
     case 'conversation':
-      store.switchWorkspace(item.wsId)
+      await store.switchWorkspace(item.wsId)
       store.switchConversation(item.convId)
       break
     case 'prompt':
+      await store.switchWorkspace(item.wsId)
       composer.value?.fillPrompt?.(item.label)
       break
     case 'asset':
+      await store.switchWorkspace(item.wsId)
       openPreview({ asset: item.asset, list: [item.asset] })
       break
   }
@@ -98,7 +127,7 @@ function onSearchJump(item) {
 function setTheme(t) {
   theme.value = t
   document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark')
-  localStorage.setItem('workbench.theme', t)
+  try { localStorage.setItem('workbench.theme', t) } catch { /* 主题只影响当前页面 */ }
 }
 function toggleTheme() { setTheme(theme.value === 'dark' ? 'light' : 'dark') }
 
@@ -143,14 +172,19 @@ function onNewCanvas() {
   closePreview()
   mobileNavOpen.value = false
 }
+function closeMobileNav() {
+  const wasOpen = mobileNavOpen.value
+  mobileNavOpen.value = false
+  if (wasOpen) mobileMenuButton.value?.focus()
+}
 function openSettings(opts) {
   settingsStartCreate.value = !!opts?.create
   settingsOpen.value = true
-  mobileNavOpen.value = false
+  closeMobileNav()
 }
 function openStorage() {
   storageOpen.value = true
-  mobileNavOpen.value = false
+  closeMobileNav()
 }
 </script>
 
@@ -186,7 +220,7 @@ function openStorage() {
 
     <!-- 移动端顶栏 -->
     <header class="mobile-top">
-      <button class="mobile-icon-btn" @click="mobileNavOpen = true" aria-label="打开菜单">
+      <button ref="mobileMenuButton" class="mobile-icon-btn" @click="mobileNavOpen = true" aria-label="打开菜单">
         <AppIcon name="menu" :size="18" />
       </button>
       <div class="mobile-brand">
@@ -210,10 +244,11 @@ function openStorage() {
           @open-settings="openSettings"
         />
       </div>
-      <div class="dock">
+      <div ref="dock" class="dock">
         <Composer
           ref="composer"
           @open-settings="openSettings"
+          @preview="openPreview"
         />
       </div>
     </main>
@@ -231,7 +266,7 @@ function openStorage() {
     <!-- 移动端侧栏抽屉 -->
     <Transition name="nav">
       <div v-if="mobileNavOpen" class="mobile-nav-scrim" @click.self="mobileNavOpen = false">
-        <div class="mobile-nav-panel" role="dialog" aria-label="导航">
+        <div ref="mobileNavPanel" class="mobile-nav-panel" role="dialog" aria-modal="true" aria-label="导航" tabindex="-1">
           <div class="mobile-nav-head">
             <div class="logo" title="AI 绘画工作台">
               <span class="logo-mark" aria-hidden="true">
@@ -268,7 +303,7 @@ function openStorage() {
     <!-- 移动端素材库抽屉(桌面右侧栏在 ≤1024 隐藏) -->
     <Transition name="sheet">
       <div v-if="mobileAssetsOpen" class="mobile-assets-scrim" @click.self="mobileAssetsOpen = false">
-        <div class="mobile-assets-sheet" role="dialog" aria-label="素材库">
+        <div ref="mobileAssetsSheet" class="mobile-assets-sheet" role="dialog" aria-modal="true" aria-label="素材库" tabindex="-1">
           <div class="mobile-assets-handle" aria-hidden="true" />
           <div class="mobile-assets-head">
             <strong>素材库</strong>
@@ -321,6 +356,14 @@ function openStorage() {
       @confirm="confirmApplyRecipe" @cancel="pendingRecipe = null"
     />
   </div>
+  <div v-if="booting || bootError" class="boot-screen" role="status" aria-live="polite">
+    <div class="boot-panel">
+      <AppIcon :name="bootError ? 'alert' : 'sparkles'" :size="20" />
+      <strong>{{ bootError ? '本地数据加载失败' : '正在加载工作台' }}</strong>
+      <p v-if="bootError">{{ bootError }}</p>
+      <button v-if="bootError" class="btn btn-primary" type="button" @click="initialize">重试</button>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -337,6 +380,17 @@ function openStorage() {
     radial-gradient(700px 360px at 100% 60%, color-mix(in srgb, var(--color-primary) 5%, transparent), transparent 60%),
     var(--color-bg);
 }
+.boot-screen {
+  position: fixed; inset: 0; z-index: 1200;
+  display: grid; place-items: center; padding: var(--space-4);
+  background: var(--color-bg);
+}
+.boot-panel {
+  width: min(360px, 100%); display: flex; flex-direction: column; align-items: center;
+  gap: var(--space-3); text-align: center; color: var(--color-fg-muted);
+}
+.boot-panel strong { color: var(--color-fg); font-size: 15px; }
+.boot-panel p { margin: 0; font-size: 13px; line-height: 1.6; }
 :root[data-theme='light'] .app {
   background:
     radial-gradient(1100px 520px at 72% -8%, color-mix(in srgb, var(--color-primary) 14%, transparent), transparent 58%),
@@ -557,7 +611,6 @@ function openStorage() {
     letter-spacing: -0.01em;
   }
   .assets { display: none; }
-  .mobile-assets-fab { display: flex; }
   .dock { padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); }
 }
 .mobile-assets-fab {
@@ -565,7 +618,7 @@ function openStorage() {
   position: fixed;
   right: 16px;
   /* 抬高,避开底部 Composer(参数区改版后更高),减少误触 */
-  bottom: calc(248px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--composer-height, 248px) + 16px + env(safe-area-inset-bottom, 0px));
   z-index: 40;
   width: 52px;
   height: 52px;
@@ -576,6 +629,9 @@ function openStorage() {
   color: var(--color-on-primary);
   box-shadow: 0 10px 28px color-mix(in srgb, var(--color-primary) 35%, transparent);
   border: none;
+}
+@media (max-width: 1024px) {
+  .mobile-assets-fab { display: flex; }
 }
 .mobile-assets-scrim {
   position: fixed;

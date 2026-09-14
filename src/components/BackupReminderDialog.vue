@@ -4,9 +4,11 @@ import { ref } from 'vue'
 import { dismissReminder, snoozeReminder } from '../lib/backupReminder.js'
 import { getStorageUsage, formatBytes } from '../lib/storageUsage.js'
 import AppIcon from './AppIcon.vue'
+import { useDialogA11y } from '../composables/useDialogA11y.js'
 
 const emit = defineEmits(['close'])
 const props = defineProps({ businessBytes: Number })
+const modal = ref(null)
 
 function onBackup() {
   dismissReminder(props.businessBytes)
@@ -22,11 +24,13 @@ function onDismiss() {
   dismissReminder(props.businessBytes)
   emit('close', 'dismiss')
 }
+
+useDialogA11y(modal, () => emit('close'))
 </script>
 
 <template>
-  <div class="reminder-overlay" @click.self="onSnooze">
-    <div class="reminder-modal" role="dialog" aria-labelledby="reminder-title">
+  <div class="reminder-overlay" @click.self="emit('close')" @keydown.esc="emit('close')">
+    <div ref="modal" class="reminder-modal" role="dialog" aria-modal="true" aria-labelledby="reminder-title" tabindex="-1">
       <h2 id="reminder-title" class="reminder-title">建议备份你的创作数据</h2>
       <p class="reminder-body">
         你的所有图片、Prompt、接口配置均保存在当前浏览器。<br>

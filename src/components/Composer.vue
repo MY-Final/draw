@@ -52,7 +52,7 @@ function computeSize(r, res) {
 }
 
 const store = useWorkbenchStore()
-const emit = defineEmits(['open-settings'])
+const emit = defineEmits(['open-settings', 'preview'])
 
 const prompt = ref('')
 const composerInput = ref(null)
@@ -165,7 +165,11 @@ onUnmounted(() => {
 
 // 参考图走 images/edits 改图;多张参考图全部发送(官方上限 16 张)。
 const MAX_REFERENCES = 16
-const assetById = computed(() => new Map(store.assets.map((asset) => [asset.id, asset])))
+const assetById = computed(() => new Map(
+  store.assets
+    .filter((asset) => !store.activeWorkspaceId || asset.workspaceId === store.activeWorkspaceId)
+    .map((asset) => [asset.id, asset]),
+))
 const refAssets = computed(() =>
   refImageIds.value.map((id) => assetById.value.get(id)).filter(Boolean)
 )
@@ -313,6 +317,10 @@ async function onDrop(e) {
 }
 function applyPrefill(prefill) {
   if (!prefill) return
+  if (Array.isArray(prefill.refImageIds) && prefill.refImageIds.length > MAX_REFERENCES) {
+    showReferenceNotice(`配方最多支持 ${MAX_REFERENCES} 张参考图，未载入。`)
+    return
+  }
   prompt.value = prefill.prompt || ''
   // 「填入输入框」场景:始终展开画质/数量,避免用户改参时还要再点「更多」。
   moreParamsOpen.value = true
@@ -343,9 +351,7 @@ function applyPrefill(prefill) {
   if (prefill.params?.n) n.value = clampN(prefill.params.n)
   if (prefill.params?.quality) quality.value = prefill.params.quality
   // 配方回填同样收敛到官方上限，避免把必然失败的请求发出去。
-  refImageIds.value = Array.isArray(prefill.refImageIds)
-    ? [...prefill.refImageIds].slice(0, MAX_REFERENCES)
-    : []
+  refImageIds.value = Array.isArray(prefill.refImageIds) ? [...prefill.refImageIds] : []
 }
 function gcd(a, b) { return b ? gcd(b, a % b) : a }
 function clear() {
@@ -469,7 +475,7 @@ function onErrorAction() {
     </div>
 
     <!-- 参考图 chips 与上传 + DnD 目标(上传按钮始终可见) -->
-    <div class="ref-strip">
+    <div class="ref-strip" role="group" aria-label="参考图设置">
       <div
         v-for="(a, i) in refAssets" :key="a.id"
         class="ref-thumb" :class="{ 'drag-over': dragOverRefId === a.id, dragging: dragRefId === a.id }"
@@ -480,17 +486,36 @@ function onErrorAction() {
         @drop="onRefDrop($event, a.id)"
         @dragend="onRefDragEnd"
       >
-        <AssetImage :asset="a" alt="参考图" />
-        <span class="ref-badge tnum">{{ i + 1 }}</span>
-        <button class="ref-remove" @click="removeReference(a.id)" aria-label="移除参考图">
+        <button
+          type="button"
+          class="ref-preview"
+          @click="emit('preview', { asset: a, list: refAssets })"
+          :aria-label="`预览第 ${i + 1} 张参考图`"
+          title="预览参考图"
+        >
+          <AssetImage :asset="a" alt="参考图" />
+          <span class="ref-badge">{{ i + 1 }}</span>
+        </button>
+        <button type="button" class="ref-remove" @click="removeReference(a.id)" aria-label="移除参考图" title="移除此参考图">
           <AppIcon name="x" :size="11" />
         </button>
       </div>
-      <button class="ref-add" @click="fileInput?.click()" title="上传参考图" aria-label="上传参考图">
+      <button
+        v-if="refAssets.length < MAX_REFERENCES"
+        type="button"
+        class="ref-add"
+        @click="fileInput?.click()"
+        title="上传参考图"
+        aria-label="上传参考图"
+      >
         <AppIcon name="plus" :size="14" />
       </button>
       <input ref="fileInput" type="file" accept="image/*" multiple class="hidden-input" @change="onFilePick" />
-      <span class="ref-tip">{{ refAssets.length ? `${refAssets.length} 张参考图` : '上传、粘贴或拖入参考图（可多张）' }}</span>
+      <span class="ref-tip">
+        {{ refAssets.length >= MAX_REFERENCES
+          ? `已添加 ${MAX_REFERENCES} 张参考图`
+          : (refAssets.length ? `${refAssets.length} 张参考图 · 点击缩略图预览` : '上传、粘贴或拖入参考图') }}
+      </span>
     </div>
 
     <!-- 主输入框 -->
@@ -780,11 +805,13 @@ function onErrorAction() {
 }
 
 .ref-strip {
-  display: flex; align-items: center; gap: var(--space-2);
-  margin-bottom: var(--space-2); flex-wrap: wrap;
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: var(--space-2); padding: 8px 10px;
+  flex-wrap: wrap; border: 1px solid var(--color-border);
+  border-radius: 16px; background: color-mix(in srgb, var(--color-surface) 82%, transparent);
 }
 .ref-thumb {
-  position: relative; width: 48px; height: 48px; border-radius: 12px;
+  position: relative; width: 76px; height: 76px; border-radius: 12px;
   overflow: hidden; border: 1px solid var(--color-border-strong);
   box-shadow: var(--shadow-1); cursor: grab;
   transition: opacity var(--dur) var(--ease), outline-color var(--dur) var(--ease);
@@ -796,14 +823,20 @@ function onErrorAction() {
   outline-offset: 2px;
   opacity: 0.8;
 }
+.ref-preview {
+  position: relative; display: block; width: 100%; height: 100%; padding: 0;
+  overflow: hidden; cursor: zoom-in; background: var(--color-surface-2);
+}
+.ref-preview :deep(.asset-img) { object-fit: contain; }
 .ref-badge {
   position: absolute; top: 3px; left: 3px;
-  font-size: 9px; font-weight: 700; line-height: 1;
-  padding: 2px 4px; border-radius: 4px;
+  width: auto; min-height: 0; font-size: 10px; font-weight: 700; line-height: 1;
+  padding: 3px 5px; border: 0; border-radius: 5px;
   color: #fff; background: rgba(0,0,0,0.62); backdrop-filter: blur(4px);
+  text-align: center; pointer-events: none;
 }
 .ref-remove {
-  position: absolute; top: 2px; right: 2px; width: 15px; height: 15px;
+  position: absolute; top: 4px; right: 4px; width: 22px; height: 22px;
   display: flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,0.5); color: #fff; border-radius: 999px;
   backdrop-filter: blur(4px);
@@ -815,7 +848,7 @@ function onErrorAction() {
   .ref-remove { opacity: 0.9; }
 }
 .ref-add {
-  width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+  width: 76px; height: 76px; display: flex; align-items: center; justify-content: center;
   border-radius: 12px; border: 1px dashed var(--color-border-strong);
   color: var(--color-fg-muted);
   transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
@@ -825,7 +858,14 @@ function onErrorAction() {
   background: var(--color-primary-soft);
 }
 .hidden-input { display: none; }
-.ref-tip { font-size: 11px; color: var(--color-fg-subtle); }
+.ref-tip { flex: 1; min-width: 150px; font-size: 11px; line-height: 1.4; color: var(--color-fg-subtle); }
+
+@media (max-width: 520px) {
+  .ref-strip { gap: 8px; padding: 7px 8px; }
+  .ref-thumb, .ref-add { width: 64px; height: 64px; border-radius: 10px; }
+  .ref-remove { top: 3px; right: 3px; width: 20px; height: 20px; }
+  .ref-tip { min-width: 130px; }
+}
 
 .composer {
   background: color-mix(in srgb, var(--color-surface) 94%, transparent);

@@ -75,3 +75,27 @@ describe('combineAbortSignals fallback', () => {
     expect(combineAbortSignals([null, controller.signal])).toBe(controller.signal)
   })
 })
+
+describe('callApi 请求超时', () => {
+  it('超时归类为 timeout,不误报为用户取消', async () => {
+    vi.stubGlobal('fetch', vi.fn((_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason || new DOMException('Timed out', 'TimeoutError')))
+    })))
+
+    await expect(callApi('https://api.test/v1/images/generations', {
+      body: { prompt: 'slow' }, timeoutMs: 5,
+    })).rejects.toMatchObject({ category: 'timeout' })
+  })
+
+  it('用户取消仍保留 AbortError', async () => {
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', vi.fn((_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+    })))
+    const request = callApi('https://api.test/v1/images/generations', {
+      body: { prompt: 'cancel' }, signal: controller.signal, timeoutMs: 1000,
+    })
+    controller.abort()
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' })
+  })
+})
