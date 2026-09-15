@@ -116,6 +116,7 @@ async function onSearchJump(item) {
     case 'prompt':
       await store.switchWorkspace(item.wsId)
       composer.value?.fillPrompt?.(item.label)
+      composer.value?.focusInput?.()
       break
     case 'asset':
       await store.switchWorkspace(item.wsId)

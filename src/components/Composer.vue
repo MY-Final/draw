@@ -56,6 +56,9 @@ const emit = defineEmits(['open-settings', 'preview'])
 
 const prompt = ref('')
 const composerInput = ref(null)
+const paramsSummaryButton = ref(null)
+const presetButton = ref(null)
+const promptLibButton = ref(null)
 const ratio = ref('auto')
 const resolution = ref('1k')
 const quality = ref('medium')
@@ -70,7 +73,7 @@ const presetMenuOpen = ref(false)
 const moreParamsOpen = ref(false)
 // 与默认「标准(1K+中)」不一致即视为已自定义
 const moreParamsDirty = computed(() =>
-  resolution.value !== '1k' || quality.value !== 'medium' || Number(n.value) !== 1
+  ratio.value !== 'auto' || resolution.value !== '1k' || quality.value !== 'medium' || Number(n.value) !== 1
 )
 // 预设快捷项:分辨率×画质命中某档预设时高亮
 const activePresetKey = computed(() =>
@@ -118,8 +121,52 @@ function togglePromptLib() {
   if (showPromptLib.value) loadSavedPrompts()
 }
 
-function togglePresetMenu() { presetMenuOpen.value = !presetMenuOpen.value }
-function selectPresetUi(id) { store.selectPreset(id); presetMenuOpen.value = false }
+const presetOptionEls = new Map()
+function setPresetOptionRef(el, id) {
+  if (el) presetOptionEls.set(id, el)
+  else presetOptionEls.delete(id)
+}
+function focusPresetOption(id) {
+  nextTick(() => presetOptionEls.get(id)?.focus())
+}
+function togglePresetMenu() {
+  presetMenuOpen.value = !presetMenuOpen.value
+  if (presetMenuOpen.value) {
+    focusPresetOption(store.activePresetId || store.presets[0]?.id)
+  } else {
+    nextTick(() => presetButton.value?.focus())
+  }
+}
+function onPresetButtonKeydown(e) {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+  e.preventDefault()
+  if (!presetMenuOpen.value) togglePresetMenu()
+  else onPresetMenuKeydown(e)
+}
+function selectPresetUi(id) {
+  store.selectPreset(id)
+  presetMenuOpen.value = false
+  nextTick(() => presetButton.value?.focus())
+}
+function onPresetMenuKeydown(e) {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    presetMenuOpen.value = false
+    nextTick(() => presetButton.value?.focus())
+    return
+  }
+  const ids = store.presets.map((p) => p.id)
+  if (!ids.length) return
+  const current = ids.indexOf(document.activeElement?.dataset?.presetId || store.activePresetId)
+  let next = current < 0 ? 0 : current
+  if (e.key === 'ArrowDown') next = (next + 1) % ids.length
+  else if (e.key === 'ArrowUp') next = (next - 1 + ids.length) % ids.length
+  else if (e.key === 'Home') next = 0
+  else if (e.key === 'End') next = ids.length - 1
+  else return
+  e.preventDefault()
+  focusPresetOption(ids[next])
+}
 
 function saveCurrentPrompt() {
   const t = prompt.value.trim()
@@ -137,6 +184,7 @@ function saveCurrentPrompt() {
 function fillPrompt(text) {
   prompt.value = text
   showPromptLib.value = false
+  nextTick(() => composerInput.value?.focus())
 }
 
 function deletePrompt(id) {
@@ -149,15 +197,35 @@ function onDocClick(e) {
   const el = e.target
   if (showPromptLib.value && !el.closest('.prompt-lib-wrap')) showPromptLib.value = false
   if (presetMenuOpen.value && !el.closest('.preset-pick-wrap')) presetMenuOpen.value = false
+  if (moreParamsOpen.value && !el.closest('.params-section')) moreParamsOpen.value = false
+}
+
+function onComposerKeydown(e) {
+  if (e.key !== 'Escape') return
+  if (showPromptLib.value) {
+    e.preventDefault()
+    showPromptLib.value = false
+    nextTick(() => promptLibButton.value?.focus())
+  } else if (presetMenuOpen.value) {
+    e.preventDefault()
+    presetMenuOpen.value = false
+    nextTick(() => presetButton.value?.focus())
+  } else if (moreParamsOpen.value) {
+    e.preventDefault()
+    moreParamsOpen.value = false
+    nextTick(() => paramsSummaryButton.value?.focus())
+  }
 }
 
 onMounted(() => {
   document.addEventListener('click', onDocClick)
+  document.addEventListener('keydown', onComposerKeydown)
   // 粘贴监听挂 document:无论焦点是否在输入框,Ctrl/Cmd+V 都能贴图(单一监听,避免重复触发)
   document.addEventListener('paste', onPaste)
 })
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
+  document.removeEventListener('keydown', onComposerKeydown)
   document.removeEventListener('paste', onPaste)
   if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
   nHoldStop()
@@ -352,13 +420,17 @@ function applyPrefill(prefill) {
   if (prefill.params?.quality) quality.value = prefill.params.quality
   // 配方回填同样收敛到官方上限，避免把必然失败的请求发出去。
   refImageIds.value = Array.isArray(prefill.refImageIds) ? [...prefill.refImageIds] : []
+  nextTick(() => composerInput.value?.focus())
 }
 function gcd(a, b) { return b ? gcd(b, a % b) : a }
+function focusInput() {
+  nextTick(() => composerInput.value?.focus())
+}
 function clear() {
   prompt.value = ''
   refImageIds.value = []
 }
-defineExpose({ addReference, applyPrefill, clear, fillPrompt, hasDraft })
+defineExpose({ addReference, applyPrefill, clear, fillPrompt, focusInput, hasDraft })
 
 async function submit() {
   if (!canGenerate.value) {
@@ -374,28 +446,34 @@ async function submit() {
   // 立即清空输入:乐观上屏已把本轮请求推上对话流,输入框无需等生成完成(请求即时上屏)。
   clear()
   // 发送给接口的 prompt 就是用户原文;画质走真实 quality 参数,不再往 prompt 拼形容词。
-  const result = await store.generate({
-    prompt: text,
-    fullPrompt: text,
-    refImageIds: refs,
-    params: {
-      size: sizeVal,
-      ratio: ratio.value,
-      resolution: resolution.value,
-      quality: quality.value,
-      n: clampN(n.value),
-    },
-  })
-  // 失败/空结果时回填,避免长 prompt 白打;主动取消不回填(用户通常想空着)。
-  if (result && !result.ok && !result.cancelled) {
+  let result = null
+  try {
+    result = await store.generate({
+      prompt: text,
+      fullPrompt: text,
+      refImageIds: refs,
+      params: {
+        size: sizeVal,
+        ratio: ratio.value,
+        resolution: resolution.value,
+        quality: quality.value,
+        n: clampN(n.value),
+      },
+    })
+  } catch {
+    // store normally converts errors to a failed result; keep the draft if an unexpected error escapes.
+  }
+  // 失败/空结果/主动取消时恢复,但不覆盖用户已经开始输入的下一轮草稿。
+  if (!result?.ok && !prompt.value.trim() && !refImageIds.value.length) {
     prompt.value = text
     refImageIds.value = refs
   }
 }
 
-// Enter 提交,但要避开中文输入法候选确认(isComposing 期间的 Enter 不算提交)。
+// 普通 Enter 保留 textarea 换行;仅 Ctrl/Cmd+Enter 提交,并避开中文输入法候选确认。
 function onEnter(e) {
   if (e.isComposing || e.keyCode === 229) return
+  if (!e.ctrlKey && !e.metaKey) return
   e.preventDefault()
   submit()
 }
@@ -520,107 +598,114 @@ function onErrorAction() {
 
     <!-- 主输入框 -->
     <div class="composer" :class="{ disabled: !store.activePreset }">
-      <!-- 生成参数:分组+折叠。摘要常驻;比例网格;画质预设;高级原位展开 -->
-      <div class="params-tags">
-        <!-- 当前设置摘要(常驻,点击展开高级) -->
+      <!-- Prompt 是主操作;参数默认收起,只保留一个摘要入口。 -->
+      <textarea
+        ref="composerInput"
+        v-model="prompt" rows="3" class="composer-input"
+        placeholder="描述你想画的画面…"
+        @input="autogrow"
+        @keydown.enter="onEnter"
+      />
+
+      <div class="params-section">
         <button
-          class="settings-summary" type="button"
-          :class="{ open: moreParamsOpen }"
+          ref="paramsSummaryButton"
+          class="settings-summary"
+          :class="{ open: moreParamsOpen, dirty: moreParamsDirty }"
+          type="button"
           @click="toggleAdvanced"
           :aria-expanded="moreParamsOpen"
-          title="点击展开高级设置"
+          aria-controls="composer-params"
+          :title="moreParamsOpen ? '收起生成参数' : '展开生成参数'"
         >
           <AppIcon name="settings" :size="12" />
-          <span>当前：{{ settingsSummary }}</span>
+          <span>参数 · {{ settingsSummary }}</span>
           <AppIcon :name="moreParamsOpen ? 'chevron-down' : 'chevron-right'" :size="11" />
         </button>
 
-        <!-- 比例:Auto 单独隔开,其余 4 列网格 -->
-        <div class="params-row">
-          <span class="params-tag-label">比例</span>
-          <div class="ratio-grid">
-            <button
-              class="tag ratio-auto" :class="{ active: ratio === 'auto' }"
-              @click="ratio = 'auto'"
-            >
-              <AppIcon v-if="ratio === 'auto'" name="check" :size="10" />
-              Auto
-            </button>
-            <button
-              v-for="r in RATIO_GRID" :key="r.key"
-              class="tag" :class="{ active: ratio === r.key }"
-              @click="ratio = r.key"
-            >
-              <AppIcon v-if="ratio === r.key" name="check" :size="10" />
-              {{ r.label }}
-            </button>
+        <div v-if="moreParamsOpen" id="composer-params" class="params-panel" @click.stop>
+          <div class="params-row">
+            <span class="params-tag-label">比例</span>
+            <div class="ratio-grid">
+              <button
+                class="tag ratio-auto" :class="{ active: ratio === 'auto' }"
+                type="button" @click="ratio = 'auto'"
+              >
+                <AppIcon v-if="ratio === 'auto'" name="check" :size="10" />
+                Auto
+              </button>
+              <button
+                v-for="r in RATIO_GRID" :key="r.key"
+                class="tag" :class="{ active: ratio === r.key }"
+                type="button" @click="ratio = r.key"
+              >
+                <AppIcon v-if="ratio === r.key" name="check" :size="10" />
+                {{ r.label }}
+              </button>
+            </div>
           </div>
-        </div>
 
-        <!-- 画质预设:标准/高清/超清 快捷项 + 高级设置(原位展开) -->
-        <div class="params-row">
-          <span class="params-tag-label">预设</span>
-          <div class="tag-group">
-            <button
-              v-for="p in QUALITY_PRESETS" :key="p.key"
-              class="tag preset-tag" :class="{ active: activePresetKey === p.key }"
-              @click="selectPreset(p)"
-            >
-              <AppIcon v-if="activePresetKey === p.key" name="check" :size="10" />
-              {{ p.label }}
-            </button>
+          <div class="params-row">
+            <span class="params-tag-label">预设</span>
+            <div class="tag-group">
+              <button
+                v-for="p in QUALITY_PRESETS" :key="p.key"
+                class="tag preset-tag" :class="{ active: activePresetKey === p.key }"
+                type="button" @click="selectPreset(p)"
+              >
+                <AppIcon v-if="activePresetKey === p.key" name="check" :size="10" />
+                {{ p.label }}
+              </button>
+            </div>
           </div>
-          <button
-            class="more-params-btn"
-            :class="{ open: moreParamsOpen, dirty: moreParamsDirty }"
-            :aria-expanded="moreParamsOpen"
-            @click="toggleAdvanced"
-            :title="moreParamsOpen ? '收起高级设置' : '展开高级设置'"
-          >
-            <AppIcon name="settings" :size="12" />
-            <span class="more-params-label">高级设置</span>
-            <span v-if="moreParamsDirty && !moreParamsOpen" class="more-params-summary tnum">
-              {{ RES_LABELS[resolution] }} · {{ Q_LABELS[quality] }}
-            </span>
-            <AppIcon :name="moreParamsOpen ? 'chevron-down' : 'chevron-right'" :size="12" />
-          </button>
-        </div>
 
-        <!-- 高级展开:独立的分辨率 + 画质 -->
-        <div v-if="moreParamsOpen" class="params-row params-row-more">
-          <span class="params-tag-label">分辨率</span>
-          <div class="tag-group">
-            <button
-              v-for="r in RESOLUTIONS" :key="r.key"
-              class="tag accent-tag" :class="{ active: resolution === r.key }"
-              @click="resolution = r.key"
-            >
-              <AppIcon v-if="resolution === r.key" name="check" :size="10" />
-              {{ r.label }}
-            </button>
-          </div>
-          <span class="params-tag-label params-tag-label-n">画质</span>
-          <div class="tag-group">
-            <button
-              v-for="q in QUALITIES" :key="q.key"
-              class="tag accent-tag" :class="{ active: quality === q.key }"
-              @click="quality = q.key"
-            >
-              <AppIcon v-if="quality === q.key" name="check" :size="10" />
-              {{ q.label }}
-            </button>
+          <div class="params-row params-row-settings">
+            <span class="params-tag-label">分辨率</span>
+            <div class="tag-group">
+              <button
+                v-for="r in RESOLUTIONS" :key="r.key"
+                class="tag accent-tag" :class="{ active: resolution === r.key }"
+                type="button" @click="resolution = r.key"
+              >
+                <AppIcon v-if="resolution === r.key" name="check" :size="10" />
+                {{ r.label }}
+              </button>
+            </div>
+            <span class="params-tag-label params-tag-label-n">画质</span>
+            <div class="tag-group">
+              <button
+                v-for="q in QUALITIES" :key="q.key"
+                class="tag accent-tag" :class="{ active: quality === q.key }"
+                type="button" @click="quality = q.key"
+              >
+                <AppIcon v-if="quality === q.key" name="check" :size="10" />
+                {{ q.label }}
+              </button>
+            </div>
+            <span class="params-tag-label params-tag-label-n">数量</span>
+            <div class="n-stepper" title="生成数量（1-4）">
+              <button
+                class="n-btn" type="button" aria-label="减少数量"
+                @pointerdown.prevent="nHoldStart(-1)"
+                @pointerup="nHoldStop" @pointerleave="nHoldStop" @pointercancel="nHoldStop"
+              >
+                <AppIcon name="minus" :size="12" />
+              </button>
+              <input
+                class="n-input" type="number" min="1" max="4"
+                v-model.number="n" @change="onNChange" aria-label="生成数量"
+              />
+              <button
+                class="n-btn" type="button" aria-label="增加数量"
+                @pointerdown.prevent="nHoldStart(1)"
+                @pointerup="nHoldStop" @pointerleave="nHoldStop" @pointercancel="nHoldStop"
+              >
+                <AppIcon name="plus" :size="12" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
-
-      <textarea
-        ref="composerInput"
-        v-model="prompt" rows="1" class="composer-input"
-        placeholder="描述你想画的,或把图设为参考改图…"
-        @input="autogrow"
-        @keydown.enter.exact="onEnter"
-        @keydown.shift.enter.stop
-      />
 
       <div class="composer-bar">
         <span class="proto-tip">{{ refAssets.length ? '改图 · 带参考图' : '文生图' }}</span>
@@ -628,8 +713,10 @@ function onErrorAction() {
         <!-- 当前接口:跟随生成上下文,紧挨输入区切换 -->
         <div class="preset-pick-wrap">
           <button
+            ref="presetButton"
             class="preset-pick" :class="{ open: presetMenuOpen }"
             @click="togglePresetMenu"
+            @keydown="onPresetButtonKeydown"
             :aria-expanded="presetMenuOpen" aria-haspopup="listbox"
             :title="store.activePreset ? store.activePreset.name || '未命名' : ''"
           >
@@ -643,10 +730,13 @@ function onErrorAction() {
             >缺 Key</span>
             <AppIcon name="chevron-down" :size="11" class="preset-pick-chev" />
           </button>
-          <div v-if="presetMenuOpen" class="preset-pop" role="listbox" aria-label="选择接口">
+          <div v-if="presetMenuOpen" class="preset-pop" role="listbox" aria-label="选择接口" @keydown="onPresetMenuKeydown">
             <div class="preset-pop-head">切换接口</div>
             <button
               v-for="p in store.presets" :key="p.id"
+              :ref="(el) => setPresetOptionRef(el, p.id)"
+              :data-preset-id="p.id"
+              :id="`preset-option-${p.id}`"
               class="preset-pop-item" :class="{ active: p.id === store.activePresetId }"
               role="option" :aria-selected="p.id === store.activePresetId"
               @click="selectPresetUi(p.id)"
@@ -667,30 +757,9 @@ function onErrorAction() {
 
         <div class="spacer" />
 
-        <!-- 数量:独立于图像属性,紧挨生成按钮 -->
-        <div class="n-stepper" title="生成数量（1-4）">
-          <button
-            class="n-btn" type="button" aria-label="减少数量"
-            @pointerdown.prevent="nHoldStart(-1)"
-            @pointerup="nHoldStop" @pointerleave="nHoldStop" @pointercancel="nHoldStop"
-          >
-            <AppIcon name="minus" :size="12" />
-          </button>
-          <input
-            class="n-input" type="number" min="1" max="4"
-            v-model.number="n" @change="onNChange" aria-label="生成数量"
-          />
-          <button
-            class="n-btn" type="button" aria-label="增加数量"
-            @pointerdown.prevent="nHoldStart(1)"
-            @pointerup="nHoldStop" @pointerleave="nHoldStop" @pointercancel="nHoldStop"
-          >
-            <AppIcon name="plus" :size="12" />
-          </button>
-        </div>
-
         <div class="prompt-lib-wrap">
           <button
+            ref="promptLibButton"
             class="chip star-btn" :class="{ active: showPromptLib, highlight: prompt.trim() && !showPromptLib }"
             @click.stop="togglePromptLib"
             :title="prompt.trim() ? '收藏 / 打开 Prompt 库' : '打开 Prompt 库'"
@@ -743,7 +812,7 @@ function onErrorAction() {
         </button>
       </div>
     </div>
-    <p class="composer-foot">Enter 生成 · Shift+Enter 换行</p>
+    <p class="composer-foot">Enter 换行 · Ctrl/Cmd+Enter 生成</p>
   </div>
 </template>
 
@@ -882,7 +951,8 @@ function onErrorAction() {
 }
 .composer.disabled { opacity: 0.72; }
 .composer-input {
-  border: none; background: transparent; padding: 6px 8px;
+  min-height: 80px; height: 80px; box-sizing: border-box;
+  border: none; background: transparent; padding: 8px;
   font-size: 15px; max-height: 200px; overflow-y: auto; line-height: 1.5;
 }
 .composer-input:focus { outline: none; }
@@ -895,16 +965,15 @@ function onErrorAction() {
 }
 .chip:hover { background: var(--color-surface-2); color: var(--color-fg); }
 
-/* 生成参数 */
-.params-tags {
+/* 生成参数:输入区下方只保留一个摘要入口。 */
+.params-section {
   display: flex; flex-direction: column; gap: 8px;
-  margin-bottom: 8px; padding: 2px 2px 10px;
-  border-bottom: 1px solid var(--color-border);
+  margin-top: 8px; padding: 0 2px;
 }
 .settings-summary {
   display: inline-flex; align-items: center; gap: 6px;
-  align-self: flex-start; max-width: 100%;
-  padding: 5px 12px; border-radius: 999px;
+  align-self: flex-start; max-width: min(100%, 420px);
+  min-height: 30px; padding: 5px 12px; border-radius: 999px;
   font-size: 11.5px; color: var(--color-fg-muted);
   background: var(--color-surface-2); border: 1px solid var(--color-border);
   transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
@@ -917,6 +986,13 @@ function onErrorAction() {
   border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
   background: var(--color-primary-soft);
 }
+.settings-summary.dirty:not(.open) { color: var(--color-primary); }
+.params-panel {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 10px; border: 1px solid var(--color-border);
+  border-radius: 14px; background: var(--color-surface-2);
+  animation: params-in 160ms var(--ease-out);
+}
 .params-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .params-tag-label {
   font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.05em;
@@ -928,36 +1004,10 @@ function onErrorAction() {
   flex: 1; min-width: 220px;
 }
 .ratio-auto { border-style: dashed; }
-.params-row-more {
-  padding-top: 2px;
-  animation: params-in 160ms var(--ease-out);
-}
 @keyframes params-in {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: none; }
 }
-.more-params-btn {
-  display: inline-flex; align-items: center; gap: 4px;
-  margin-left: auto; min-height: 28px; padding: 2px 8px;
-  border-radius: 999px; font-size: 11.5px; font-weight: 550;
-  color: var(--color-fg-subtle); border: 1px solid transparent; background: transparent;
-  text-decoration: underline; text-underline-offset: 3px;
-  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease),
-    border-color var(--dur) var(--ease);
-}
-.more-params-btn:hover {
-  color: var(--color-fg-muted); background: var(--color-surface-2);
-  border-color: var(--color-border);
-}
-.more-params-btn.open {
-  color: var(--color-primary); background: var(--color-primary-soft);
-  border-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
-}
-.more-params-btn.dirty {
-  color: var(--color-primary);
-}
-.more-params-summary { font-size: 10px; opacity: 0.9; }
 .tag-group { display: flex; gap: 4px; flex-wrap: wrap; }
 .tag {
   display: inline-flex; align-items: center; justify-content: center; gap: 4px;

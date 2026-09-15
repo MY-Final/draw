@@ -141,6 +141,7 @@ function cancelEdit() {
 }
 function onEditEnter(e, gen) {
   if (e.isComposing || e.keyCode === 229) return
+  if (!e.ctrlKey && !e.metaKey) return
   e.preventDefault()
   saveEdit(gen)
 }
@@ -185,10 +186,10 @@ watch(() => [feed.value.length, store.generating], async () => {
       <div v-if="!feed.length && !store.generating" class="empty">
         <div class="empty-icon"><AppIcon name="sparkles" :size="26" /></div>
         <h1>画点什么?</h1>
-        <p>在下方描述你想要的画面，回车即可生成。结果会自动存入本地素材库。</p>
+        <p>在下方描述你想要的画面，Ctrl/Cmd+Enter 即可生成。结果会自动存入本地素材库。</p>
         <div class="empty-hints">
           <span class="empty-chip"><AppIcon name="image" :size="12" /> 可拖入参考图</span>
-          <span class="empty-chip"><AppIcon name="keyboard" :size="12" /> Enter 生成</span>
+          <span class="empty-chip"><AppIcon name="keyboard" :size="12" /> Ctrl/Cmd+Enter 生成</span>
           <span class="empty-chip"><AppIcon name="search" :size="12" /> {{ searchModKey }}K 搜索</span>
         </div>
       </div>
@@ -203,14 +204,13 @@ watch(() => [feed.value.length, store.generating], async () => {
                 <textarea
                   ref="editInput" v-model="editText" class="bubble-edit-input"
                   @input="autogrowEdit"
-                  @keydown.enter.exact="onEditEnter($event, gen)" @keydown.esc="cancelEdit"
-                  @keydown.shift.enter.stop
+                  @keydown.enter="onEditEnter($event, gen)" @keydown.esc="cancelEdit"
                 />
                 <div class="bubble-edit-actions">
-                  <span class="bubble-edit-hint">Enter 保存并生成 · Esc 取消</span>
+                  <span class="bubble-edit-hint">Enter 换行 · Ctrl/Cmd+Enter 保存并生成 · Esc 取消</span>
                   <div class="bubble-edit-btns">
                     <button class="bubble-edit-btn-cancel" @click="cancelEdit">取消</button>
-                    <button class="bubble-edit-btn-save" @click="saveEdit(gen)" :disabled="!editText.trim()">保存并生成</button>
+                    <button class="bubble-edit-btn-save" @click="saveEdit(gen)" :disabled="!editText.trim()">以此 Prompt 生成</button>
                   </div>
                 </div>
               </div>

@@ -96,3 +96,91 @@ test('pasted reference image renders in the composer', async ({ page }) => {
   await expect(image).toHaveCSS('object-fit', 'contain')
   await expect(page.locator('.ref-badge').first()).toHaveCSS('min-height', '0px')
 })
+
+test('composer follows multiline input and transient panel keyboard behavior', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('.boot-screen')).toBeHidden()
+
+  const input = page.locator('.composer-input')
+  await expect(input).toHaveCSS('min-height', '80px')
+  await input.fill('第一行')
+  await input.press('Enter')
+  await expect(input).toHaveValue('第一行\n')
+
+  await expect(page.locator('.settings-summary')).toHaveCount(1)
+  await expect(page.locator('.more-params-btn')).toHaveCount(0)
+
+  await page.locator('.settings-summary').click()
+  await expect(page.locator('#composer-params')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#composer-params')).toBeHidden()
+
+  await page.locator('.star-btn').click()
+  await expect(page.locator('.prompt-pop')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.prompt-pop')).toBeHidden()
+
+  await page.locator('.preset-pick').click()
+  await expect(page.locator('.preset-pop')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.preset-pop')).toBeHidden()
+})
+
+test('failed generation restores the submitted draft', async ({ page }) => {
+  await page.addInitScript(() => {
+    const preset = {
+      id: 'preset_e2e_failure', name: '测试接口', baseURL: 'http://127.0.0.1:1',
+      apiKey: 'test-key', model: 'test-model', protocol: 'images', requestTimeoutMs: 30000,
+    }
+    localStorage.setItem('workbench.presets.v1', JSON.stringify([preset]))
+    localStorage.setItem('workbench.activePresetId.v1', preset.id)
+  })
+  await page.goto('/')
+  await expect(page.locator('.boot-screen')).toBeHidden()
+
+  const input = page.locator('.composer-input')
+  await input.fill('恢复这段 Prompt')
+  await input.press('Control+Enter')
+  await expect(input).toHaveValue('恢复这段 Prompt', { timeout: 10000 })
+})
+
+test('preset menu and global search are keyboard-completable', async ({ page }) => {
+  await page.addInitScript(() => {
+    const first = {
+      id: 'preset_e2e_first', name: '第一个接口', baseURL: 'https://one.invalid',
+      apiKey: 'key-1', model: 'model-1', protocol: 'images', requestTimeoutMs: 180000,
+    }
+    const second = {
+      id: 'preset_e2e_second', name: '第二个接口', baseURL: 'https://two.invalid',
+      apiKey: 'key-2', model: 'model-2', protocol: 'images', requestTimeoutMs: 180000,
+    }
+    localStorage.setItem('workbench.presets.v1', JSON.stringify([first, second]))
+    localStorage.setItem('workbench.activePresetId.v1', first.id)
+    localStorage.setItem('workbench.savedPrompts.ws_default', JSON.stringify([
+      { id: 'prompt_e2e', text: '霓虹雨夜', createdAt: Date.now() },
+    ]))
+  })
+  await page.goto('/')
+  await expect(page.locator('.boot-screen')).toBeHidden()
+
+  await page.locator('.preset-pick').click()
+  const options = page.locator('.preset-pop-item[role="option"]')
+  await expect(options).toHaveCount(2)
+  await expect(options.first()).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(options.nth(1)).toBeFocused()
+  await page.keyboard.press('Home')
+  await expect(options.first()).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.preset-pop')).toBeHidden()
+
+  await page.keyboard.press('Control+k')
+  const search = page.locator('.search-input')
+  await expect(search).toBeFocused()
+  await search.fill('霓虹雨夜')
+  const promptResult = page.locator('.result-item').filter({ hasText: '霓虹雨夜' })
+  await expect(promptResult).toBeVisible()
+  await promptResult.click()
+  await expect(page.locator('.composer-input')).toHaveValue('霓虹雨夜')
+  await expect(page.locator('.composer-input')).toBeFocused()
+})
