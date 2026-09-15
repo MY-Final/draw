@@ -552,52 +552,60 @@ function onErrorAction() {
       <AppIcon name="alert" :size="13" /> {{ referenceNotice }}
     </div>
 
-    <!-- 参考图 chips 与上传 + DnD 目标(上传按钮始终可见) -->
-    <div class="ref-strip" role="group" aria-label="参考图设置">
-      <div
-        v-for="(a, i) in refAssets" :key="a.id"
-        class="ref-thumb" :class="{ 'drag-over': dragOverRefId === a.id, dragging: dragRefId === a.id }"
-        draggable="true"
-        title="将作为参考图发送（可拖拽排序）"
-        @dragstart="onRefDragStart($event, a.id)"
-        @dragover="onRefDragOver($event, a.id)"
-        @drop="onRefDrop($event, a.id)"
-        @dragend="onRefDragEnd"
-      >
-        <button
-          type="button"
-          class="ref-preview"
-          @click="emit('preview', { asset: a, list: refAssets })"
-          :aria-label="`预览第 ${i + 1} 张参考图`"
-          title="预览参考图"
-        >
-          <AssetImage :asset="a" alt="参考图" />
-          <span class="ref-badge">{{ i + 1 }}</span>
-        </button>
-        <button type="button" class="ref-remove" @click="removeReference(a.id)" aria-label="移除参考图" title="移除此参考图">
-          <AppIcon name="x" :size="11" />
-        </button>
-      </div>
-      <button
-        v-if="refAssets.length < MAX_REFERENCES"
-        type="button"
-        class="ref-add"
-        @click="fileInput?.click()"
-        title="上传参考图"
-        aria-label="上传参考图"
-      >
-        <AppIcon name="plus" :size="14" />
-      </button>
-      <input ref="fileInput" type="file" accept="image/*" multiple class="hidden-input" @change="onFilePick" />
-      <span class="ref-tip">
-        {{ refAssets.length >= MAX_REFERENCES
-          ? `已添加 ${MAX_REFERENCES} 张参考图`
-          : (refAssets.length ? `${refAssets.length} 张参考图 · 点击缩略图预览` : '上传、粘贴或拖入参考图') }}
-      </span>
-    </div>
-
     <!-- 主输入框 -->
     <div class="composer" :class="{ disabled: !store.activePreset }">
+      <!-- 参考图与 Prompt 同属一次创作,保持在同一个输入容器内。 -->
+      <div class="ref-strip" :class="{ empty: !refAssets.length }" role="group" aria-label="参考图设置">
+        <div v-if="refAssets.length" class="ref-head">
+          <span class="ref-title">参考图</span>
+          <span class="ref-count tnum">{{ refAssets.length }}/{{ MAX_REFERENCES }}</span>
+        </div>
+        <div class="ref-items">
+          <div
+            v-for="(a, i) in refAssets" :key="a.id"
+            class="ref-thumb" :class="{ 'drag-over': dragOverRefId === a.id, dragging: dragRefId === a.id }"
+            draggable="true"
+            title="将作为参考图发送（可拖拽排序）"
+            @dragstart="onRefDragStart($event, a.id)"
+            @dragover="onRefDragOver($event, a.id)"
+            @drop="onRefDrop($event, a.id)"
+            @dragend="onRefDragEnd"
+          >
+            <button
+              type="button"
+              class="ref-preview"
+              @click="emit('preview', { asset: a, list: refAssets })"
+              :aria-label="`预览第 ${i + 1} 张参考图`"
+              title="预览参考图"
+            >
+              <AssetImage :asset="a" alt="参考图" />
+              <span class="ref-badge">{{ i + 1 }}</span>
+            </button>
+            <button type="button" class="ref-remove" @click="removeReference(a.id)" aria-label="移除参考图" title="移除此参考图">
+              <AppIcon name="x" :size="11" />
+            </button>
+          </div>
+          <button
+            v-if="refAssets.length < MAX_REFERENCES"
+            type="button"
+            class="ref-add"
+            :class="{ 'ref-add-empty': !refAssets.length }"
+            @click="fileInput?.click()"
+            title="上传参考图"
+            aria-label="上传参考图"
+          >
+            <AppIcon name="plus" :size="14" />
+            <span v-if="!refAssets.length" class="ref-add-label">添加参考图</span>
+          </button>
+          <input ref="fileInput" type="file" accept="image/*" multiple class="hidden-input" @change="onFilePick" />
+        </div>
+        <span class="ref-tip">
+          {{ refAssets.length >= MAX_REFERENCES
+            ? `已添加 ${MAX_REFERENCES} 张参考图`
+            : (refAssets.length ? '点击缩略图预览 · 拖拽调整顺序' : '粘贴、拖入或上传参考图') }}
+        </span>
+      </div>
+
       <!-- Prompt 是主操作;参数默认收起,只保留一个摘要入口。 -->
       <textarea
         ref="composerInput"
@@ -875,10 +883,18 @@ function onErrorAction() {
 
 .ref-strip {
   display: flex; align-items: center; gap: 10px;
-  margin-bottom: var(--space-2); padding: 8px 10px;
-  flex-wrap: wrap; border: 1px solid var(--color-border);
-  border-radius: 16px; background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+  margin: 0 0 4px; padding: 0 0 10px;
+  flex-wrap: wrap; border-bottom: 1px solid var(--color-border);
 }
+.ref-strip.empty { min-height: 42px; }
+.ref-head { display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.ref-title { font-size: 11px; font-weight: 650; color: var(--color-fg-muted); }
+.ref-count {
+  padding: 2px 6px; border-radius: 6px;
+  font-size: 10px; color: var(--color-fg-subtle);
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+}
+.ref-items { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .ref-thumb {
   position: relative; width: 76px; height: 76px; border-radius: 12px;
   overflow: hidden; border: 1px solid var(--color-border-strong);
@@ -917,11 +933,18 @@ function onErrorAction() {
   .ref-remove { opacity: 0.9; }
 }
 .ref-add {
-  width: 76px; height: 76px; display: flex; align-items: center; justify-content: center;
-  border-radius: 12px; border: 1px dashed var(--color-border-strong);
+  width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+  border-radius: 10px; border: 1px dashed var(--color-border-strong);
   color: var(--color-fg-muted);
+  flex-shrink: 0;
   transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
+.ref-add-empty {
+  width: auto; min-width: 48px; height: 40px; gap: 6px; padding: 0 12px;
+  border-style: solid; border-color: var(--color-border);
+  background: var(--color-surface-2); color: var(--color-fg-muted);
+}
+.ref-add-label { font-size: 12px; white-space: nowrap; }
 .ref-add:hover {
   border-color: var(--color-primary); color: var(--color-primary);
   background: var(--color-primary-soft);
@@ -930,8 +953,9 @@ function onErrorAction() {
 .ref-tip { flex: 1; min-width: 150px; font-size: 11px; line-height: 1.4; color: var(--color-fg-subtle); }
 
 @media (max-width: 520px) {
-  .ref-strip { gap: 8px; padding: 7px 8px; }
+  .ref-strip { gap: 8px; padding-bottom: 8px; }
   .ref-thumb, .ref-add { width: 64px; height: 64px; border-radius: 10px; }
+  .ref-strip.empty .ref-add-empty { width: auto; height: 40px; }
   .ref-remove { top: 3px; right: 3px; width: 20px; height: 20px; }
   .ref-tip { min-width: 130px; }
 }
@@ -939,8 +963,8 @@ function onErrorAction() {
 .composer {
   background: color-mix(in srgb, var(--color-surface) 94%, transparent);
   border: 1px solid var(--color-border-strong);
-  border-radius: 24px;
-  padding: 14px 14px 10px;
+  border-radius: 18px;
+  padding: 12px 14px 10px;
   box-shadow: var(--shadow-2);
   backdrop-filter: blur(16px);
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
@@ -952,15 +976,18 @@ function onErrorAction() {
 .composer.disabled { opacity: 0.72; }
 .composer-input {
   min-height: 80px; height: 80px; box-sizing: border-box;
-  border: none; background: transparent; padding: 8px;
+  border: none; background: transparent; padding: 8px 4px;
   font-size: 15px; max-height: 200px; overflow-y: auto; line-height: 1.5;
 }
 .composer-input:focus { outline: none; }
 
-.composer-bar { display: flex; align-items: center; gap: var(--space-2); margin-top: 4px; position: relative; flex-wrap: wrap; }
+.composer-bar {
+  display: flex; align-items: center; gap: var(--space-2); margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid var(--color-border); position: relative; flex-wrap: wrap;
+}
 .chip {
   display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--color-fg-muted);
-  padding: 6px 10px; border-radius: 999px; border: 1px solid var(--color-border);
+  padding: 6px 9px; border-radius: 8px; border: 1px solid var(--color-border);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .chip:hover { background: var(--color-surface-2); color: var(--color-fg); }
@@ -973,7 +1000,7 @@ function onErrorAction() {
 .settings-summary {
   display: inline-flex; align-items: center; gap: 6px;
   align-self: flex-start; max-width: min(100%, 420px);
-  min-height: 30px; padding: 5px 12px; border-radius: 999px;
+  min-height: 30px; padding: 5px 10px; border-radius: 8px;
   font-size: 11.5px; color: var(--color-fg-muted);
   background: var(--color-surface-2); border: 1px solid var(--color-border);
   transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
@@ -990,7 +1017,7 @@ function onErrorAction() {
 .params-panel {
   display: flex; flex-direction: column; gap: 10px;
   padding: 10px; border: 1px solid var(--color-border);
-  border-radius: 14px; background: var(--color-surface-2);
+  border-radius: 10px; background: var(--color-surface-2);
   animation: params-in 160ms var(--ease-out);
 }
 .params-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -1011,7 +1038,7 @@ function onErrorAction() {
 .tag-group { display: flex; gap: 4px; flex-wrap: wrap; }
 .tag {
   display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-  padding: 5px 10px; font-size: 12px; border-radius: 999px;
+  padding: 5px 10px; font-size: 12px; border-radius: 8px;
   border: 1px solid transparent; color: var(--color-fg-muted);
   background: var(--color-surface-2);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
@@ -1037,7 +1064,7 @@ function onErrorAction() {
 .preset-tag { font-weight: 600; padding: 6px 12px; }
 .n-stepper { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .n-btn {
-  width: 28px; height: 28px; border-radius: 50%;
+  width: 28px; height: 28px; border-radius: 8px;
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--color-fg-muted); background: var(--color-surface-2);
   border: 1px solid var(--color-border);
@@ -1050,7 +1077,7 @@ function onErrorAction() {
 }
 .n-btn:active { transform: scale(0.92); }
 .n-input {
-  width: 48px; min-height: 30px; border-radius: 999px; text-align: center;
+  width: 48px; min-height: 30px; border-radius: 8px; text-align: center;
   font-size: 13px; color: var(--color-fg);
   background: var(--color-surface-2); border: 1px solid var(--color-border);
 }
@@ -1064,14 +1091,13 @@ function onErrorAction() {
 }
 .proto-tip {
   font-size: 11px; color: var(--color-fg-subtle);
-  padding: 4px 10px; border-radius: 999px;
-  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  padding: 4px 2px; font-weight: 550;
 }
 .preset-pick-wrap { position: relative; }
 .preset-pick {
   display: inline-flex; align-items: center; gap: 5px;
   max-width: 200px; min-height: 28px; padding: 0 10px;
-  border-radius: 999px; font-size: 12px; color: var(--color-fg-muted);
+  border-radius: 8px; font-size: 12px; color: var(--color-fg-muted);
   background: var(--color-surface-2); border: 1px solid var(--color-border);
   transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
     background var(--dur) var(--ease);
@@ -1159,7 +1185,7 @@ function onErrorAction() {
 .prompt-del { flex-shrink: 0; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); color: var(--color-fg-subtle); }
 .prompt-del:hover { background: var(--color-surface-2); color: var(--color-destructive); }
 
-.send { border-radius: 999px; min-height: 40px; padding: 0 18px; }
+.send { border-radius: 10px; min-height: 40px; padding: 0 18px; }
 .send.cancel {
   border: 1px solid var(--color-border-strong); color: var(--color-fg-muted);
   background: var(--color-surface-2); box-shadow: none;
@@ -1172,4 +1198,19 @@ function onErrorAction() {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .composer-foot { text-align: center; font-size: 11px; color: var(--color-fg-subtle); margin: 10px 0 0; }
+
+@media (max-width: 520px) {
+  .composer-bar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    gap: 6px;
+    align-items: center;
+  }
+  .composer-bar .spacer { display: none; }
+  .proto-tip { white-space: nowrap; padding-left: 0; padding-right: 0; }
+  .preset-pick { width: 100%; max-width: none; padding-left: 8px; padding-right: 8px; }
+  .preset-pick-name { max-width: 82px; }
+  .star-btn { width: 32px; height: 32px; padding: 0; justify-content: center; }
+  .send { min-height: 38px; padding-left: 12px; padding-right: 12px; }
+}
 </style>

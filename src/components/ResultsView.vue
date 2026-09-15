@@ -376,27 +376,27 @@ watch(() => [feed.value.length, store.generating], async () => {
 }
 
 .empty {
-  text-align: center; padding: 14vh 0 8vh; color: var(--color-fg-muted);
+  text-align: center; padding: 8vh 0 4vh; color: var(--color-fg-muted);
   display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
 }
 .empty-icon {
-  width: 64px; height: 64px; border-radius: 20px;
+  width: 48px; height: 48px; border-radius: 14px;
   display: flex; align-items: center; justify-content: center;
   color: var(--color-on-primary);
   background: linear-gradient(145deg, var(--color-primary-hover), var(--color-primary));
   box-shadow: 0 12px 32px color-mix(in srgb, var(--color-primary) 28%, transparent);
 }
 .empty h1 {
-  margin: var(--space-3) 0 0; font-size: 26px; font-weight: 650;
+  margin: var(--space-3) 0 0; font-size: 22px; font-weight: 650;
   color: var(--color-fg); letter-spacing: -0.02em;
 }
-.empty p { max-width: 380px; font-size: 13.5px; margin: 0; line-height: 1.6; }
+.empty p { max-width: 360px; font-size: 13px; margin: 0; line-height: 1.6; }
 .empty-hints { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: var(--space-3); }
 .empty-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 10px; border-radius: 999px; font-size: 11px;
-  color: var(--color-fg-muted); border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+  padding: 5px 8px; border-radius: 8px; font-size: 11px;
+  color: var(--color-fg-subtle); border: 1px solid transparent;
+  background: transparent;
 }
 
 .turn {
@@ -570,7 +570,7 @@ watch(() => [feed.value.length, store.generating], async () => {
 }
 .act {
   display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
-  color: var(--color-fg-muted); padding: 7px 11px; border-radius: 999px;
+  color: var(--color-fg-muted); padding: 7px 11px; border-radius: 8px;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .act:hover:not(:disabled) { background: var(--color-surface-2); color: var(--color-fg); }
@@ -584,7 +584,7 @@ watch(() => [feed.value.length, store.generating], async () => {
 .undo-toast {
   position: fixed; bottom: 128px; left: 50%; transform: translateX(-50%); z-index: 60;
   display: flex; align-items: center; gap: var(--space-3);
-  padding: 12px 16px; border-radius: 999px;
+  padding: 12px 16px; border-radius: 12px;
   background: var(--color-elevated); border: 1px solid var(--color-border-strong);
   box-shadow: var(--shadow-2); font-size: 13px; color: var(--color-fg);
   backdrop-filter: blur(10px);
@@ -619,5 +619,6 @@ watch(() => [feed.value.length, store.generating], async () => {
   .row-ai { padding-right: 2%; }
   .feed-inner { padding-left: var(--space-3); padding-right: var(--space-3); }
   .avatar { display: none; }
+  .empty { padding-top: 6vh; padding-bottom: 3vh; }
 }
 </style>

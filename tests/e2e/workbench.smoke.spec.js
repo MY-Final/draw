@@ -31,6 +31,49 @@ test('settings dialog closes with Escape and restores focus', async ({ page }) =
   await expect(mobile ? menu : settings).toBeFocused()
 })
 
+test('fetches and selects models from the configured endpoint', async ({ page }) => {
+  await page.route('**/v1/models', async (route) => {
+    expect(route.request().method()).toBe('GET')
+    expect(route.request().headers().authorization).toBe('Bearer test-key')
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: [{ id: 'image-alpha' }, { id: 'image-beta' }, { id: 'image-alpha' }] }),
+    })
+  })
+
+  await page.goto('/')
+  await expect(page.locator('.boot-screen')).toBeHidden()
+  const menu = page.getByRole('button', { name: '打开菜单' })
+  if (await menu.isVisible()) await menu.click()
+  await page.getByRole('button', { name: '接口设置' }).click()
+
+  const dialog = page.getByRole('dialog', { name: '添加接口' })
+  await expect(dialog).toBeVisible()
+  await dialog.locator('input[placeholder="https://api.example.com"]').fill('https://models.test')
+  await dialog.locator('input[placeholder="sk-..."]').fill('test-key')
+  await dialog.getByRole('button', { name: '获取模型', exact: true }).click()
+
+  const picker = dialog.locator('#model-picker')
+  await expect(picker).toBeVisible()
+  await expect(picker.locator('.model-option')).toHaveCount(2)
+  await expect(picker.locator('.model-filter')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(picker.locator('.model-option').first()).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(picker.locator('.model-option').nth(1)).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  await expect(picker.locator('.model-option').first()).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(picker).toBeHidden()
+  await expect(dialog.locator('input[placeholder="如:gpt-image-1 / dall-e-3"]')).toBeFocused()
+  await dialog.getByRole('button', { name: '选择模型', exact: true }).click()
+  await picker.locator('.model-filter').fill('beta')
+  await expect(picker.locator('.model-option')).toHaveCount(1)
+  await picker.locator('.model-option').click()
+  await expect(dialog.locator('input[placeholder="如:gpt-image-1 / dall-e-3"]')).toHaveValue('image-beta')
+})
+
 test('mobile drawers close with Escape and restore focus', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile', 'mobile drawers only')
   await page.goto('/')

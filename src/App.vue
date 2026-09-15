@@ -375,11 +375,7 @@ function openStorage() {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
-  background:
-    radial-gradient(1200px 600px at 70% -10%, color-mix(in srgb, var(--color-primary) 12%, transparent), transparent 55%),
-    radial-gradient(900px 500px at 0% 100%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent 50%),
-    radial-gradient(700px 360px at 100% 60%, color-mix(in srgb, var(--color-primary) 5%, transparent), transparent 60%),
-    var(--color-bg);
+  background: var(--color-bg);
 }
 .boot-screen {
   position: fixed; inset: 0; z-index: 1200;
@@ -393,11 +389,7 @@ function openStorage() {
 .boot-panel strong { color: var(--color-fg); font-size: 15px; }
 .boot-panel p { margin: 0; font-size: 13px; line-height: 1.6; }
 :root[data-theme='light'] .app {
-  background:
-    radial-gradient(1100px 520px at 72% -8%, color-mix(in srgb, var(--color-primary) 14%, transparent), transparent 58%),
-    radial-gradient(820px 420px at 0% 100%, color-mix(in srgb, var(--color-accent) 8%, transparent), transparent 52%),
-    linear-gradient(180deg, color-mix(in srgb, #fff 70%, var(--color-bg)), var(--color-bg) 42%),
-    var(--color-bg);
+  background: var(--color-bg);
 }
 
 .rail {
@@ -510,8 +502,8 @@ function openStorage() {
 .dock {
   flex-shrink: 0;
   padding: var(--space-3) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--color-bg) 75%, transparent) 28%, var(--color-glass));
-  backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--color-bg) 94%, transparent);
+  backdrop-filter: blur(10px);
   border-top: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
 }
 
@@ -621,15 +613,15 @@ function openStorage() {
   /* 抬高,避开底部 Composer(参数区改版后更高),减少误触 */
   bottom: calc(var(--composer-height, 248px) + 16px + env(safe-area-inset-bottom, 0px));
   z-index: 40;
-  width: 52px;
-  height: 52px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(145deg, var(--color-primary-hover), var(--color-primary));
-  color: var(--color-on-primary);
-  box-shadow: 0 10px 28px color-mix(in srgb, var(--color-primary) 35%, transparent);
-  border: none;
+  background: var(--color-surface-2);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-2);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 42%, var(--color-border-strong));
 }
 @media (max-width: 1024px) {
   .mobile-assets-fab { display: flex; }

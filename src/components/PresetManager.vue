@@ -1,10 +1,11 @@
 <script setup>
 // 接口预设:居中弹窗。列表为主,新建/编辑在同一弹窗内切换(不叠第二层)。
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AppIcon from './AppIcon.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { DEFAULT_REQUEST_TIMEOUT_MS, MIN_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS } from '../lib/presets.js'
+import { fetchModels as fetchModelList, MODEL_LIST_TIMEOUT_MS } from '../lib/models.js'
 import { useDialogA11y } from '../composables/useDialogA11y.js'
 
 const props = defineProps({
@@ -28,6 +29,15 @@ const discardTarget = ref('close')
 const originalJson = ref('')
 const dirty = computed(() => JSON.stringify({ ...form }) !== originalJson.value)
 const modal = ref(null)
+const modelField = ref(null)
+const modelInput = ref(null)
+const modelFilter = ref('')
+const models = ref([])
+const modelsOpen = ref(false)
+const modelsLoading = ref(false)
+const modelsError = ref('')
+const modelFilterInput = ref(null)
+let modelRequestId = 0
 useDialogA11y(modal, close)
 
 const title = computed(() => {
@@ -40,6 +50,7 @@ function blankForm() {
   originalJson.value = JSON.stringify({ ...form })
   testResult.value = null
   showKey.value = false
+  resetModelDiscovery()
 }
 
 function startNew() {
@@ -52,6 +63,7 @@ function startEdit(p) {
   originalJson.value = JSON.stringify({ ...form })
   testResult.value = null
   showKey.value = false
+  resetModelDiscovery()
   mode.value = 'edit'
 }
 
@@ -144,6 +156,117 @@ function setTimeoutSeconds(value) {
   form.requestTimeoutMs = Math.round(seconds) * 1000
 }
 
+const filteredModels = computed(() => {
+  const query = modelFilter.value.trim().toLowerCase()
+  const list = query
+    ? models.value.filter((model) => model.toLowerCase().includes(query))
+    : models.value
+  return list.slice(0, 100)
+})
+
+function resetModelDiscovery() {
+  modelRequestId += 1
+  models.value = []
+  modelFilter.value = ''
+  modelsOpen.value = false
+  modelsLoading.value = false
+  modelsError.value = ''
+}
+
+async function fetchAvailableModels() {
+  if (!form.baseURL || modelsLoading.value) return
+  const requestId = ++modelRequestId
+  const baseURL = form.baseURL
+  const apiKey = form.apiKey
+  modelsLoading.value = true
+  modelsError.value = ''
+  modelsOpen.value = false
+  try {
+    const result = await fetchModelList({
+      baseURL,
+      apiKey,
+      timeoutMs: MODEL_LIST_TIMEOUT_MS,
+    })
+    if (requestId !== modelRequestId) return
+    models.value = result.models
+    modelFilter.value = ''
+    if (!result.models.length) {
+      modelsError.value = '接口返回了模型列表,但没有可选择的模型;仍可手动填写。'
+    } else {
+      modelsOpen.value = true
+      revealModelPicker()
+    }
+  } catch (error) {
+    if (requestId !== modelRequestId) return
+    modelsError.value = error?.message || '获取模型列表失败,仍可手动填写模型。'
+  } finally {
+    if (requestId === modelRequestId) modelsLoading.value = false
+  }
+}
+
+function openModelList() {
+  if (!models.value.length) return
+  modelsOpen.value = true
+  revealModelPicker()
+}
+
+function revealModelPicker() {
+  nextTick(() => {
+    modelFilter.value = ''
+    modelFilterInput.value?.focus()
+    modelField.value?.querySelector('.model-picker')?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function closeModelList() {
+  modelsOpen.value = false
+  nextTick(() => modelInput.value?.focus())
+}
+
+function selectModel(model) {
+  form.model = model
+  modelsOpen.value = false
+  nextTick(() => modelInput.value?.focus())
+}
+
+function onModelInputKeydown(event) {
+  if (event.key === 'ArrowDown' && models.value.length) {
+    event.preventDefault()
+    modelsOpen.value = true
+    nextTick(() => modelField.value?.querySelector('.model-option')?.focus())
+  } else if (event.key === 'Escape' && modelsOpen.value) {
+    event.preventDefault()
+    closeModelList()
+  }
+}
+
+function onModelPickerKeydown(event) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    closeModelList()
+    return
+  }
+  const options = [...(modelField.value?.querySelectorAll('.model-option') || [])]
+  if (!options.length) return
+  const currentIndex = options.indexOf(document.activeElement)
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    const offset = event.key === 'ArrowDown' ? 1 : -1
+    const nextIndex = currentIndex < 0
+      ? (event.key === 'ArrowDown' ? 0 : options.length - 1)
+      : (currentIndex + offset + options.length) % options.length
+    options[nextIndex]?.focus()
+  } else if (event.key === 'Home' || event.key === 'End') {
+    event.preventDefault()
+    options[event.key === 'Home' ? 0 : options.length - 1]?.focus()
+  }
+}
+
+function onDocumentClick(event) {
+  if (modelsOpen.value && !event.target.closest('.model-field')) closeModelList()
+}
+
 function enterInitial() {
   if (props.startCreate || !store.presets.length) startNew()
   else mode.value = 'list'
@@ -151,10 +274,20 @@ function enterInitial() {
 
 onMounted(() => {
   enterInitial()
+  document.addEventListener('click', onDocumentClick)
+})
+
+onUnmounted(() => {
+  modelRequestId += 1
+  document.removeEventListener('click', onDocumentClick)
 })
 
 watch(() => props.startCreate, (v) => {
   if (v) startNew()
+})
+
+watch(() => [form.baseURL, form.apiKey], () => {
+  if (models.value.length || modelsError.value) resetModelDiscovery()
 })
 </script>
 
@@ -228,7 +361,7 @@ watch(() => props.startCreate, (v) => {
 
         <!-- 新建 / 编辑 -->
         <template v-else>
-          <p class="intro">填 Base URL、API Key 和模型即可。兼容标准 images 接口。</p>
+          <p class="intro">填好 Base URL 后可自动获取模型,也可以手动填写。兼容标准 images 接口。</p>
 
           <div class="field">
             <label>名称 <span class="opt">可选</span></label>
@@ -250,7 +383,78 @@ watch(() => props.startCreate, (v) => {
           </div>
           <div class="field">
             <label>模型 <span class="req">必填</span></label>
-            <input v-model="form.model" placeholder="如:gpt-image-1 / dall-e-3" autocomplete="off" />
+            <div ref="modelField" class="model-field" @click.stop>
+              <div class="model-input-row">
+                <input
+                  ref="modelInput"
+                  v-model="form.model"
+                  placeholder="如:gpt-image-1 / dall-e-3"
+                  autocomplete="off"
+                  role="combobox"
+                  aria-controls="model-picker"
+                  :aria-expanded="modelsOpen"
+                  aria-autocomplete="list"
+                  @keydown="onModelInputKeydown"
+                />
+                <button
+                  type="button"
+                  class="btn btn-sm model-fetch"
+                  :disabled="modelsLoading || !form.baseURL"
+                  @click="fetchAvailableModels"
+                  :title="models.length ? '重新获取模型列表' : '从接口获取模型列表'"
+                >
+                  <AppIcon name="refresh" :size="13" :class="{ spin: modelsLoading }" />
+                  {{ modelsLoading ? '获取中' : (models.length ? '刷新模型' : '获取模型') }}
+                </button>
+              </div>
+              <div v-if="models.length" class="model-picker-toggle">
+                <span class="helper">已获取 {{ models.length }} 个模型</span>
+                <button type="button" class="model-list-link" @click="modelsOpen ? closeModelList() : openModelList()">
+                  {{ modelsOpen ? '收起列表' : '选择模型' }}
+                </button>
+              </div>
+              <div v-if="modelsError" class="model-fetch-error" role="alert">
+                <AppIcon name="alert" :size="13" />
+                <span>{{ modelsError }}</span>
+              </div>
+              <div
+                v-if="modelsOpen && models.length"
+                id="model-picker"
+                class="model-picker"
+                role="listbox"
+                aria-label="可用模型"
+                @keydown="onModelPickerKeydown"
+              >
+                <div class="model-picker-head">
+                  <span>可用模型</span>
+                  <span class="helper">{{ filteredModels.length }} / {{ models.length }}</span>
+                </div>
+                <input
+                  ref="modelFilterInput"
+                  v-model="modelFilter"
+                  class="model-filter"
+                  type="search"
+                  placeholder="筛选模型"
+                  aria-label="筛选模型"
+                  @keydown.esc.stop="closeModelList"
+                />
+                <div class="model-options">
+                  <button
+                    v-for="model in filteredModels"
+                    :key="model"
+                    type="button"
+                    class="model-option"
+                    role="option"
+                    :aria-selected="form.model === model"
+                    @click="selectModel(model)"
+                  >
+                    <span>{{ model }}</span>
+                    <AppIcon v-if="form.model === model" name="check" :size="13" />
+                  </button>
+                  <p v-if="!filteredModels.length" class="model-empty">没有匹配的模型,仍可手动填写。</p>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="field">
             <label>请求超时 <span class="opt">30–1800 秒</span></label>
@@ -444,6 +648,46 @@ watch(() => props.startCreate, (v) => {
 }
 .key-input { display: flex; gap: var(--space-2); }
 .key-input input { flex: 1; min-width: 0; }
+.model-field { position: relative; z-index: 2; }
+.model-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.model-input-row input { min-width: 0; }
+.model-fetch { white-space: nowrap; min-width: 86px; }
+.model-picker-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-top: 6px;
+}
+.model-list-link {
+  padding: 2px 0; color: var(--color-primary); font-size: 11px; font-weight: 600;
+}
+.model-list-link:hover { text-decoration: underline; }
+.model-fetch-error {
+  display: flex; align-items: flex-start; gap: 6px; margin-top: 7px;
+  color: var(--color-warning); font-size: 11px; line-height: 1.45;
+}
+.model-fetch-error svg { flex-shrink: 0; margin-top: 1px; }
+.model-picker {
+  margin-top: 8px;
+  padding: 8px; background: var(--color-elevated);
+  border: 1px solid var(--color-border-strong); border-radius: 10px;
+  box-shadow: var(--shadow-pop); animation: pop 160ms var(--ease-out);
+}
+.model-picker-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 2px 2px 7px; font-size: 11px; font-weight: 650;
+  color: var(--color-fg-muted);
+}
+.model-filter { margin-bottom: 6px; min-height: 32px; font-size: 12px; }
+.model-options { max-height: 180px; overflow-y: auto; }
+.model-option {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; min-height: 32px; padding: 6px 8px; border-radius: 7px;
+  text-align: left; color: var(--color-fg-muted); font-size: 12px;
+}
+.model-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-option:hover, .model-option[aria-selected='true'] {
+  color: var(--color-primary); background: var(--color-primary-soft);
+}
+.model-empty { margin: 0; padding: 12px 6px; color: var(--color-fg-subtle); font-size: 11px; text-align: center; }
 .req {
   font-size: 10px; font-weight: 600; color: var(--color-primary);
   margin-left: 4px;

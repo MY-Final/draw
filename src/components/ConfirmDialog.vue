@@ -17,29 +17,64 @@ useDialogA11y(dialog, () => emit('cancel'))
 </script>
 
 <template>
-  <div class="scrim">
-    <div ref="dialog" class="dialog" role="alertdialog" aria-modal="true" :aria-labelledby="`confirm-title-${title}`" tabindex="-1">
-      <div class="dlg-head">
-        <span v-if="danger" class="dlg-icon danger"><AppIcon name="alert" :size="18" /></span>
-        <strong :id="`confirm-title-${title}`">{{ title }}</strong>
-      </div>
-      <p v-if="message" class="dlg-msg">{{ message }}</p>
-      <div class="dlg-actions">
-        <!-- 危险操作默认聚焦「取消」,避免回车误触发删除 -->
-        <button class="btn btn-sm" autofocus @click="emit('cancel')">{{ cancelText }}</button>
-        <button class="btn btn-sm" :class="danger ? 'btn-danger' : 'btn-primary'" @click="emit('confirm')">{{ confirmText }}</button>
+  <Teleport to="body">
+    <div class="scrim">
+      <div
+        ref="dialog"
+        class="dialog"
+        role="alertdialog"
+        aria-modal="true"
+        :aria-labelledby="`confirm-title-${title}`"
+        :aria-describedby="message ? `confirm-message-${title}` : undefined"
+        tabindex="-1"
+      >
+        <div class="dlg-head">
+          <span v-if="danger" class="dlg-icon danger"><AppIcon name="alert" :size="17" /></span>
+          <strong :id="`confirm-title-${title}`">{{ title }}</strong>
+        </div>
+        <p v-if="message" :id="`confirm-message-${title}`" class="dlg-msg">{{ message }}</p>
+        <div class="dlg-actions">
+          <!-- 危险操作默认聚焦「取消」,避免回车误触发删除 -->
+          <button class="btn btn-sm" autofocus @click="emit('cancel')">{{ cancelText }}</button>
+          <button class="btn btn-sm" :class="danger ? 'btn-danger' : 'btn-primary'" @click="emit('confirm')">{{ confirmText }}</button>
+        </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>
-.scrim { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; animation: fade var(--dur) var(--ease); }
-.dialog { width: 100%; max-width: 380px; margin: var(--space-4); background: var(--color-elevated); border: 1px solid var(--color-border-strong); border-radius: var(--radius); box-shadow: var(--shadow-pop); padding: var(--space-5); animation: pop var(--dur) var(--ease); }
-.dlg-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); font-size: 15px; }
-.dlg-icon.danger { color: var(--color-destructive); display: inline-flex; }
-.dlg-msg { font-size: 13px; color: var(--color-fg-muted); line-height: 1.6; margin-bottom: var(--space-5); }
+.scrim {
+  position: fixed; inset: 0; z-index: 1000; padding: var(--space-4);
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--color-scrim) 92%, #000);
+  backdrop-filter: blur(3px);
+  animation: fade var(--dur) var(--ease);
+}
+.dialog {
+  width: min(100%, 420px); margin: 0;
+  background: var(--color-elevated); border: 1px solid var(--color-border-strong);
+  border-radius: 14px; box-shadow: var(--shadow-pop); padding: 20px;
+  animation: pop var(--dur) var(--ease);
+}
+.dlg-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 15px; }
+.dlg-icon.danger {
+  width: 30px; height: 30px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--color-destructive); border-radius: 9px;
+  background: color-mix(in srgb, var(--color-destructive) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-destructive) 28%, transparent);
+}
+.dlg-msg { margin: 0 0 20px 40px; font-size: 13px; color: var(--color-fg-muted); line-height: 1.65; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+.dlg-actions .btn { min-width: 72px; }
+.dlg-actions .btn-danger { box-shadow: 0 4px 12px color-mix(in srgb, var(--color-destructive) 20%, transparent); }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pop { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+@media (max-width: 520px) {
+  .scrim { align-items: flex-end; padding: 12px; }
+  .dialog { width: 100%; padding: 18px; border-radius: 14px; }
+  .dlg-msg { margin-left: 0; }
+}
 </style>
