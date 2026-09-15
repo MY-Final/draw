@@ -77,7 +77,13 @@ export async function exportLibraryZip() {
 }
 
 // ── C. 整库 zip 导入 ──────────────────────────────────
-export async function importLibraryZip(file) {
+// onProgress 可选:整库备份可能有几百张图,没有进度用户不知道是在跑还是卡死了。
+export async function importLibraryZip(file, { onProgress = null } = {}) {
+  const report = (phase, done, total) => {
+    if (!onProgress) return
+    try { onProgress({ phase, done, total }) } catch { /* 进度回调不该影响导入 */ }
+  }
+  report('read', 0, 0)
   const zip = await JSZip.loadAsync(file).catch(() => null)
   if (!zip) throw new ImportError('文件不是有效的 zip。')
   const manifestFile = zip.file('manifest.json')
@@ -107,6 +113,8 @@ export async function importLibraryZip(file) {
 
   const assetRecords = []
   const assetIds = new Set()
+  const assetTotal = (manifest.assets || []).length
+  let assetDone = 0
   for (const a of manifest.assets || []) {
     validateAsset(a)
     if (assetIds.has(a.id)) throw new ImportError(`备份中存在重复素材 id: ${a.id}`)
@@ -116,6 +124,8 @@ export async function importLibraryZip(file) {
       throw new ImportError(`素材 ${a.id} 引用了不存在的工作区。`)
     }
     const buf = await entry.async('arraybuffer')
+    assetDone += 1
+    report('read', assetDone, assetTotal)
     assetRecords.push({
       metadata: {
         id: a.id, mime: a.mime || 'image/png', width: a.width ?? null, height: a.height ?? null,
@@ -159,6 +169,7 @@ export async function importLibraryZip(file) {
       promptCount += prompts.length
     }
 
+    report('write', 0, 1)
     const tx = db.transaction([STORE_WORKSPACES, STORE_ASSETS, STORE_ASSET_BLOBS, STORE_GENERATIONS], 'readwrite')
     for (const ws of workspaces) await tx.objectStore(STORE_WORKSPACES).put(ws)
     for (const { metadata, blob } of assetRecords) {
@@ -167,6 +178,7 @@ export async function importLibraryZip(file) {
     }
     for (const generation of generations) await tx.objectStore(STORE_GENERATIONS).put(toPlain(generation))
     await tx.done
+    report('write', 1, 1)
   } catch (error) {
     restoreStorage(storageSnapshot)
     throw error

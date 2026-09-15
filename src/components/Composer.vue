@@ -1,10 +1,10 @@
 <script setup>
 // 底部固定输入区(composer,对话式布局)。prompt + 内联参数 + 参考图 chips + 生成。
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
-import { useWorkbenchStore } from '../stores/workbench.js'
+import { useWorkbenchStore, MAX_GENERATION_QUEUE } from '../stores/workbench.js'
 import AppIcon from './AppIcon.vue'
 import AssetImage from './AssetImage.vue'
-import { addPrompt, removePrompt, getAllPrompts } from '../lib/promptLibrary.js'
+import { addPrompt, removePrompt, updatePrompt, getAllPrompts } from '../lib/promptLibrary.js'
 import { imageFromClipboard } from '../lib/clipboard.js'
 import { uploadInOrder } from '../lib/referenceUploads.js'
 
@@ -67,6 +67,15 @@ const n = ref(1)
 const refImageIds = ref([])
 const showPromptLib = ref(false)
 const savedPrompts = ref([])
+const promptQuery = ref('')
+const editingPromptId = ref(null)
+const editingPromptText = ref('')
+// 收藏多了以后只能靠翻页,搜索是这里最低成本的补救。
+const visiblePrompts = computed(() => {
+  const q = promptQuery.value.trim().toLowerCase()
+  if (!q) return savedPrompts.value
+  return savedPrompts.value.filter((p) => (p.text || '').toLowerCase().includes(q))
+})
 const promptLibToast = ref(null)
 // 接口切换(跟随生成上下文,放输入区而非侧栏导航树)
 const presetMenuOpen = ref(false)
@@ -116,6 +125,10 @@ const generateDisabledReason = computed(() => {
   return ''
 })
 const canGenerate = computed(() => !generateDisabledReason.value && !store.generating)
+// 生成中把快捷键含义写出来:此时 Ctrl/Cmd+Enter 是「加入队列」而不是「生成」。
+const composerFootHint = computed(() => store.generating
+  ? `生成中 · Ctrl/Cmd+Enter 加入队列（${store.generationQueue.length}/${MAX_GENERATION_QUEUE}）`
+  : 'Enter 换行 · Ctrl/Cmd+Enter 生成')
 const promptLength = computed(() => prompt.value.length)
 const promptPlaceholder = computed(() => refAssets.value.length
   ? '输入提示词，配合参考图生成新画面…'
@@ -208,9 +221,28 @@ function clearPrompt() {
 
 function deletePrompt(id) {
   removePrompt(id, store.activeWorkspaceId)
+  if (editingPromptId.value === id) editingPromptId.value = null
   loadSavedPrompts()
 }
-
+function startEditPrompt(p) {
+  editingPromptId.value = p.id
+  editingPromptText.value = p.text
+}
+function savePromptEdit(p) {
+  const r = updatePrompt(p.id, editingPromptText.value, store.activeWorkspaceId)
+  if (!r.ok) {
+    promptLibToast.value = { type: 'warn', text: r.reason === 'duplicate' ? '已有相同的 prompt' : '内容不能为空' }
+    setTimeout(() => { promptLibToast.value = null }, 2000)
+    return
+  }
+  editingPromptId.value = null
+  loadSavedPrompts()
+}
+function onPromptEditKeydown(e, p) {
+  if (e.isComposing || e.keyCode === 229) return
+  if (e.key === 'Enter') { e.preventDefault(); savePromptEdit(p) }
+  else if (e.key === 'Escape') { e.preventDefault(); editingPromptId.value = null }
+}
 // 点击外部关闭 popover
 function onDocClick(e) {
   const el = e.target
@@ -260,7 +292,8 @@ const assetById = computed(() => new Map(
 const refAssets = computed(() =>
   refImageIds.value.map((id) => assetById.value.get(id)).filter(Boolean)
 )
-const referenceNotice = ref('')
+// 单条提示栏:参考图提醒与队列提醒共用,避免同时堆两三条横幅把输入区顶下去。
+const notice = ref(null) // { text, tone: 'warn' | 'info' }
 const referenceOrderAnnouncement = ref('')
 const refItemEls = new Map()
 let referenceNoticeTimer = null
@@ -270,11 +303,12 @@ function setRefItemRef(el, id) {
   else refItemEls.delete(id)
 }
 
-function showReferenceNotice(text) {
-  referenceNotice.value = text
+function showNotice(text, tone = 'warn') {
+  notice.value = { text, tone }
   if (referenceNoticeTimer) clearTimeout(referenceNoticeTimer)
-  referenceNoticeTimer = setTimeout(() => { referenceNotice.value = '' }, 5000)
+  referenceNoticeTimer = setTimeout(() => { notice.value = null }, 5000)
 }
+function showReferenceNotice(text) { showNotice(text, 'warn') }
 
 // 素材可能在另一处被删除/导入覆盖。同步清掉失效 id 并提示，避免缩略图消失后状态仍暗中残留。
 watch([
@@ -498,9 +532,53 @@ function clear() {
   prompt.value = ''
   refImageIds.value = []
 }
+const vFocus = { mounted: (el) => el.focus() }
 defineExpose({ addReference, applyPrefill, clear, fillPrompt, focusInput, hasDraft })
 
+function currentParams() {
+  return {
+    size: computeSize(ratio.value, resolution.value),
+    ratio: ratio.value,
+    resolution: resolution.value,
+    quality: quality.value,
+    n: clampN(n.value),
+  }
+}
+
+// 生成中再提交 = 排队。之前这里静默 return,用户会以为快捷键失灵。
+function enqueueCurrentDraft() {
+  const text = prompt.value.trim()
+  if (!text) {
+    showNotice('请输入提示词后再加入队列。', 'warn')
+    return false
+  }
+  const r = store.enqueueGeneration({
+    prompt: text,
+    fullPrompt: text,
+    refImageIds: [...refImageIds.value],
+    params: currentParams(),
+  })
+  if (r.ok) {
+    clear()
+    showNotice(`已加入队列 · 第 ${r.position} 位(当前任务完成后自动开始)`, 'info')
+    return true
+  }
+  if (r.reason === 'full') {
+    showNotice(`队列已满(最多 ${r.max} 条),请等待或先取消当前任务。`, 'warn')
+  } else if (r.reason === 'no-preset') {
+    showNotice('请先添加接口,再加入队列。', 'warn')
+  } else if (r.reason === 'no-key') {
+    store.lastError = '当前接口缺少 API Key,请先在接口设置中填写。'
+  }
+  return false
+}
+
 async function submit() {
+  // 已有任务在跑:不打断当前请求,把这一单排到队尾。
+  if (store.generating) {
+    enqueueCurrentDraft()
+    return
+  }
   if (!canGenerate.value) {
     if (missingKey.value) {
       store.lastError = '当前接口缺少 API Key,请先在接口设置中填写。'
@@ -510,7 +588,7 @@ async function submit() {
   presetMenuOpen.value = false
   const text = prompt.value.trim()
   const refs = [...refImageIds.value]
-  const sizeVal = computeSize(ratio.value, resolution.value)
+  const params = currentParams()
   // 立即清空输入:乐观上屏已把本轮请求推上对话流,输入框无需等生成完成(请求即时上屏)。
   clear()
   // 发送给接口的 prompt 就是用户原文;画质走真实 quality 参数,不再往 prompt 拼形容词。
@@ -520,13 +598,7 @@ async function submit() {
       prompt: text,
       fullPrompt: text,
       refImageIds: refs,
-      params: {
-        size: sizeVal,
-        ratio: ratio.value,
-        resolution: resolution.value,
-        quality: quality.value,
-        n: clampN(n.value),
-      },
+      params,
     })
   } catch {
     // store normally converts errors to a failed result; keep the draft if an unexpected error escapes.
@@ -623,8 +695,8 @@ function onErrorAction() {
       </button>
     </div>
 
-    <div v-if="referenceNotice" class="ref-notice" role="status" aria-live="polite">
-      <AppIcon name="alert" :size="13" /> {{ referenceNotice }}
+    <div v-if="notice" class="ref-notice" :class="notice.tone" role="status" aria-live="polite">
+      <AppIcon :name="notice.tone === 'info' ? 'layers' : 'alert'" :size="13" /> {{ notice.text }}
     </div>
     <div class="sr-only" role="status" aria-live="polite">{{ referenceOrderAnnouncement }}</div>
 
@@ -883,17 +955,40 @@ function onErrorAction() {
               </button>
             </div>
             <div v-if="!savedPrompts.length" class="prompt-empty">暂无收藏的 prompt</div>
-            <div v-else class="prompt-list">
-              <div
-                v-for="p in savedPrompts" :key="p.id"
-                class="prompt-item" @click="fillPrompt(p.text)"
-              >
-                <span class="prompt-text">{{ p.text }}</span>
-                <button class="prompt-del" @click.stop="deletePrompt(p.id)" title="删除">
+            <template v-else>
+              <div class="prompt-search">
+                <AppIcon name="search" :size="12" />
+                <input
+                  v-model="promptQuery" class="prompt-search-input"
+                  placeholder="搜索收藏的 prompt" aria-label="搜索收藏的 prompt"
+                />
+                <button v-if="promptQuery" class="prompt-search-clear" @click="promptQuery = ''" aria-label="清空搜索">
                   <AppIcon name="x" :size="11" />
                 </button>
               </div>
-            </div>
+              <div v-if="!visiblePrompts.length" class="prompt-empty">没有匹配的 prompt</div>
+              <div v-else class="prompt-list">
+                <div
+                  v-for="p in visiblePrompts" :key="p.id"
+                  class="prompt-item" @click="editingPromptId === p.id ? null : fillPrompt(p.text)"
+                >
+                  <input
+                    v-if="editingPromptId === p.id"
+                    v-model="editingPromptText" class="prompt-edit-input" v-focus
+                    @click.stop
+                    @keydown="onPromptEditKeydown($event, p)"
+                    @blur="savePromptEdit(p)"
+                  />
+                  <span v-else class="prompt-text">{{ p.text }}</span>
+                  <button class="prompt-edit" @click.stop="startEditPrompt(p)" title="编辑" aria-label="编辑这条 prompt">
+                    <AppIcon name="edit" :size="11" />
+                  </button>
+                  <button class="prompt-del" @click.stop="deletePrompt(p.id)" title="删除" aria-label="删除这条 prompt">
+                    <AppIcon name="x" :size="11" />
+                  </button>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -926,7 +1021,7 @@ function onErrorAction() {
          aria-live="polite"
        >{{ generateDisabledReason }}</p>
      </div>
-    <p class="composer-foot">Enter 换行 · Ctrl/Cmd+Enter 生成</p>
+    <p class="composer-foot">{{ composerFootHint }}</p>
   </div>
 </template>
 
@@ -984,6 +1079,12 @@ function onErrorAction() {
   font-size: 12px; color: var(--color-warning);
   background: color-mix(in srgb, var(--color-warning) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-warning) 24%, transparent);
+}
+/* 队列提示走主色,和「需要注意」的参考图警告区分开 */
+.ref-notice.info {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
 }
 
 .ref-strip {
@@ -1317,6 +1418,23 @@ function onErrorAction() {
 .prompt-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-fg); }
 .prompt-del { flex-shrink: 0; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); color: var(--color-fg-subtle); }
 .prompt-del:hover { background: var(--color-surface-2); color: var(--color-destructive); }
+.prompt-edit { flex-shrink: 0; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); color: var(--color-fg-subtle); }
+.prompt-edit:hover { background: var(--color-surface-2); color: var(--color-fg); }
+.prompt-search {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+  padding: 8px 12px; border-bottom: 1px solid var(--color-border);
+  color: var(--color-fg-subtle);
+}
+.prompt-search-input {
+  flex: 1; min-width: 0; padding: 0; border: none; background: transparent;
+  font-size: 12px; color: var(--color-fg);
+}
+.prompt-search-input:focus { outline: none; }
+.prompt-search-clear { flex-shrink: 0; display: flex; color: var(--color-fg-subtle); }
+.prompt-edit-input {
+  flex: 1; min-width: 0; padding: 4px 6px; font-size: 12px;
+  border-radius: var(--radius-sm); background: var(--color-bg);
+}
 
 .send { border-radius: 10px; min-height: 40px; padding: 0 18px; }
 .send.cancel {

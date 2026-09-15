@@ -60,17 +60,29 @@ async function doExportLibrary() {
     showToast(`备份失败：${e?.message || '请重试'}`, 'danger')
   } finally { busy.value = '' }
 }
+// 整库导入可能持续几十秒,所以既要有进度,也要把「合并而不是清空」讲清楚。
+const importProgress = ref(null) // { label, percent }
 async function doImportLibrary() {
   const f = await pickFile('.zip'); if (!f) return
   busy.value = 'i'
+  importProgress.value = { label: '正在读取备份…', percent: 0 }
   try {
-    const r = await importLibraryZip(f)
+    const r = await importLibraryZip(f, {
+      onProgress: ({ phase, done, total }) => {
+        if (phase === 'read') {
+          const percent = total ? Math.round((done / total) * 90) : 0
+          importProgress.value = { label: `正在导入图片 ${done}/${total || '?'}`, percent }
+        } else {
+          importProgress.value = { label: '正在写入本地数据库…', percent: 95 }
+        }
+      },
+    })
     await store.init()
     let parts = [`图片 ${r.assetCount} 张`, `记录 ${r.genCount} 条`]
     if (r.promptCount) parts.push(`Prompt ${r.promptCount} 条`)
     showToast(`恢复完成: ${parts.join(' · ')}`)
   } catch (e) { showToast(e instanceof ImportError ? e.message : String(e), 'danger') }
-  finally { busy.value = '' }
+  finally { busy.value = ''; importProgress.value = null }
 }
 
 function doExportPresets() {
@@ -170,6 +182,15 @@ onMounted(() => {
           <button class="dp-btn" @click="doImportLibrary" :disabled="busy === 'i'">
             <AppIcon name="upload" :size="16" /> 导入备份
           </button>
+          <div v-if="importProgress" class="import-progress" role="status" aria-live="polite">
+            <div class="import-progress-text">{{ importProgress.label }}</div>
+            <div class="usage-bar" :aria-label="`导入进度 ${importProgress.percent}%`">
+              <div class="usage-fill" :style="{ width: importProgress.percent + '%' }" />
+            </div>
+          </div>
+          <p v-else class="helper">
+            导入采用合并方式：同 ID 覆盖，不主动清空本机数据，已有 API Key 保留。
+          </p>
         </section>
 
         <div class="dp-divider" />
@@ -342,6 +363,8 @@ onMounted(() => {
 .toast-warn { border-color: var(--color-warning); }
 
 .helper { font-size: 12px; color: var(--color-fg-subtle); line-height: 1.5; }
+.import-progress { display: flex; flex-direction: column; gap: 6px; padding: 2px 0; }
+.import-progress-text { font-size: 12px; color: var(--color-fg-muted); }
 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pop {

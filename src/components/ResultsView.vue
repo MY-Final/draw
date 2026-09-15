@@ -12,7 +12,7 @@ import PendingTimer from './PendingTimer.vue'
 import UndoToast from './UndoToast.vue'
 
 const store = useWorkbenchStore()
-const emit = defineEmits(['use-as-reference', 'preview', 'reuse', 'open-settings'])
+const emit = defineEmits(['use-as-reference', 'preview', 'reuse', 'open-settings', 'fill-prompt'])
 const scroller = ref(null)
 // 用户主动上翻时不抢滚动;仅贴近底部才跟滚。
 const stickToBottom = ref(true)
@@ -23,8 +23,21 @@ const searchModKey = (() => {
   return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '') ? '⌘' : 'Ctrl'
 })()
 
+// 冷启动灵感:点一下直接填进输入框,比只给一句操作说明更有用。
+const INSPIRATIONS = [
+  { label: '赛博朋克', icon: 'sparkles', prompt: '雨夜霓虹街头，赛博朋克风格，毛玻璃质感，雨滴反光，电影感打光' },
+  { label: '柔光猫咪', icon: 'heart', prompt: '一只安静的猫，柔和窗光，浅景深，细腻毛发质感，暖色调' },
+  { label: '极简建筑', icon: 'layers', prompt: '极简主义建筑，清水混凝土，几何构成，正午硬光，天空留白' },
+  { label: '超现实主义', icon: 'image', prompt: '超现实场景，悬浮的鲸鱼与云层，柔和逆光，梦境氛围，超广角' },
+]
+
 // 时间正序(旧→新);只显示当前会话。
 const feed = computed(() => [...store.canvasGenerations].reverse())
+
+// 队列是全局单通道的,但只把「属于当前会话」的排队项显示在这一段对话里。
+const queuedHere = computed(() => store.generationQueue.filter(
+  (q) => q.workspaceId === store.activeWorkspaceId && q.conversationId === store.conversationId,
+))
 
 const assetsById = computed(() => new Map(
   store.assets
@@ -182,20 +195,51 @@ watch(() => [feed.value.length, store.generating], async () => {
   await nextTick()
   scroller.value?.scrollTo({ top: scroller.value.scrollHeight, behavior: 'smooth' })
 })
+
+// 用户上翻看历史时,新结果不会抢滚动(见上)。但不能让「生成完成」这件事无声无息:
+// 用一个「↓ 有新结果」的浮标提示,点一下回到最新。
+const missedResults = ref(0)
+watch(() => feed.value.length, (next, prev) => {
+  if (next > prev && !stickToBottom.value) missedResults.value += next - prev
+})
+watch(stickToBottom, (atBottom) => { if (atBottom) missedResults.value = 0 })
+function scrollToLatest() {
+  missedResults.value = 0
+  stickToBottom.value = true
+  nextTick(() => scroller.value?.scrollTo({ top: scroller.value.scrollHeight, behavior: 'smooth' }))
+}
+// 切会话/工作区是「换一段对话」,不是「来了新结果」:直接跳到底部并清掉浮标,
+// 否则上一段对话的滚动位置会让新会话一进来就显示「有新结果」。
+watch(() => [store.conversationId, store.activeWorkspaceId], () => {
+  missedResults.value = 0
+  stickToBottom.value = true
+  nextTick(() => scroller.value?.scrollTo({ top: scroller.value.scrollHeight }))
+})
 </script>
 
 <template>
-  <div class="feed" ref="scroller" @scroll.passive="onFeedScroll">
-    <div class="feed-inner">
+  <div class="results">
+    <div class="feed" ref="scroller" @scroll.passive="onFeedScroll">
+      <div class="feed-inner">
       <!-- 空状态 -->
       <div v-if="!feed.length && !store.generating" class="empty">
         <div class="empty-icon"><AppIcon name="sparkles" :size="26" /></div>
         <h1>画点什么?</h1>
         <p>在下方描述你想要的画面，Ctrl/Cmd+Enter 即可生成。结果会自动存入本地素材库。</p>
+        <div class="empty-inspire" role="group" aria-label="灵感示例">
+          <button
+            v-for="idea in INSPIRATIONS" :key="idea.label"
+            type="button" class="empty-chip chip-action"
+            @click="emit('fill-prompt', idea.prompt)"
+          >
+            <AppIcon :name="idea.icon" :size="12" /> {{ idea.label }}
+          </button>
+        </div>
         <div class="empty-hints">
           <span class="empty-chip"><AppIcon name="image" :size="12" /> 可拖入参考图</span>
           <span class="empty-chip"><AppIcon name="keyboard" :size="12" /> Ctrl/Cmd+Enter 生成</span>
           <span class="empty-chip"><AppIcon name="search" :size="12" /> {{ searchModKey }}K 搜索</span>
+          <span class="empty-chip"><AppIcon name="plus" :size="12" /> Alt+N 新建创作</span>
         </div>
       </div>
 
@@ -331,9 +375,9 @@ watch(() => [feed.value.length, store.generating], async () => {
                 class="act"
                 @click="emit('use-as-reference', activeOutput(gen)?.id)"
                 :disabled="!activeOutput(gen)"
-                :title="outputsOf(gen).length > 1 ? '继续创作(当前选中图)' : '继续创作(设为参考图)'"
+                :title="outputsOf(gen).length > 1 ? '用当前选中的这张图继续创作' : '用这张图继续创作'"
               >
-                <AppIcon name="layers" :size="14" /> 继续创作
+                <AppIcon name="layers" :size="14" /> 设为参考图
               </button>
               <button class="act" @click="store.regenerate(gen.id)" :disabled="store.generating" title="按原参数再跑一次">
                 <AppIcon name="refresh" :size="14" /> 重新生成
@@ -359,7 +403,37 @@ watch(() => [feed.value.length, store.generating], async () => {
           </div>
         </div>
       </div>
+
+      <!-- 排队中的请求:生成是单通道的,这里让用户看见「还排着几单」并能调整 -->
+      <div v-if="queuedHere.length" class="queue" role="list" aria-label="生成队列">
+        <div class="queue-head">
+          <AppIcon name="layers" :size="13" />
+          <span>排队中 {{ queuedHere.length }} 单</span>
+          <span class="queue-hint">当前任务完成后按顺序自动开始</span>
+        </div>
+        <div v-for="(q, qi) in queuedHere" :key="q.id" class="queue-item" role="listitem">
+          <span class="queue-pos tnum">{{ qi + 1 }}</span>
+          <span class="queue-text" :title="q.prompt">{{ q.prompt }}</span>
+          <button
+            v-if="qi > 0" class="queue-act" type="button"
+            @click="store.promoteQueuedGeneration(q.id)" title="移到队首"
+          >提前</button>
+          <button
+            class="queue-act queue-act-danger" type="button"
+            @click="store.removeQueuedGeneration(q.id)" :aria-label="`移除排队中的第 ${qi + 1} 单`"
+          >移除</button>
+        </div>
+      </div>
+      </div>
     </div>
+
+    <!-- 有新结果:固定在结果区底部,不随内容滚动 -->
+    <button
+      v-if="missedResults"
+      type="button" class="new-results" @click="scrollToLatest"
+    >
+      <AppIcon name="chevron-down" :size="14" /> {{ missedResults }} 条新结果
+    </button>
 
     <!-- 删除撤销提示 -->
     <UndoToast v-if="undoToast" message="已删除该条生成" @undo="undoDelete" />
@@ -374,7 +448,18 @@ watch(() => [feed.value.length, store.generating], async () => {
 </template>
 
 <style scoped>
-.feed { height: 100%; overflow-y: auto; scroll-behavior: smooth; }
+.results { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.feed { flex: 1; min-height: 0; overflow-y: auto; scroll-behavior: smooth; }
+/* 「有新结果」浮标:不抢滚动,但也不让用户错过生成完成 */
+.new-results {
+  position: absolute; bottom: var(--space-4); left: 50%; transform: translateX(-50%);
+  z-index: 20; display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  color: var(--color-on-primary); background: var(--color-primary);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 70%, #000);
+  animation: turn-in 200ms var(--ease-out);
+}
+.new-results:hover { background: var(--color-primary-hover); }
 .feed-inner {
   max-width: 860px; margin: 0 auto;
   padding: var(--space-6) var(--space-4) var(--space-8);
@@ -396,13 +481,26 @@ watch(() => [feed.value.length, store.generating], async () => {
   color: var(--color-fg); letter-spacing: -0.02em;
 }
 .empty p { max-width: 360px; font-size: 13px; margin: 0; line-height: 1.6; }
-.empty-hints { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: var(--space-3); }
+.empty-hints { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: var(--space-2); }
 .empty-chip {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 8px; border-radius: 8px; font-size: 11px;
   color: var(--color-fg-subtle); border: 1px solid transparent;
   background: transparent;
 }
+/* 灵感标签是可以点的:给可见边框和 hover,和下面的快捷键说明区分开 */
+.empty-inspire { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: var(--space-4); }
+.chip-action {
+  cursor: pointer; color: var(--color-fg-muted);
+  border-color: var(--color-border); background: var(--color-surface-2);
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.chip-action:hover {
+  color: var(--color-fg); border-color: var(--color-border-strong);
+  background: var(--color-elevated); transform: translateY(-1px);
+}
+.chip-action:active { transform: none; }
 
 .turn {
   display: flex; flex-direction: column; gap: var(--space-4);
@@ -576,6 +674,43 @@ watch(() => [feed.value.length, store.generating], async () => {
   background: color-mix(in srgb, var(--color-destructive) 12%, transparent);
   color: var(--color-destructive);
 }
+
+/* 生成队列:单通道下的「还在等什么」一眼可见 */
+.queue {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: var(--space-3); border-radius: 14px;
+  border: 1px dashed var(--color-border-strong);
+  background: var(--color-surface-2);
+}
+.queue-head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; color: var(--color-fg-muted);
+  margin-bottom: 2px;
+}
+.queue-head svg { color: var(--color-primary); }
+.queue-hint { font-weight: 500; color: var(--color-fg-subtle); }
+.queue-item {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 6px 8px; border-radius: 9px; background: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+.queue-pos {
+  flex-shrink: 0; width: 20px; height: 20px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 650;
+  color: var(--color-fg-muted); background: var(--color-surface-2);
+}
+.queue-text {
+  flex: 1; min-width: 0; font-size: 12px; color: var(--color-fg-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.queue-act {
+  flex-shrink: 0; font-size: 11px; color: var(--color-fg-subtle);
+  padding: 3px 8px; border-radius: 999px;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.queue-act:hover { color: var(--color-fg); background: var(--color-surface-2); }
+.queue-act-danger:hover { color: var(--color-destructive); background: color-mix(in srgb, var(--color-destructive) 12%, transparent); }
 
 .snippet { display: block; margin-top: 6px; font-size: 11px; max-height: 80px; overflow: auto; opacity: 0.8; white-space: pre-wrap; word-break: break-all; }
 .skeleton {

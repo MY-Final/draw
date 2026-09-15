@@ -12,6 +12,7 @@ import ImageLightbox from './components/ImageLightbox.vue'
 import UnifiedSearch from './components/UnifiedSearch.vue'
 import BackupReminderDialog from './components/BackupReminderDialog.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
+import UndoToast from './components/UndoToast.vue'
 import AppIcon from './components/AppIcon.vue'
 import { useDialogA11y } from './composables/useDialogA11y.js'
 
@@ -96,11 +97,29 @@ onUnmounted(() => {
   dockObserver?.disconnect()
 })
 
+function isTypingTarget(el) {
+  if (!el) return false
+  const tag = el.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
+}
+
 function onGlobalKeydown(e) {
   // ⌘K / Ctrl+K 打开搜索
   if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
     e.preventDefault()
     searchOpen.value = !searchOpen.value
+    return
+  }
+  // 「/」聚焦输入框(GitHub / Slack 的肌肉记忆);在输入框里打 / 不拦截
+  if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTypingTarget(e.target)) {
+    e.preventDefault()
+    composer.value?.focusInput?.()
+    return
+  }
+  // Alt+N 新建创作。不用 Ctrl+N:那个组合被浏览器「新建窗口」占用,抢不过来。
+  if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'n' || e.key === 'N')) {
+    e.preventDefault()
+    onNewCanvas()
   }
 }
 
@@ -133,6 +152,44 @@ function setTheme(t) {
 function toggleTheme() { setTheme(theme.value === 'dark' ? 'light' : 'dark') }
 
 function useAsReference(id) { composer.value?.addReference(id) }
+
+// 删除撤销提示统一挂在 App 层:侧栏/素材库在移动端是抽屉,组件一卸载提示就没了,
+// 撤销状态存在 store 里,提示也必须活在同一层。
+const conversationUndoMessage = computed(() => {
+  const entries = store.pendingConversationDelete?.entries || []
+  if (!entries.length) return ''
+  return entries.length === 1
+    ? `已删除会话「${entries[0].title}」`
+    : `已删除 ${entries.length} 段会话`
+})
+const assetUndoMessage = computed(() => {
+  const count = store.pendingAssetDelete?.ids?.length || 0
+  return count ? `已移除 ${count} 张素材` : ''
+})
+const workspaceUndoMessage = computed(() => {
+  const name = store.pendingWorkspaceDelete?.workspace?.name
+  return name ? `已删除工作区「${name}」` : ''
+})
+const hasAnyUndo = computed(() => !!(
+  store.pendingAssetDelete || store.pendingConversationDelete || store.pendingWorkspaceDelete
+))
+function undoAssetDelete() {
+  const batchId = store.pendingAssetDelete?.batchId
+  if (batchId) store.undoAssetDelete(batchId)
+}
+function undoConversationDelete() {
+  const batchId = store.pendingConversationDelete?.batchId
+  if (batchId) store.undoConversationDelete(batchId)
+}
+function undoWorkspaceDelete() {
+  const batchId = store.pendingWorkspaceDelete?.batchId
+  if (batchId) store.undoWorkspaceDelete(batchId)
+}
+// 冷启动灵感标签:填入并聚焦,用户可以直接改词或按 Ctrl/Cmd+Enter 生成。
+function onFillPrompt(text) {
+  composer.value?.fillPrompt?.(text)
+  composer.value?.focusInput?.()
+}
 const pendingRecipe = ref(null)
 function applyRecipe(prefill) {
   composer.value?.applyPrefill(prefill)
@@ -242,6 +299,7 @@ function openStorage() {
           @use-as-reference="useAsReference"
           @preview="openPreview"
           @reuse="(prefill) => composer?.applyPrefill?.(prefill)"
+          @fill-prompt="onFillPrompt"
           @open-settings="openSettings"
         />
       </div>
@@ -342,6 +400,21 @@ function openStorage() {
       @use-as-reference="(id) => { useAsReference(id); closePreview() }"
     />
 
+    <div v-if="hasAnyUndo" class="undo-stack">
+      <UndoToast
+        v-if="store.pendingAssetDelete" :fixed="false"
+        :message="assetUndoMessage" @undo="undoAssetDelete"
+      />
+      <UndoToast
+        v-if="store.pendingConversationDelete" :fixed="false"
+        :message="conversationUndoMessage" @undo="undoConversationDelete"
+      />
+      <UndoToast
+        v-if="store.pendingWorkspaceDelete" :fixed="false"
+        :message="workspaceUndoMessage" @undo="undoWorkspaceDelete"
+      />
+    </div>
+
     <UnifiedSearch :visible="searchOpen" @close="searchOpen = false" @jump="onSearchJump" />
 
     <BackupReminderDialog
@@ -376,6 +449,10 @@ function openStorage() {
   height: 100dvh;
   overflow: hidden;
   background: var(--color-bg);
+}
+.undo-stack {
+  position: fixed; bottom: 128px; left: 50%; transform: translateX(-50%); z-index: 60;
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
 }
 .boot-screen {
   position: fixed; inset: 0; z-index: 1200;

@@ -53,14 +53,17 @@ function openWsMenu(id, e) { e?.stopPropagation(); wsMenuFor.value = wsMenuFor.v
 function startWsRename(ws) { wsMenuFor.value = null; wsRenaming.value = ws.id; wsRenameText.value = ws.name }
 function commitWsRename(id) { store.renameWorkspace(id, wsRenameText.value); wsRenaming.value = null }
 function askWsDelete(ws) { wsMenuFor.value = null; confirmDelWs.value = ws }
+// 撤销提示统一在 App 层渲染(移动端抽屉一关,这里的组件就卸载了)。
 async function doWsDelete() {
+  const target = confirmDelWs.value
+  confirmDelWs.value = null
+  if (!target) return
   try {
-    if (confirmDelWs.value) await store.deleteWorkspace(confirmDelWs.value.id)
+    await store.deleteWorkspaceWithUndo(target.id)
   } catch (error) {
     store.lastError = `删除工作区失败：${error?.message || '请重试'}`
     await store.refreshAll().catch(() => {})
   }
-  confirmDelWs.value = null
 }
 
 // ── 会话 ──
@@ -107,15 +110,22 @@ function wsHasConversations(wsId) {
 
 function openMenu(id, e) { e?.stopPropagation(); menuFor.value = menuFor.value === id ? null : id }
 function askDelete(c) { menuFor.value = null; confirmDel.value = { id: c.id, title: c.title } }
-async function doDelete() {
+// 删除会话给 5 秒撤销窗口:误删一段对话的代价远高于多按一次确认。
+function doDelete() {
+  const target = confirmDel.value
+  confirmDel.value = null
+  if (!target) return
+  deleteConversationFlow(target)
+}
+async function deleteConversationFlow(target) {
   try {
-    if (confirmDel.value) await store.deleteConversation(confirmDel.value.id)
+    await store.deleteConversationWithUndo(target.id)
   } catch (error) {
     store.lastError = `删除会话失败：${error?.message || '请重试'}`
     await store.refreshAll().catch(() => {})
   }
-  confirmDel.value = null
 }
+
 function startRename(c) { menuFor.value = null; renaming.value = c.id; renameText.value = c.title }
 function commitRename(id) { store.renameConversation(id, renameText.value); renaming.value = null }
 const vFocus = { mounted: (el) => el.focus() }
@@ -246,10 +256,11 @@ const vFocus = { mounted: (el) => el.focus() }
     <ConfirmDialog
       v-if="confirmDelWs"
       title="删除工作区"
-      :message="`将删除工作区「${confirmDelWs.name}」及其全部生成记录和素材,此操作不可撤销。`"
+      :message="`将删除工作区「${confirmDelWs.name}」及其全部生成记录和素材（收藏的图片也会一并删除）。删除后 5 秒内可以撤销。`"
       confirm-text="删除" danger
       @confirm="doWsDelete" @cancel="confirmDelWs = null"
     />
+
   </div>
 </template>
 

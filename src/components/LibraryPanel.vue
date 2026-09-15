@@ -5,7 +5,6 @@ import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
-import UndoToast from './UndoToast.vue'
 import { normalizeSource, sourceFullLabel, sourceShortLabel } from '../lib/assetSource.js'
 import { collectReferencedAssetIds } from '../lib/deletion.js'
 
@@ -125,11 +124,7 @@ async function deleteSingle(asset) {
     showDeleteNotice(`删除素材失败：${e?.message || '请重试'}`)
   }
 }
-async function undoAssetDelete() {
-  const batch = store.pendingAssetDelete
-  if (!batch) return
-  await store.undoAssetDelete(batch.batchId)
-}
+
 </script>
 
 <template>
@@ -219,7 +214,7 @@ async function undoAssetDelete() {
            <button type="button" class="mini" @click="toggleSelect(a.id)" :aria-label="selected.has(a.id) ? '取消选择' : '选择'">
              <AppIcon :name="selected.has(a.id) ? 'check' : 'plus'" :size="12" />
            </button>
-           <button type="button" class="mini" @click="emit('use-as-reference', a.id)" title="设为参考图" aria-label="设为参考图">
+           <button type="button" class="mini" @click="emit('use-as-reference', a.id)" :title="'设为参考图（用这张图继续创作）'" aria-label="设为参考图">
              <AppIcon name="layers" :size="12" />
            </button>
            <button
@@ -239,11 +234,7 @@ async function undoAssetDelete() {
       </button>
     </div>
 
-    <UndoToast
-      v-if="store.pendingAssetDelete"
-      :message="`已移除 ${store.pendingAssetDelete.ids.length} 张素材，5 秒内可撤销`"
-      @undo="undoAssetDelete"
-    />
+
     <ConfirmDialog
       v-if="confirmDelAssets"
       title="删除素材"

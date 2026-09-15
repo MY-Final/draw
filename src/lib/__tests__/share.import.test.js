@@ -83,6 +83,27 @@ describe('整库导入保留 id 与元数据', () => {
     expect(gens[0].outputImageIds).toEqual([a1.id])
   })
 
+  it('导入过程会回报进度,便于界面显示而不是干等', async () => {
+    await putWorkspace({ id: 'ws_progress', name: '进度' })
+    await putAsset({ blob: blob('p1'), mime: 'image/png', workspaceId: 'ws_progress' })
+    await putAsset({ blob: blob('p2'), mime: 'image/png', workspaceId: 'ws_progress' })
+    await putAsset({ blob: blob('p3'), mime: 'image/png', workspaceId: 'ws_progress' })
+    const { blob: zipBlob } = await exportLibraryZip()
+
+    const events = []
+    await importLibraryZip(await zipBlob.arrayBuffer(), {
+      onProgress: (e) => events.push(e),
+    })
+
+    const reads = events.filter((e) => e.phase === 'read')
+    expect(reads.at(-1)).toEqual({ phase: 'read', done: 3, total: 3 })
+    expect(events.some((e) => e.phase === 'write' && e.done === 1)).toBe(true)
+    // 进度回调抛错不能影响导入本身
+    await expect(importLibraryZip(await zipBlob.arrayBuffer(), {
+      onProgress: () => { throw new Error('boom') },
+    })).resolves.toMatchObject({ assetCount: 3 })
+  })
+
   it('导入预设不抹本机已有 Key', async () => {
     await putWorkspace({ id: 'ws_default', name: '默认' })
     // 本机已有同 id 预设带 Key

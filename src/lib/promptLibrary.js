@@ -43,6 +43,19 @@ export function removePrompt(id, workspaceId) {
   savePrompts(prompts, workspaceId)
 }
 
+/** 改写已收藏的 prompt;文本重复(且不是自己)时拒绝,避免收藏夹里出现两份一样的。 */
+export function updatePrompt(id, text, workspaceId) {
+  const t = (text || '').trim()
+  if (!t) return { ok: false, reason: 'empty' }
+  const prompts = loadPrompts(workspaceId)
+  const target = prompts.find((p) => p.id === id)
+  if (!target) return { ok: false, reason: 'missing' }
+  if (prompts.some((p) => p.id !== id && p.text === t)) return { ok: false, reason: 'duplicate' }
+  target.text = t
+  savePrompts(prompts, workspaceId)
+  return { ok: true, entry: target }
+}
+
 /** 返回所有 prompt,按创建时间倒序 */
 export function getAllPrompts(workspaceId) {
   return loadPrompts(workspaceId).sort((a, b) => b.createdAt - a.createdAt)

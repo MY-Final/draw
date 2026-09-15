@@ -18,6 +18,9 @@ import { listWorkspaces, createWorkspace as repoCreateWs, updateWorkspace, delet
 import { migrateLegacyPrompts, savePrompts } from '../lib/promptLibrary.js'
 import { checkReminder } from '../lib/backupReminder.js'
 
+// 生成队列上限:图片生成很慢(30-120s),排太多只会让等待失控;满额后明确告知用户。
+export const MAX_GENERATION_QUEUE = 5
+
 export const useWorkbenchStore = defineStore('workbench', {
   state: () => ({
     presets: [],
@@ -41,6 +44,14 @@ export const useWorkbenchStore = defineStore('workbench', {
     // 素材删除撤销批次:{ batchId, ids, records, timer, expiresAt }。
     // 素材在批次期间只从内存隐藏,IndexedDB 数据仍保留,以便撤销。
     pendingAssetDelete: null,
+    // 生成队列:生成是单通道的(一次只跑一个请求),排队项要记住发起时的工作区/会话,
+    // 否则用户切走上下文后,排队的结果会落到错误的会话里。
+    generationQueue: [],
+    // 会话删除撤销批次(可合并):{ batchId, entries:[{workspaceId, conversationId, title}], genIds, records, timer }。
+    // 窗口期内只从内存移除,IndexedDB 数据保留,撤销即恢复。
+    pendingConversationDelete: null,
+    // 工作区删除撤销批次:窗口期内工作区从列表隐藏,IndexedDB 数据保留。
+    pendingWorkspaceDelete: null,
     // 工作区状态
     workspaces: [],
     activeWorkspaceId: null,
@@ -212,23 +223,96 @@ export const useWorkbenchStore = defineStore('workbench', {
       this.workspaces = await listWorkspaces()
     },
 
+    // ── 删除工作区(带撤销窗口) ──
+    // 工作区删除的破坏面最大(连收藏图一起删),所以和素材/会话一样先隐藏、后落库。
+    async deleteWorkspaceWithUndo(id, delayMs = 5000) {
+      if (this.workspaces.length <= 1) return { ok: false, reason: 'last' }
+      const workspace = this.workspaces.find((w) => w.id === id)
+      if (!workspace) return { ok: false, reason: 'missing' }
+      // 同一时间只保留一个工作区撤销批次,避免「删两个工作区」时状态互相覆盖。
+      if (this.pendingWorkspaceDelete) await this.commitWorkspaceDelete(this.pendingWorkspaceDelete.batchId)
+      if (this.pendingAssetDelete) await this.commitAssetDelete(this.pendingAssetDelete.batchId)
+
+      // 属于该工作区的进行中请求先收口,否则删完还会写回结果。
+      if (this.activeGeneration?.workspaceId === id) await this.cancelAndWaitActiveGeneration()
+
+      const genRecords = this.generations.filter((g) => g.workspaceId === id)
+      const previousActiveWorkspaceId = this.activeWorkspaceId
+      const previousConversationId = this.conversationId
+
+      this.workspaces = this.workspaces.filter((w) => w.id !== id)
+      this.generations = this.generations.filter((g) => g.workspaceId !== id)
+      // 该工作区的排队任务随工作区一起作废,否则删完工作区还会继续往后写结果。
+      this.generationQueue = this.generationQueue.filter((item) => item.workspaceId !== id)
+
+      const wait = Math.max(0, Number(delayMs) || 0)
+      const batchId = newId('ws-delete')
+      const timer = setTimeout(() => { void this.commitWorkspaceDelete(batchId) }, wait)
+      this.pendingWorkspaceDelete = {
+        batchId,
+        id,
+        workspace,
+        genRecords,
+        previousActiveWorkspaceId,
+        previousConversationId,
+        timer,
+        expiresAt: Date.now() + wait,
+      }
+
+      if (previousActiveWorkspaceId === id) {
+        const next = this.workspaces[0]?.id
+        if (next) await this.switchWorkspace(next)
+      }
+      return { ok: true, batchId, name: workspace.name, count: genRecords.length }
+    },
+
+    async undoWorkspaceDelete(batchId) {
+      const pending = this.pendingWorkspaceDelete
+      if (!pending || pending.batchId !== batchId) return false
+      clearTimeout(pending.timer)
+      this.pendingWorkspaceDelete = null
+      this.workspaces = [pending.workspace, ...this.workspaces]
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      this.generations = [...this.generations, ...pending.genRecords]
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      // 撤销前如果正停在这个工作区,把用户带回原处,避免「撤销了却不知道去哪看」。
+      if (pending.previousActiveWorkspaceId === pending.id) {
+        await this.switchWorkspace(pending.id)
+        if (pending.previousConversationId) this.switchConversation(pending.previousConversationId)
+      }
+      return true
+    },
+
+    async commitWorkspaceDelete(batchId) {
+      const pending = this.pendingWorkspaceDelete
+      if (!pending || pending.batchId !== batchId) return false
+      clearTimeout(pending.timer)
+      this.pendingWorkspaceDelete = null
+      try {
+        await this._commitWorkspaceCascade(pending.id, pending.genRecords.map((g) => g.id))
+        return true
+      } catch (error) {
+        // 落库失败:把工作区放回去,并明确告知,避免「看起来删了其实还在」。
+        this.workspaces = [pending.workspace, ...this.workspaces]
+          .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+        this.generations = [...this.generations, ...pending.genRecords]
+          .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+        this.lastError = `删除工作区失败：${error?.message || error}`
+        await this.refreshAll().catch(() => {})
+        return false
+      }
+    },
+
+    // 立即删除(无撤销窗口):软删 + 直接提交,供程序化调用方复用同一套级联逻辑。
     async deleteWorkspace(id) {
-      // 至少保留一个工作区
       if (this.workspaces.length <= 1) return
-      // 工作区删除是立即生效的破坏性操作,先收口素材撤销批次,避免定时器在切换后异步删除。
-      if (this.pendingAssetDelete) {
-        await this.commitAssetDelete(this.pendingAssetDelete.batchId)
-      }
+      const result = await this.deleteWorkspaceWithUndo(id, 0)
+      if (result?.batchId) await this.commitWorkspaceDelete(result.batchId)
+    },
 
-      // 级联:删该工作区下全部 generation + 可连带删除的产出图 + 未再被引用的素材。
-      // 与确认框文案一致,避免只删元数据留下孤儿数据占空间。
-      let genIds = this.generations.filter((g) => g.workspaceId === id).map((g) => g.id)
-
-      // 先取消进行中的生成(若属于本工作区)，等待收口后重新取列表，覆盖 pending 刚落库的窗口。
-      if (this.activeGeneration?.workspaceId === id || (this.activeGeneration && genIds.includes(this.activeGeneration.genId))) {
-        await this.cancelAndWaitActiveGeneration()
-        genIds = this.generations.filter((g) => g.workspaceId === id).map((g) => g.id)
-      }
+    // 级联:删该工作区下全部 generation + 可连带删除的产出图 + 未再被引用的素材。
+    // 与确认框文案一致,避免只删元数据留下孤儿数据占空间。
+    async _commitWorkspaceCascade(id, genIds) {
       // 清掉该工作区相关的软删定时器,直接提交
       for (const gid of genIds) {
         const p = this.pendingDeletes[gid]
@@ -265,9 +349,6 @@ export const useWorkbenchStore = defineStore('workbench', {
       await repoDeleteWs(id)
       this.workspaces = await listWorkspaces()
       await this.refreshAll()
-      if (this.activeWorkspaceId === id) {
-        await this.switchWorkspace(this.workspaces[0].id)
-      }
     },
 
     // 切换工作区(刷新中间和右侧视图)。
@@ -291,7 +372,12 @@ export const useWorkbenchStore = defineStore('workbench', {
       ])
       const pendingIds = new Set(this.pendingAssetDelete?.ids || [])
       this.assets = assets.filter((asset) => !pendingIds.has(asset.id))
-      this.generations = generations
+      // 待撤销的会话:库里还在,但界面上必须保持「已删除」,否则一次刷新就会把它带回列表。
+      const pendingConv = new Set((this.pendingConversationDelete?.entries || [])
+        .map((entry) => `${entry.workspaceId}::${entry.conversationId}`))
+      this.generations = pendingConv.size
+        ? generations.filter((g) => !pendingConv.has(`${g.workspaceId}::${convIdOf(g)}`))
+        : generations
       this.usage = usage
     },
 
@@ -333,7 +419,8 @@ export const useWorkbenchStore = defineStore('workbench', {
       try { ag.controller.abort() } catch { /* ignore */ }
     },
 
-    async generate({ prompt, fullPrompt, refImageIds = [], params = {} }) {
+    // context 允许队列把结果写回「发起排队时」的工作区/会话,而不是当前正在看的上下文。
+    async generate({ prompt, fullPrompt, refImageIds = [], params = {} }, context = null) {
       if (!this.activePreset) {
         this.lastError = '请先添加并选择一个接口预设。'
         return { ok: false }
@@ -348,13 +435,15 @@ export const useWorkbenchStore = defineStore('workbench', {
       }
       this.generating = true
       this.lastError = null
+      const workspaceId = context?.workspaceId ?? this.activeWorkspaceId
+      const conversationId = context?.conversationId ?? this.conversationId
       const controller = new AbortController()
       let resolveDone
       const done = new Promise((resolve) => { resolveDone = resolve })
       this.activeGeneration = {
         genId: null,
-        conversationId: this.conversationId,
-        workspaceId: this.activeWorkspaceId,
+        conversationId,
+        workspaceId,
         controller,
         done,
       }
@@ -363,8 +452,8 @@ export const useWorkbenchStore = defineStore('workbench', {
         const gen = await runGeneration({
           preset: this.activePreset, prompt, refImageIds,
           fullPrompt: fullPrompt || prompt,
-          params: { ...params, conversationId: this.conversationId },
-          workspaceId: this.activeWorkspaceId,
+          params: { ...params, conversationId },
+          workspaceId,
           signal: controller.signal,
           // 乐观上屏:pending 记录落库后立即插入内存,请求瞬间可见。
           onPending: (pending) => {
@@ -395,7 +484,67 @@ export const useWorkbenchStore = defineStore('workbench', {
         resolveDone()
         this.generating = false
         this.activeGeneration = null
+        // 队列自动续跑:刻意不 await,避免把调用方挂在下一单任务上。
+        void this.processGenerationQueue()
       }
+    },
+
+    // ── 生成队列 ──
+    // 排队只发生在「已有任务在跑」时;空闲提交仍走 generate(),保持原有即时反馈。
+    enqueueGeneration(payload) {
+      if (!this.activePreset) return { ok: false, reason: 'no-preset' }
+      if (!this.activePreset.apiKey) return { ok: false, reason: 'no-key' }
+      const text = String(payload?.prompt || '').trim()
+      if (!text) return { ok: false, reason: 'empty-prompt' }
+      if (this.generationQueue.length >= MAX_GENERATION_QUEUE) {
+        return { ok: false, reason: 'full', max: MAX_GENERATION_QUEUE }
+      }
+      const item = {
+        id: newId('queue'),
+        prompt: text,
+        fullPrompt: payload.fullPrompt || text,
+        refImageIds: [...(payload.refImageIds || [])],
+        params: { ...(payload.params || {}) },
+        workspaceId: this.activeWorkspaceId,
+        conversationId: this.conversationId,
+        createdAt: Date.now(),
+      }
+      this.generationQueue = [...this.generationQueue, item]
+      return { ok: true, item, position: this.generationQueue.length }
+    },
+
+    removeQueuedGeneration(id) {
+      const before = this.generationQueue.length
+      this.generationQueue = this.generationQueue.filter((item) => item.id !== id)
+      return this.generationQueue.length !== before
+    },
+
+    // 把某一项提到最前,让它成为下一单开跑的任务。
+    promoteQueuedGeneration(id) {
+      const item = this.generationQueue.find((q) => q.id === id)
+      if (!item) return false
+      this.generationQueue = [item, ...this.generationQueue.filter((q) => q.id !== id)]
+      return true
+    },
+
+    clearGenerationQueue() {
+      this.generationQueue = []
+    },
+
+    async processGenerationQueue() {
+      if (this.generating) return
+      const [next, ...rest] = this.generationQueue
+      if (!next) return
+      this.generationQueue = rest
+      await this.generate(
+        {
+          prompt: next.prompt,
+          fullPrompt: next.fullPrompt,
+          refImageIds: next.refImageIds,
+          params: next.params,
+        },
+        { workspaceId: next.workspaceId, conversationId: next.conversationId },
+      )
     },
 
     // 重新生成:复制某条生成的入参,起一次新事件(落当前会话)。
@@ -497,35 +646,119 @@ export const useWorkbenchStore = defineStore('workbench', {
       if (deletable.length) await deleteAssets(deletable)
     },
 
-    // ── 删除整段会话(立即,连带删图)──
-    async deleteConversation(id) {
+    // ── 删除整段会话(带撤销窗口)──
+    // 立即从界面移除并暂存记录,窗口结束才落库删记录 + 连带删图。
+    // 与「删除单条生成」「删除素材」保持同一套 5 秒撤销语义。
+    async deleteConversationWithUndo(id, delayMs = 5000) {
+      if (!id) return { ok: false }
       const targetWorkspaceId = this.activeWorkspaceId
         || this.activeGeneration?.workspaceId
         || this.generations.find((g) => convIdOf(g) === id)?.workspaceId
-      let ids = this.generations
-        .filter((g) => g.workspaceId === targetWorkspaceId && convIdOf(g) === id)
-        .map((g) => g.id)
+      let records = this.generations.filter((g) => g.workspaceId === targetWorkspaceId && convIdOf(g) === id)
       // 删除包含活跃生成的会话时先中止并等待；随后重新取列表，覆盖 pending 刚落库的窗口。
-      if (this.activeGeneration?.conversationId === id || (this.activeGeneration && ids.includes(this.activeGeneration.genId))) {
+      if (this.activeGeneration?.conversationId === id
+        || (this.activeGeneration && records.some((g) => g.id === this.activeGeneration.genId))) {
         await this.cancelAndWaitActiveGeneration()
-        ids = this.generations
-          .filter((g) => g.workspaceId === targetWorkspaceId && convIdOf(g) === id)
-          .map((g) => g.id)
+        records = this.generations.filter((g) => g.workspaceId === targetWorkspaceId && convIdOf(g) === id)
       }
-      await this._deleteGensAndOrphans(ids)
-      // 清除该会话的标题覆盖
-      if (this.titleOverrides[id]) {
-        const { [id]: _drop, ...rest } = this.titleOverrides
-        this.titleOverrides = rest
-        saveTitleOverrides(this.titleOverrides)
+      // 该会话排队中的任务一并作废
+      this.generationQueue = this.generationQueue.filter(
+        (item) => !(item.workspaceId === targetWorkspaceId && item.conversationId === id),
+      )
+
+      const title = this.titleOverrides[id]
+        || records[0]?.prompt?.slice(0, 24)
+        || '新创作'
+
+      // 空会话(草稿)没有记录要删,直接切走即可,不必给一个假的撤销窗口。
+      if (!records.length) {
+        this._removeConversationTitleOverride(id)
+        this._leaveDeletedConversation(id, targetWorkspaceId)
+        return { ok: true, batchId: null, genIds: [], empty: true }
       }
-      await this.refreshAll()
-      // 若删的是当前会话,切到最近的其他会话;无则新建空会话
-      if (this.conversationId === id) {
-        const next = this.workspaceConversations[0]?.id
-        if (next) this.switchConversation(next)
-        else this.newConversation()
+
+      const genIds = records.map((g) => g.id)
+      this.generations = this.generations.filter((g) => !genIds.includes(g.id))
+
+      const current = this.pendingConversationDelete
+      if (current?.timer) clearTimeout(current.timer)
+      const entries = [...(current?.entries || [])]
+      if (!entries.some((e) => e.conversationId === id && e.workspaceId === targetWorkspaceId)) {
+        entries.push({ workspaceId: targetWorkspaceId, conversationId: id, title })
       }
+      const batchId = current?.batchId || newId('conv-delete')
+      const mergedRecords = [...(current?.records || []), ...records]
+      const mergedGenIds = [...(current?.genIds || []), ...genIds]
+      const wait = Math.max(0, Number(delayMs) || 0)
+      const timer = setTimeout(() => { void this.commitConversationDelete(batchId) }, wait)
+      this.pendingConversationDelete = {
+        batchId,
+        entries,
+        genIds: mergedGenIds,
+        records: mergedRecords,
+        timer,
+        expiresAt: Date.now() + wait,
+      }
+      this._removeConversationTitleOverride(id)
+      if (this.conversationId === id) this._leaveDeletedConversation(id, targetWorkspaceId)
+      return { ok: true, batchId, genIds, count: records.length, title }
+    },
+
+    _removeConversationTitleOverride(id) {
+      if (!this.titleOverrides[id]) return
+      const { [id]: _drop, ...rest } = this.titleOverrides
+      this.titleOverrides = rest
+      saveTitleOverrides(this.titleOverrides)
+    },
+
+    // 删掉当前会话后,切到该工作区最近的其他会话;没有就新建空会话。
+    _leaveDeletedConversation(deletedId, workspaceId) {
+      if (this.conversationId !== deletedId) return
+      if (workspaceId && workspaceId !== this.activeWorkspaceId) return
+      const next = this.generations
+        .filter((g) => g.workspaceId === this.activeWorkspaceId)
+        .map((g) => convIdOf(g))
+        .find((cid) => cid && cid !== deletedId)
+      if (next) this.switchConversation(next)
+      else this.newConversation()
+    },
+
+    undoConversationDelete(batchId) {
+      const pending = this.pendingConversationDelete
+      if (!pending || pending.batchId !== batchId) return false
+      clearTimeout(pending.timer)
+      this.pendingConversationDelete = null
+      // 记录回填后按 createdAt 倒序,与 listGenerations 的顺序保持一致。
+      this.generations = [...this.generations, ...pending.records]
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      return true
+    },
+
+    async commitConversationDelete(batchId) {
+      const pending = this.pendingConversationDelete
+      if (!pending || pending.batchId !== batchId) return false
+      clearTimeout(pending.timer)
+      this.pendingConversationDelete = null
+      try {
+        await this._deleteGensAndOrphans(pending.genIds, [...pending.records, ...this.generations])
+        await this.refreshAll()
+        return true
+      } catch (error) {
+        // 落库失败就把记录放回去,不能让用户以为删掉了、数据却还在(或反之)。
+        this.generations = [...this.generations, ...pending.records]
+          .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+        this.lastError = `删除会话失败：${error?.message || error}`
+        await this.refreshAll().catch(() => {})
+        return false
+      }
+    },
+
+    // ── 删除整段会话(立即,连带删图)──
+    // 走同一条软删逻辑,只是把窗口压成 0 并立刻提交,避免两套实现漂移。
+    async deleteConversation(id) {
+      const result = await this.deleteConversationWithUndo(id, 0)
+      if (result?.batchId) await this.commitConversationDelete(result.batchId)
+      return result
     },
 
     // ── 重命名会话 ──
@@ -545,6 +778,11 @@ export const useWorkbenchStore = defineStore('workbench', {
       this.pendingDeletes = {}
       if (this.pendingAssetDelete) clearTimeout(this.pendingAssetDelete.timer)
       this.pendingAssetDelete = null
+      if (this.pendingConversationDelete) clearTimeout(this.pendingConversationDelete.timer)
+      this.pendingConversationDelete = null
+      if (this.pendingWorkspaceDelete) clearTimeout(this.pendingWorkspaceDelete.timer)
+      this.pendingWorkspaceDelete = null
+      this.generationQueue = []
       await clearAllGenerations()
       await clearAllAssets()
       this.titleOverrides = {}
@@ -580,8 +818,12 @@ export const useWorkbenchStore = defineStore('workbench', {
         const asset = this.assets.find((item) => item.id === id)
         return !this.activeWorkspaceId || asset?.workspaceId === this.activeWorkspaceId
       })
-      // 生成记录软删期间仍在 IndexedDB 中引用素材,所以也必须阻止素材删除。
-      const pendingGenerations = Object.values(this.pendingDeletes).map((item) => item.record).filter(Boolean)
+      // 生成记录/会话软删期间,记录仍在 IndexedDB 里引用素材,所以也必须阻止素材删除。
+      const pendingGenerations = [
+        ...Object.values(this.pendingDeletes).map((item) => item.record),
+        ...(this.pendingConversationDelete?.records || []),
+        ...(this.pendingWorkspaceDelete?.genRecords || []),
+      ].filter(Boolean)
       const generations = [
         ...this.generations,
         ...pendingGenerations.filter((record) => !this.generations.some((g) => g.id === record.id)),

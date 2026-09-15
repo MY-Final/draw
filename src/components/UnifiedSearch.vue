@@ -2,9 +2,10 @@
 // 统一搜索(⌘K 面板):跨工作区搜索会话/prompt/素材/工作区。
 import { ref, computed, watch, nextTick } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench.js'
-import { deriveConversations } from '../lib/conversations.js'
+import { deriveConversations, convIdOf } from '../lib/conversations.js'
 import { getAllPrompts } from '../lib/promptLibrary.js'
 import AppIcon from './AppIcon.vue'
+import AssetImage from './AssetImage.vue'
 
 const store = useWorkbenchStore()
 const props = defineProps({ visible: Boolean })
@@ -46,9 +47,17 @@ function buildIndex() {
     if (!ws) continue
     const convs = deriveConversations(gens, titleOverrides)
     for (const c of convs) {
+      // 会话结果带一张最近产出图:跨工作区找「那张图」时,缩略图比标题好认得多。
+      const recentOutputId = gens
+        .filter((g) => convIdOf(g) === c.id)
+        .map((g) => (g.outputImageIds || [])[0])
+        .find(Boolean)
+      const thumb = recentOutputId
+        ? store.assets.find((a) => a.id === recentOutputId) || null
+        : null
       items.push({
         type: 'conversation', id: c.id, label: c.title,
-        subtitle: ws.name, wsId, convId: c.id,
+        subtitle: ws.name, wsId, convId: c.id, thumb,
       })
     }
   }
@@ -173,6 +182,13 @@ function onKeydown(e) {
   }
 }
 
+// 素材结果是素材本体;会话结果是它最近一张产出图。
+function thumbOf(item) {
+  if (item.type === 'asset') return item.asset || null
+  if (item.type === 'conversation') return item.thumb || null
+  return null
+}
+
 function jumpTo(item) {
   emit('jump', item)
   close()
@@ -218,7 +234,14 @@ buildIndex()
               @click="jumpTo(r)"
               @mouseenter="selectedIdx = i"
             >
-              <AppIcon :name="r.type === 'prompt' ? 'star' : r.type === 'workspace' ? 'folder' : 'image'" :size="14" />
+              <span v-if="thumbOf(r)" class="result-thumb" aria-hidden="true">
+                <AssetImage :asset="thumbOf(r)" :alt="r.label" />
+              </span>
+              <AppIcon
+                v-else
+                :name="r.type === 'prompt' ? 'star' : r.type === 'workspace' ? 'folder' : 'image'"
+                :size="14"
+              />
               <span class="result-label">{{ r.label }}</span>
               <span class="result-subtitle">{{ r.subtitle }}</span>
             </button>
@@ -298,6 +321,12 @@ buildIndex()
 }
 .result-item:hover, .result-item.focused { background: var(--color-surface-2); color: var(--color-fg); }
 .result-item :deep(svg) { flex-shrink: 0; }
+.result-thumb {
+  flex-shrink: 0; width: 32px; height: 32px; border-radius: 7px;
+  overflow: hidden; border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+}
+.result-thumb :deep(.asset-img) { width: 100%; height: 100%; object-fit: cover; }
 
 .result-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .result-subtitle { font-size: 11px; color: var(--color-fg-subtle); flex-shrink: 0; margin-left: auto; }
