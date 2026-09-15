@@ -398,8 +398,7 @@ function openStorage() {
   gap: var(--space-3);
   padding: var(--space-4);
   border-right: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
-  backdrop-filter: blur(12px);
+  background: var(--color-surface);
   overflow: hidden;
   min-height: 0;
 }
@@ -420,22 +419,12 @@ function openStorage() {
   align-items: center;
   justify-content: center;
   color: var(--color-on-primary);
-  background: linear-gradient(145deg, var(--color-primary-hover), var(--color-primary));
-  box-shadow:
-    0 1px 0 color-mix(in srgb, #fff 22%, transparent) inset,
-    0 8px 18px color-mix(in srgb, var(--color-primary) 32%, transparent);
+  background: var(--color-primary);
   flex-shrink: 0;
   overflow: hidden;
 }
 .logo-mark-glow {
-  position: absolute;
-  inset: -30% -20% auto auto;
-  width: 70%;
-  height: 70%;
-  border-radius: 50%;
-  background: color-mix(in srgb, #fff 28%, transparent);
-  filter: blur(6px);
-  pointer-events: none;
+  display: none;
 }
 .logo-copy {
   display: flex;
@@ -502,17 +491,15 @@ function openStorage() {
 .dock {
   flex-shrink: 0;
   padding: var(--space-3) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
-  background: color-mix(in srgb, var(--color-bg) 94%, transparent);
-  backdrop-filter: blur(10px);
-  border-top: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-border);
 }
 
 .assets {
   position: relative;
   width: 300px;
   border-left: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
-  backdrop-filter: blur(12px);
+  background: var(--color-surface);
   transition: width var(--dur) var(--ease-out);
   min-height: 0;
 }
@@ -532,7 +519,6 @@ function openStorage() {
   background: var(--color-elevated);
   border: 1px solid var(--color-border-strong);
   color: var(--color-fg-muted);
-  box-shadow: var(--shadow-1);
   z-index: 5;
   transition: color var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
@@ -557,7 +543,6 @@ function openStorage() {
   width: min(86vw, 320px); height: 100%;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
-  box-shadow: var(--shadow-pop);
   display: flex; flex-direction: column;
   padding: var(--space-3);
   gap: var(--space-3);
@@ -590,8 +575,7 @@ function openStorage() {
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid var(--color-border);
-    background: color-mix(in srgb, var(--color-surface) 92%, transparent);
-    backdrop-filter: blur(12px);
+    background: var(--color-surface);
     min-height: 52px;
   }
   .mobile-brand {
@@ -620,7 +604,6 @@ function openStorage() {
   justify-content: center;
   background: var(--color-surface-2);
   color: var(--color-primary);
-  box-shadow: var(--shadow-2);
   border: 1px solid color-mix(in srgb, var(--color-primary) 42%, var(--color-border-strong));
 }
 @media (max-width: 1024px) {
@@ -643,7 +626,6 @@ function openStorage() {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: var(--shadow-pop);
 }
 .mobile-assets-handle {
   width: 40px;

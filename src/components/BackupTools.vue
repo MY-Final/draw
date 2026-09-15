@@ -15,6 +15,7 @@ const emit = defineEmits(['recipe-imported', 'close'])
 const busy = ref('')
 const toast = ref(null)
 const confirmReset = ref(false)
+const confirmClearImages = ref(false)
 const persisted = ref(null) // null = 未检测, true/false
 const modal = ref(null)
 useDialogA11y(modal, () => { if (!confirmReset.value) emit('close') })
@@ -100,6 +101,19 @@ async function doReset() {
   } catch (e) {
     await store.refreshAll().catch(() => {})
     showToast(`清空失败：${e?.message || '请重试'}`, 'danger')
+  }
+  finally { busy.value = '' }
+}
+
+async function doClearImages() {
+  confirmClearImages.value = false
+  busy.value = 'images'
+  try {
+    await store.clearStoredImages()
+    showToast('已清理本机图片,生成记录仍保留')
+  } catch (e) {
+    await store.refreshAll().catch(() => {})
+    showToast(`清理图片失败：${e?.message || '请重试'}`, 'danger')
   }
   finally { busy.value = '' }
 }
@@ -190,15 +204,36 @@ onMounted(() => {
 
         <section class="dp-section dp-danger">
           <div class="sec-title">危险区</div>
-          <p class="helper">清空全部素材与生成记录,保留接口预设与 Key。不可撤销。</p>
-          <button class="btn btn-sm btn-danger full" @click="confirmReset = true" :disabled="busy === 'r'">
-            <AppIcon name="trash" :size="13" /> 清空全部
-          </button>
+          <div class="danger-action">
+            <div>
+              <strong>清空本机图片</strong>
+              <p class="helper">删除浏览器中保存的全部图片,保留生成记录、Prompt 和接口配置。</p>
+            </div>
+            <button class="btn btn-sm btn-danger full" @click="confirmClearImages = true" :disabled="busy || !store.assets.length">
+              <AppIcon name="trash" :size="13" /> 清空图片
+            </button>
+          </div>
+          <div class="danger-action">
+            <div>
+              <strong>清空全部数据</strong>
+              <p class="helper">同时删除图片和生成记录,保留接口预设与 Key。不可撤销。</p>
+            </div>
+            <button class="btn btn-sm btn-danger full" @click="confirmReset = true" :disabled="busy || (!store.assets.length && !store.generations.length)">
+              <AppIcon name="trash" :size="13" /> 清空全部
+            </button>
+          </div>
         </section>
       </div>
 
       <div v-if="toast" class="toast" :class="`toast-${toast.kind}`" role="status" aria-live="polite">{{ toast.msg }}</div>
 
+      <ConfirmDialog
+        v-if="confirmClearImages"
+        title="清空本机图片"
+        :message="`将永久删除浏览器中保存的全部 ${store.assets.length} 张图片。生成记录、Prompt、工作区和接口预设会保留,但历史结果将无法再查看图片。此操作不可撤销。`"
+        confirm-text="清空图片" danger
+        @confirm="doClearImages" @cancel="confirmClearImages = false"
+      />
       <ConfirmDialog
         v-if="confirmReset"
         title="清空全部"
@@ -216,7 +251,6 @@ onMounted(() => {
   background: var(--color-scrim);
   display: flex; align-items: center; justify-content: center;
   padding: var(--space-4);
-  backdrop-filter: blur(3px);
   animation: fade 160ms var(--ease);
 }
 .modal {
@@ -226,7 +260,6 @@ onMounted(() => {
   background: var(--color-elevated);
   border: 1px solid var(--color-border-strong);
   border-radius: 18px;
-  box-shadow: var(--shadow-pop);
   overflow: hidden;
   animation: pop 200ms var(--ease-out);
   position: relative;
@@ -266,7 +299,7 @@ onMounted(() => {
 
 .usage-bar-wrap { margin: var(--space-1) 0; }
 .usage-bar { height: 6px; border-radius: 999px; background: var(--color-surface-2); overflow: hidden; border: 1px solid var(--color-border); }
-.usage-fill { height: 100%; background: linear-gradient(90deg, var(--color-primary), var(--color-accent)); transition: width var(--dur) var(--ease); border-radius: 999px; }
+.usage-fill { height: 100%; background: var(--color-primary); transition: width var(--dur) var(--ease); border-radius: 999px; }
 
 .health-row { display: flex; align-items: center; gap: var(--space-2); font-size: 13px; font-weight: 500; }
 .health-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
@@ -293,13 +326,17 @@ onMounted(() => {
 .full { width: 100%; }
 
 .dp-danger .sec-title { font-size: 12px; font-weight: 600; color: var(--color-destructive); }
+.danger-action { display: flex; flex-direction: column; gap: 8px; }
+.danger-action + .danger-action { padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--color-destructive) 16%, var(--color-border)); }
+.danger-action strong { font-size: 13px; font-weight: 600; color: var(--color-fg); }
+.danger-action .helper { margin: 3px 0 0; }
 .btn-danger.full { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 
 .toast {
   position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
   z-index: 5; padding: 10px 14px; border-radius: 999px;
   background: var(--color-elevated); border: 1px solid var(--color-border-strong);
-  box-shadow: var(--shadow-2); font-size: 13px; white-space: nowrap;
+  font-size: 13px; white-space: nowrap;
 }
 .toast-danger { border-color: var(--color-destructive); }
 .toast-warn { border-color: var(--color-warning); }

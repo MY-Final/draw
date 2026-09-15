@@ -258,7 +258,6 @@ const vFocus = { mounted: (el) => el.focus() }
 .side-top { display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; flex: 1; overflow: hidden; }
 .new-btn {
   width: 100%; border-radius: 999px; flex-shrink: 0;
-  box-shadow: 0 6px 16px color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 
 .block {
@@ -387,7 +386,7 @@ const vFocus = { mounted: (el) => el.focus() }
 }
 
 /* 菜单 */
-.menu { position: absolute; top: calc(100% - 2px); right: 4px; z-index: 20; min-width: 140px; padding: var(--space-1); background: var(--color-elevated); border: 1px solid var(--color-border-strong); border-radius: var(--radius); box-shadow: var(--shadow-pop); display: flex; flex-direction: column; gap: 1px; }
+.menu { position: absolute; top: calc(100% - 2px); right: 4px; z-index: 20; min-width: 140px; padding: var(--space-1); background: var(--color-elevated); border: 1px solid var(--color-border-strong); border-radius: var(--radius); display: flex; flex-direction: column; gap: 1px; }
 .ws-menu { top: 100%; right: 2px; }
 .conv-menu { right: 2px; }
 .menu-item { display: flex; align-items: center; gap: var(--space-2); width: 100%; text-align: left; padding: 8px 10px; border-radius: var(--radius-sm); font-size: 13px; color: var(--color-fg-muted); }

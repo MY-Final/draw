@@ -55,6 +55,7 @@ const store = useWorkbenchStore()
 const emit = defineEmits(['open-settings', 'preview'])
 
 const prompt = ref('')
+const MAX_PROMPT_LENGTH = 1000
 const composerInput = ref(null)
 const paramsSummaryButton = ref(null)
 const presetButton = ref(null)
@@ -110,6 +111,14 @@ const missingKey = computed(() => !!(store.activePreset && !store.activePreset.a
 const canGenerate = computed(() =>
   !!prompt.value.trim() && !!store.activePreset && !missingKey.value && !store.generating
 )
+const promptLength = computed(() => prompt.value.length)
+const promptPlaceholder = computed(() => refAssets.value.length
+  ? '输入提示词，配合参考图生成新画面…'
+  : '描述你脑海中的画面，例如：雨夜霓虹街头，毛玻璃质感…')
+const promptLengthClass = computed(() => ({
+  'near-limit': promptLength.value >= MAX_PROMPT_LENGTH * 0.9,
+  'at-limit': promptLength.value >= MAX_PROMPT_LENGTH,
+}))
 
 function loadSavedPrompts() {
   savedPrompts.value = getAllPrompts(store.activeWorkspaceId).slice(0, 50)
@@ -182,8 +191,13 @@ function saveCurrentPrompt() {
 }
 
 function fillPrompt(text) {
-  prompt.value = text
+  prompt.value = String(text || '')
   showPromptLib.value = false
+  nextTick(() => composerInput.value?.focus())
+}
+
+function clearPrompt() {
+  prompt.value = ''
   nextTick(() => composerInput.value?.focus())
 }
 
@@ -389,7 +403,7 @@ function applyPrefill(prefill) {
     showReferenceNotice(`配方最多支持 ${MAX_REFERENCES} 张参考图，未载入。`)
     return
   }
-  prompt.value = prefill.prompt || ''
+  prompt.value = String(prefill.prompt || '')
   // 「填入输入框」场景:始终展开画质/数量,避免用户改参时还要再点「更多」。
   moreParamsOpen.value = true
   if (prefill.params?.size) {
@@ -483,6 +497,13 @@ function autogrow(e) {
   if (!el) return
   el.style.height = 'auto'
   el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+}
+
+function onPromptInput(e) {
+  if (prompt.value.length > MAX_PROMPT_LENGTH) {
+    prompt.value = prompt.value.slice(0, MAX_PROMPT_LENGTH)
+  }
+  autogrow(e)
 }
 
 // 程序化改 prompt(清空/填回输入框/导入配方)不会触发 @input,
@@ -607,13 +628,30 @@ function onErrorAction() {
       </div>
 
       <!-- Prompt 是主操作;参数默认收起,只保留一个摘要入口。 -->
-      <textarea
-        ref="composerInput"
-        v-model="prompt" rows="3" class="composer-input"
-        placeholder="描述你想画的画面…"
-        @input="autogrow"
-        @keydown.enter="onEnter"
-      />
+      <div class="composer-input-wrap">
+        <textarea
+          ref="composerInput"
+          v-model="prompt" rows="3" class="composer-input"
+          :maxlength="MAX_PROMPT_LENGTH"
+          :placeholder="promptPlaceholder"
+          aria-label="描述要生成的画面"
+          @input="onPromptInput"
+          @keydown.enter="onEnter"
+        />
+        <div id="composer-input-meta" class="composer-input-meta">
+          <button
+            v-if="prompt"
+            type="button"
+            class="clear-prompt"
+            aria-label="清空提示词"
+            title="清空提示词"
+            @click="clearPrompt"
+          >
+            <AppIcon name="x" :size="12" />
+          </button>
+          <span class="char-count" :class="promptLengthClass" aria-live="polite">{{ promptLength }}/{{ MAX_PROMPT_LENGTH }}</span>
+        </div>
+      </div>
 
       <div class="params-section">
         <button
@@ -832,10 +870,9 @@ function onErrorAction() {
   position: absolute; inset: 0; z-index: 30;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px; border-radius: 20px;
-  background: color-mix(in srgb, var(--color-bg) 80%, transparent);
+  background: var(--color-surface);
   border: 2px dashed var(--color-primary);
   color: var(--color-primary); font-size: 14px; font-weight: 650;
-  backdrop-filter: blur(3px);
   pointer-events: none;
 }
 .hint {
@@ -897,8 +934,7 @@ function onErrorAction() {
 .ref-items { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .ref-thumb {
   position: relative; width: 76px; height: 76px; border-radius: 12px;
-  overflow: hidden; border: 1px solid var(--color-border-strong);
-  box-shadow: var(--shadow-1); cursor: grab;
+  overflow: hidden; border: 1px solid var(--color-border-strong); cursor: grab;
   transition: opacity var(--dur) var(--ease), outline-color var(--dur) var(--ease);
 }
 .ref-thumb:active { cursor: grabbing; }
@@ -917,14 +953,13 @@ function onErrorAction() {
   position: absolute; top: 3px; left: 3px;
   width: auto; min-height: 0; font-size: 10px; font-weight: 700; line-height: 1;
   padding: 3px 5px; border: 0; border-radius: 5px;
-  color: #fff; background: rgba(0,0,0,0.62); backdrop-filter: blur(4px);
+  color: #fff; background: rgba(0,0,0,0.62);
   text-align: center; pointer-events: none;
 }
 .ref-remove {
   position: absolute; top: 4px; right: 4px; width: 22px; height: 22px;
   display: flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,0.5); color: #fff; border-radius: 999px;
-  backdrop-filter: blur(4px);
   opacity: 0.55;
   transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
@@ -961,25 +996,40 @@ function onErrorAction() {
 }
 
 .composer {
-  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+  background: var(--color-surface);
   border: 1px solid var(--color-border-strong);
   border-radius: 18px;
   padding: 12px 14px 10px;
-  box-shadow: var(--shadow-2);
-  backdrop-filter: blur(16px);
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  transition: border-color var(--dur) var(--ease);
 }
 .composer:focus-within {
   border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border-strong));
-  box-shadow: var(--shadow-glow);
 }
 .composer.disabled { opacity: 0.72; }
+.composer-input-wrap { position: relative; }
 .composer-input {
   min-height: 80px; height: 80px; box-sizing: border-box;
-  border: none; background: transparent; padding: 8px 4px;
+  border: none; background: transparent; padding: 8px 4px 30px;
   font-size: 15px; max-height: 200px; overflow-y: auto; line-height: 1.5;
 }
 .composer-input:focus { outline: none; }
+.composer-input-meta {
+  position: absolute; right: 2px; bottom: 3px;
+  display: flex; align-items: center; gap: 5px;
+  color: var(--color-fg-muted); font-size: 11px; line-height: 1;
+  pointer-events: none;
+}
+.char-count { font-variant-numeric: tabular-nums; }
+.char-count.near-limit { color: var(--color-warning); }
+.char-count.at-limit { color: var(--color-destructive); font-weight: 600; }
+.clear-prompt {
+  width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--color-border); border-radius: 6px;
+  color: var(--color-fg-muted); background: var(--color-surface-2);
+  pointer-events: auto;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.clear-prompt:hover { color: var(--color-fg); border-color: var(--color-border-strong); background: var(--color-elevated); }
 
 .composer-bar {
   display: flex; align-items: center; gap: var(--space-2); margin-top: 8px; padding-top: 8px;
@@ -1042,24 +1092,20 @@ function onErrorAction() {
   border: 1px solid transparent; color: var(--color-fg-muted);
   background: var(--color-surface-2);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
-    border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+    border-color var(--dur) var(--ease);
 }
 .tag:hover { color: var(--color-fg); background: var(--color-elevated); }
 .tag.active {
-  /* 比例维度:primary 蓝 — 描边 + 柔和底 + 微光,不再纯黑底白字 */
+  /* 比例维度:primary 蓝 — 用描边和浅色底突出当前选择 */
   color: var(--color-primary);
   border-color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent),
-    0 4px 12px color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 .tag.accent-tag.active {
   /* 画质/分辨率维度:accent 绿,与比例维度区分 */
   color: var(--color-accent);
   border-color: var(--color-accent);
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 15%, transparent),
-    0 4px 12px color-mix(in srgb, var(--color-accent) 22%, transparent);
 }
 .preset-tag { font-weight: 600; padding: 6px 12px; }
 .n-stepper { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
@@ -1085,10 +1131,6 @@ function onErrorAction() {
 .n-input::-webkit-outer-spin-button,
 .n-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .n-input { -moz-appearance: textfield; }
-.tnum {
-  width: 52px; min-height: 30px; border-radius: 999px;
-  background: var(--color-surface-2); border-color: transparent; text-align: center;
-}
 .proto-tip {
   font-size: 11px; color: var(--color-fg-subtle);
   padding: 4px 2px; font-weight: 550;
@@ -1117,7 +1159,7 @@ function onErrorAction() {
   width: min(300px, 80vw); max-height: 300px; overflow-y: auto;
   padding: var(--space-1);
   background: var(--color-elevated); border: 1px solid var(--color-border-strong);
-  border-radius: 14px; box-shadow: var(--shadow-pop);
+  border-radius: 14px;
   display: flex; flex-direction: column; gap: 1px;
 }
 .preset-pop-head {
@@ -1155,8 +1197,8 @@ function onErrorAction() {
   position: absolute; bottom: 44px; right: 0; z-index: 30;
   width: 320px; max-height: 280px; display: flex; flex-direction: column;
   background: var(--color-elevated); border: 1px solid var(--color-border-strong);
-  border-radius: 16px; box-shadow: var(--shadow-pop);
-  overflow: hidden; backdrop-filter: blur(12px);
+  border-radius: 16px;
+  overflow: hidden;
 }
 .prompt-pop-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -1188,7 +1230,7 @@ function onErrorAction() {
 .send { border-radius: 10px; min-height: 40px; padding: 0 18px; }
 .send.cancel {
   border: 1px solid var(--color-border-strong); color: var(--color-fg-muted);
-  background: var(--color-surface-2); box-shadow: none;
+  background: var(--color-surface-2);
 }
 .send.cancel:hover {
   color: var(--color-destructive); border-color: color-mix(in srgb, var(--color-destructive) 45%, transparent);

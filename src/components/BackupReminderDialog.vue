@@ -53,7 +53,6 @@ useDialogA11y(modal, () => emit('close'))
   position: fixed; inset: 0; z-index: 900;
   display: flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,0.35);
-  backdrop-filter: blur(2px);
 }
 .reminder-modal {
   width: min(420px, 88vw);
@@ -61,7 +60,6 @@ useDialogA11y(modal, () => emit('close'))
   background: var(--color-elevated);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
   display: flex; flex-direction: column; gap: var(--space-4);
 }
 .reminder-title {

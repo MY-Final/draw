@@ -122,7 +122,7 @@ export async function countAssets() {
   return db.count(STORE_ASSETS)
 }
 
-// 清空全部素材(清空全部;保留预设/Key,由 store 负责)。
+// 清空全部素材;是否保留生成记录由 store 负责。
 export async function clearAllAssets() {
   const db = await getDB()
   const tx = db.transaction([STORE_ASSETS, STORE_ASSET_BLOBS], 'readwrite')

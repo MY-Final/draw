@@ -241,7 +241,6 @@ buildIndex()
   display: flex; align-items: flex-start; justify-content: center;
   padding-top: 12vh;
   background: rgba(0,0,0,0.4);
-  backdrop-filter: blur(2px);
 }
 
 .search-modal {
@@ -249,7 +248,6 @@ buildIndex()
   background: var(--color-elevated);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
   overflow: hidden;
 }
 

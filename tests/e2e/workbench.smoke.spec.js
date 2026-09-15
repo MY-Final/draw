@@ -2,8 +2,10 @@ import { test, expect } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.clear()
-    indexedDB.deleteDatabase('ai-drawing-workbench')
+    if (!localStorage.getItem('__e2e_keep_storage')) {
+      localStorage.clear()
+      indexedDB.deleteDatabase('ai-drawing-workbench')
+    }
   })
 })
 
@@ -94,6 +96,43 @@ test('mobile drawers close with Escape and restore focus', async ({ page }, test
   await expect(assets).toBeFocused()
 })
 
+test('data protection clears local images while keeping the workspace', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('.boot-screen')).toBeHidden()
+  await page.evaluate(() => localStorage.setItem('__e2e_keep_storage', '1'))
+
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const request = indexedDB.open('ai-drawing-workbench')
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const db = request.result
+      const tx = db.transaction(['assets', 'assetBlobs'], 'readwrite')
+      tx.objectStore('assets').put({
+        id: 'asset_e2e_clear', mime: 'image/png', width: 1, height: 1, size: 1,
+        createdAt: Date.now(), source: 'generated', favorite: false, workspaceId: 'ws_default',
+      })
+      tx.objectStore('assetBlobs').put({ id: 'asset_e2e_clear', blob: new Blob(['x'], { type: 'image/png' }) })
+      tx.oncomplete = () => { db.close(); resolve() }
+      tx.onerror = () => reject(tx.error)
+    }
+  }))
+  await page.reload()
+  await expect(page.locator('.boot-screen')).toBeHidden()
+  const menu = page.getByRole('button', { name: '打开菜单' })
+  if (await menu.isVisible()) await menu.click()
+  await page.getByRole('button', { name: '数据保护' }).click()
+
+  const dialog = page.getByRole('dialog', { name: '数据保护' })
+  const clearImages = dialog.getByRole('button', { name: '清空图片', exact: true })
+  await expect(clearImages).toBeEnabled()
+  await clearImages.click()
+  const confirm = page.getByRole('alertdialog', { name: '清空本机图片' })
+  await expect(confirm).toContainText('1 张图片')
+  await confirm.getByRole('button', { name: '清空图片', exact: true }).click()
+  await expect(clearImages).toBeDisabled()
+  await expect(page.getByRole('status')).toContainText('已清理本机图片')
+})
+
 test('mobile composer and asset entry remain separate', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile', 'mobile layout only')
   await page.goto('/')
@@ -112,6 +151,8 @@ test('mobile composer and asset entry remain separate', async ({ page }, testInf
 test('pasted reference image renders in the composer', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('.boot-screen')).toBeHidden()
+  const input = page.locator('.composer-input')
+  await expect(input).toHaveAttribute('placeholder', '描述你脑海中的画面，例如：雨夜霓虹街头，毛玻璃质感…')
 
   await page.evaluate(async () => {
     const canvas = document.createElement('canvas')
@@ -133,6 +174,7 @@ test('pasted reference image renders in the composer', async ({ page }) => {
 
   const image = page.locator('.ref-thumb img').first()
   await expect(image).toBeVisible()
+  await expect(input).toHaveAttribute('placeholder', '输入提示词，配合参考图生成新画面…')
   await expect.poll(() => image.evaluate((element) => element.naturalWidth)).toBeGreaterThan(0)
   const thumb = page.locator('.ref-thumb').first()
   await expect.poll(async () => (await thumb.boundingBox())?.width || 0).toBeGreaterThanOrEqual(64)
@@ -167,6 +209,28 @@ test('composer follows multiline input and transient panel keyboard behavior', a
   await expect(page.locator('.preset-pop')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.locator('.preset-pop')).toBeHidden()
+})
+
+test('prompt input exposes count, limit, and clear action', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('.boot-screen')).toBeHidden()
+
+  const input = page.locator('.composer-input')
+  const count = page.locator('.char-count')
+  await expect(count).toHaveText('0/1000')
+  await input.fill('x'.repeat(1000))
+  await expect(count).toHaveText('1000/1000')
+  await expect(count).toHaveClass(/at-limit/)
+  await input.press('End')
+  await input.pressSequentially('x')
+  await expect(input).toHaveValue('x'.repeat(1000))
+
+  const clear = page.getByRole('button', { name: '清空提示词' })
+  await expect(clear).toBeVisible()
+  await clear.click()
+  await expect(input).toHaveValue('')
+  await expect(input).toBeFocused()
+  await expect(count).toHaveText('0/1000')
 })
 
 test('failed generation restores the submitted draft', async ({ page }) => {

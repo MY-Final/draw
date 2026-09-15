@@ -523,7 +523,6 @@ watch(() => [form.baseURL, form.apiKey], () => {
   background: var(--color-scrim);
   display: flex; align-items: center; justify-content: center;
   padding: var(--space-4);
-  backdrop-filter: blur(3px);
   animation: fade 160ms var(--ease);
 }
 .modal {
@@ -533,7 +532,6 @@ watch(() => [form.baseURL, form.apiKey], () => {
   background: var(--color-elevated);
   border: 1px solid var(--color-border-strong);
   border-radius: 18px;
-  box-shadow: var(--shadow-pop);
   overflow: hidden;
   animation: pop 200ms var(--ease-out);
 }
@@ -583,7 +581,7 @@ watch(() => [form.baseURL, form.apiKey], () => {
   border: 1px solid var(--color-border);
   background: var(--color-surface-2);
   cursor: pointer;
-  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .preset-row:hover {
   border-color: var(--color-border-strong);
@@ -592,7 +590,6 @@ watch(() => [form.baseURL, form.apiKey], () => {
 .preset-row.active {
   border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border-strong));
   background: color-mix(in srgb, var(--color-primary) 8%, var(--color-elevated));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
 .preset-radio {
   width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
@@ -669,7 +666,7 @@ watch(() => [form.baseURL, form.apiKey], () => {
   margin-top: 8px;
   padding: 8px; background: var(--color-elevated);
   border: 1px solid var(--color-border-strong); border-radius: 10px;
-  box-shadow: var(--shadow-pop); animation: pop 160ms var(--ease-out);
+  animation: pop 160ms var(--ease-out);
 }
 .model-picker-head {
   display: flex; align-items: center; justify-content: space-between;

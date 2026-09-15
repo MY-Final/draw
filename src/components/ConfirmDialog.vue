@@ -48,13 +48,12 @@ useDialogA11y(dialog, () => emit('cancel'))
   position: fixed; inset: 0; z-index: 1000; padding: var(--space-4);
   display: flex; align-items: center; justify-content: center;
   background: color-mix(in srgb, var(--color-scrim) 92%, #000);
-  backdrop-filter: blur(3px);
   animation: fade var(--dur) var(--ease);
 }
 .dialog {
   width: min(100%, 420px); margin: 0;
   background: var(--color-elevated); border: 1px solid var(--color-border-strong);
-  border-radius: 14px; box-shadow: var(--shadow-pop); padding: 20px;
+  border-radius: 14px; padding: 20px;
   animation: pop var(--dur) var(--ease);
 }
 .dlg-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 15px; }
@@ -68,7 +67,6 @@ useDialogA11y(dialog, () => emit('cancel'))
 .dlg-msg { margin: 0 0 20px 40px; font-size: 13px; color: var(--color-fg-muted); line-height: 1.65; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 .dlg-actions .btn { min-width: 72px; }
-.dlg-actions .btn-danger { box-shadow: 0 4px 12px color-mix(in srgb, var(--color-destructive) 20%, transparent); }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pop { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 

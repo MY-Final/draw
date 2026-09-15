@@ -31,16 +31,13 @@ useDialogA11y(drawer, () => emit('close'))
   background: var(--color-scrim);
   display: flex; justify-content: flex-end;
   animation: fade var(--dur) var(--ease);
-  backdrop-filter: blur(2px);
 }
 .drawer {
   width: 100%; max-width: 440px; height: 100%;
-  background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+  background: var(--color-surface);
   border-left: 1px solid var(--color-border-strong);
   display: flex; flex-direction: column;
-  box-shadow: var(--shadow-pop);
   animation: slide 220ms var(--ease-out);
-  backdrop-filter: blur(14px);
 }
 .drawer-head {
   display: flex; align-items: center; justify-content: space-between;

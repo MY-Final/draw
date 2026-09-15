@@ -83,6 +83,19 @@ describe('workbench issue regressions', () => {
     expect(await listAssets()).toEqual([])
   })
 
+  it('仅清空本机图片时保留生成记录', async () => {
+    const gen = await pending()
+    await putAsset({ blob: new Blob(['x'], { type: 'image/png' }), mime: 'image/png' })
+    store.generations = await listGenerations()
+    store.assets = await listAssets()
+
+    await store.clearStoredImages()
+
+    expect(await listGenerations()).toHaveLength(1)
+    expect((await getGeneration(gen.id)).prompt).toBe('测试生成')
+    expect(await listAssets()).toEqual([])
+  })
+
   it('素材库删除会保留仍被生成记录引用的素材', async () => {
     const referenced = await putAsset({ blob: new Blob(['r'], { type: 'image/png' }), mime: 'image/png' })
     const free = await putAsset({ blob: new Blob(['f'], { type: 'image/png' }), mime: 'image/png' })

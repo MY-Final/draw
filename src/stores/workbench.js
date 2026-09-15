@@ -543,6 +543,14 @@ export const useWorkbenchStore = defineStore('workbench', {
       this.newConversation()
     },
 
+    // 仅清理本机图片,保留生成记录 / Prompt / 工作区 / 接口配置。
+    // 先收口进行中的生成,避免清空后请求完成又写入新图片。
+    async clearStoredImages() {
+      await this.cancelAndWaitActiveGeneration()
+      await clearAllAssets()
+      await this.refreshAll()
+    },
+
     // ── 素材 ──
     // 落库一张参考图并刷新响应式 assets(供上传/粘贴使用:putAsset 只写 DB,
     // 不刷新 store.assets 会导致 refAssets 找不到新图 → 缩略图不显示)。

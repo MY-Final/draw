@@ -33,6 +33,10 @@ const assetsById = computed(() => new Map(
 function assetById(id) { return assetsById.value.get(id) }
 function outputsOf(gen) { return gen.outputImageIds.map(assetById).filter(Boolean) }
 function refsOf(gen) { return (gen.refImageIds || []).map(assetById).filter(Boolean) }
+function hasMissingOutputs(gen) {
+  const expected = gen.outputImageIds || []
+  return gen.status === 'success' && expected.length > outputsOf(gen).length
+}
 function modelOf(gen) { return gen.params?.model || '模型' }
 function qualityOf(gen) {
   const q = gen.params?.quality
@@ -271,6 +275,10 @@ watch(() => [feed.value.length, store.generating], async () => {
             <div v-else-if="gen.status === 'empty'" class="note note-warn">
               <div>接口未返回可识别图片。<code class="snippet">{{ gen.rawResponseSnippet }}</code></div>
             </div>
+            <div v-else-if="hasMissingOutputs(gen)" class="note note-warn">
+              <AppIcon name="alert" :size="14" />
+              <span class="note-text">图片已从浏览器存储中清理,生成记录仍保留。</span>
+            </div>
             <div v-else-if="gen.status === 'success' && gen.partialNote" class="note note-warn">
               <AppIcon name="alert" :size="14" />
               <div class="note-text">
@@ -383,8 +391,7 @@ watch(() => [feed.value.length, store.generating], async () => {
   width: 48px; height: 48px; border-radius: 14px;
   display: flex; align-items: center; justify-content: center;
   color: var(--color-on-primary);
-  background: linear-gradient(145deg, var(--color-primary-hover), var(--color-primary));
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--color-primary) 28%, transparent);
+  background: var(--color-primary);
 }
 .empty h1 {
   margin: var(--space-3) 0 0; font-size: 22px; font-weight: 650;
@@ -441,20 +448,18 @@ watch(() => [feed.value.length, store.generating], async () => {
   border: 1px solid var(--color-border);
 }
 .avatar-ai {
-  background: linear-gradient(145deg, color-mix(in srgb, var(--color-primary) 28%, transparent), color-mix(in srgb, var(--color-primary) 12%, transparent));
+  background: var(--color-primary-soft);
   color: var(--color-primary);
   border: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 8%, transparent);
 }
 
 /* 用户气泡 */
 .bubble {
-  background: linear-gradient(160deg, color-mix(in srgb, var(--color-primary) 92%, #fff), var(--color-primary));
+  background: var(--color-primary);
   color: var(--color-on-primary);
   padding: var(--space-3) var(--space-4);
   border-radius: 18px 18px 6px 18px;
   max-width: 100%;
-  box-shadow: 0 8px 22px color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 .bubble-text { margin: 0; font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .bubble.editing { width: 100%; }
@@ -469,8 +474,7 @@ watch(() => [feed.value.length, store.generating], async () => {
 }
 .bubble-edit-input::placeholder { color: rgba(255,255,255,0.65); }
 .bubble-edit-input:focus {
-  outline: none; border-color: rgba(255,255,255,0.85);
-  box-shadow: 0 0 0 3px rgba(255,255,255,0.18);
+  outline: 2px solid rgba(255,255,255,0.85); outline-offset: 1px; border-color: rgba(255,255,255,0.85);
 }
 .bubble-edit-actions {
   display: flex; align-items: center; justify-content: space-between;
@@ -487,12 +491,10 @@ watch(() => [feed.value.length, store.generating], async () => {
 .bubble-edit-btn-save {
   padding: 7px 16px; border-radius: 999px; font-size: 12.5px; font-weight: 650;
   color: var(--color-primary); background: #fff;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
-  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), opacity var(--dur) var(--ease);
+  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
 }
 .bubble-edit-btn-save:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(0,0,0,0.24);
 }
 .bubble-edit-btn-save:disabled { opacity: 0.55; cursor: not-allowed; }
 .bubble-refs { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
@@ -507,8 +509,6 @@ watch(() => [feed.value.length, store.generating], async () => {
   border-radius: 8px 18px 18px 18px;
   padding: var(--space-4);
   display: flex; flex-direction: column; gap: var(--space-3);
-  box-shadow: var(--shadow-1);
-  backdrop-filter: blur(8px);
 }
 .card-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .model { font-size: 13px; font-weight: 600; color: var(--color-fg); }
@@ -535,11 +535,10 @@ watch(() => [feed.value.length, store.generating], async () => {
 .fig {
   margin: 0; border-radius: 14px; overflow: hidden;
   border: 1px solid var(--color-border); background: var(--color-surface-2);
-  position: relative; transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  position: relative; transition: transform var(--dur) var(--ease);
 }
 .fig:hover {
   transform: translateY(-1px);
-  box-shadow: 0 10px 28px rgba(0,0,0,0.22);
 }
 .fig.focused {
   outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
@@ -551,7 +550,7 @@ watch(() => [feed.value.length, store.generating], async () => {
 .fav {
   position: absolute; top: 10px; right: 10px; width: 32px; height: 32px;
   display: flex; align-items: center; justify-content: center; border-radius: 50%;
-  background: rgba(0,0,0,0.48); color: #fff; backdrop-filter: blur(6px);
+  background: rgba(0,0,0,0.48); color: #fff;
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease), transform var(--dur) var(--ease);
   opacity: 0;
 }
@@ -586,8 +585,7 @@ watch(() => [feed.value.length, store.generating], async () => {
   display: flex; align-items: center; gap: var(--space-3);
   padding: 12px 16px; border-radius: 12px;
   background: var(--color-elevated); border: 1px solid var(--color-border-strong);
-  box-shadow: var(--shadow-2); font-size: 13px; color: var(--color-fg);
-  backdrop-filter: blur(10px);
+  font-size: 13px; color: var(--color-fg);
 }
 .undo-btn { font-size: 13px; font-weight: 650; color: var(--color-primary); padding: 4px 8px; border-radius: 999px; }
 .undo-btn:hover { background: var(--color-primary-soft); }
@@ -595,8 +593,7 @@ watch(() => [feed.value.length, store.generating], async () => {
 .snippet { display: block; margin-top: 6px; font-size: 11px; max-height: 80px; overflow: auto; opacity: 0.8; white-space: pre-wrap; word-break: break-all; }
 .skeleton {
   aspect-ratio: 1; max-width: 380px; border-radius: 14px;
-  background: linear-gradient(90deg, var(--color-surface-2), var(--color-elevated), var(--color-surface-2));
-  background-size: 200% 100%; animation: shimmer 1.4s infinite;
+  background: var(--color-surface-2); animation: pulse 1.4s infinite;
   border: 1px solid var(--color-border);
 }
 .pending-block { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
@@ -612,13 +609,18 @@ watch(() => [feed.value.length, store.generating], async () => {
 }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes pulse { 0%, 100% { opacity: 0.65; } 50% { opacity: 1; } }
 
 @media (max-width: 1024px) {
   .row-user { padding-left: 4%; }
   .row-ai { padding-right: 2%; }
   .feed-inner { padding-left: var(--space-3); padding-right: var(--space-3); }
   .avatar { display: none; }
-  .empty { padding-top: 6vh; padding-bottom: 3vh; }
+  .empty { padding-top: 3vh; padding-bottom: 1vh; gap: 6px; }
+  .empty-icon { width: 44px; height: 44px; border-radius: 12px; }
+  .empty h1 { margin-top: 6px; font-size: 20px; }
+  .empty p { max-width: 320px; font-size: 12px; line-height: 1.5; }
+  .empty-hints { gap: 4px; margin-top: 6px; }
+  .empty-chip { padding: 4px 6px; font-size: 10px; }
 }
 </style>

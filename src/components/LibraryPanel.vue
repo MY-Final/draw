@@ -248,11 +248,7 @@ async function doDeleteSelected() {
 .tile {
   display: block; border-radius: 10px; aspect-ratio: 1;
   border: 1px solid var(--color-border);
-  background:
-    linear-gradient(145deg,
-      color-mix(in srgb, var(--color-primary) 18%, var(--color-surface-2)),
-      var(--color-surface-2) 60%,
-      color-mix(in srgb, var(--color-accent) 10%, var(--color-elevated)));
+  background: var(--color-surface-2);
   opacity: 0.85;
 }
 .tile.t1 { transform: rotate(-4deg); opacity: 0.7; }
@@ -260,10 +256,7 @@ async function doDeleteSelected() {
 .tile.t3 { transform: rotate(2deg); margin-top: -4px; opacity: 0.6; }
 .tile.t4 {
   transform: rotate(-2deg); margin-top: 4px; opacity: 0.75;
-  background:
-    linear-gradient(160deg,
-      color-mix(in srgb, var(--color-accent) 14%, var(--color-surface-2)),
-      var(--color-elevated));
+  background: var(--color-elevated);
 }
 .lib-empty-icon {
   width: 36px; height: 36px; border-radius: 12px;
@@ -272,7 +265,6 @@ async function doDeleteSelected() {
   background: var(--color-primary-soft);
   border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
   margin-top: calc(-1 * var(--space-2));
-  box-shadow: var(--shadow-1);
 }
 .lib-empty-title {
   margin: var(--space-1) 0 0; font-size: 13px; font-weight: 600;
@@ -286,29 +278,26 @@ async function doDeleteSelected() {
 .cell {
   position: relative; border-radius: 14px; overflow: hidden;
   border: 1.5px solid transparent; background: var(--color-surface-2); aspect-ratio: 1;
-  box-shadow: var(--shadow-1);
-  transition: border-color var(--dur) var(--ease), transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  transition: border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 .cell:hover {
   transform: translateY(-1px);
-  box-shadow: 0 10px 22px rgba(0,0,0,0.2);
 }
 .cell.selected {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 .cell-img { display: block; width: 100%; height: 100%; padding: 0; }
 .fav-dot {
   position: absolute; top: 6px; left: 6px; width: 22px; height: 22px;
   display: flex; align-items: center; justify-content: center; border-radius: 50%;
-  background: rgba(0,0,0,0.52); color: var(--color-heart); backdrop-filter: blur(4px);
+  background: rgba(0,0,0,0.52); color: var(--color-heart);
 }
 .fav-dot :deep(svg) { fill: var(--color-heart); }
 .src-badge {
   position: absolute; left: 6px; bottom: 6px;
   font-size: 9px; font-weight: 700; line-height: 1;
   padding: 3px 5px; border-radius: 5px;
-  color: #fff; background: rgba(0,0,0,0.58); backdrop-filter: blur(4px);
+  color: #fff; background: rgba(0,0,0,0.58);
 }
 .cell-actions {
   position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
@@ -321,7 +310,7 @@ async function doDeleteSelected() {
 }
 .mini {
   width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
-  border-radius: 8px; background: rgba(0,0,0,0.58); color: #fff; backdrop-filter: blur(6px);
+  border-radius: 8px; background: rgba(0,0,0,0.58); color: #fff;
   transition: transform var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .mini:hover { transform: scale(1.05); background: rgba(0,0,0,0.72); }

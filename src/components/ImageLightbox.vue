@@ -92,7 +92,7 @@ async function download() {
 <style scoped>
 .scrim {
   position: fixed; inset: 0; z-index: 150; padding: var(--space-6);
-  background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.75);
   display: flex; align-items: center; justify-content: center;
   animation: fade var(--dur) var(--ease);
 }
@@ -103,9 +103,8 @@ async function download() {
   display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
   font-size: 12px; color: var(--color-fg-muted);
   padding: 8px 10px; border-radius: 14px;
-  background: color-mix(in srgb, var(--color-elevated) 88%, transparent);
+  background: var(--color-elevated);
   border: 1px solid var(--color-border-strong);
-  backdrop-filter: blur(10px);
 }
 .viewer-bar .btn.on { color: var(--color-heart); border-color: color-mix(in srgb, var(--color-heart) 40%, transparent); }
 .viewer-bar .btn.on :deep(svg) { fill: var(--color-heart); }
