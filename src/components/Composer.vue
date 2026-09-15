@@ -1145,7 +1145,7 @@ function onErrorAction() {
   transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .ref-add-empty {
-  width: auto; min-width: 48px; height: 40px; gap: 6px; padding: 0 12px;
+  flex: 0 0 auto; width: auto; min-width: 48px; height: 40px; gap: 6px; padding: 0 12px;
   border-style: solid; border-color: var(--color-border);
   background: var(--color-surface-2); color: var(--color-fg-muted);
 }
@@ -1172,7 +1172,7 @@ function onErrorAction() {
   .ref-thumb, .ref-add {
     flex: 0 0 64px; width: 64px; height: 64px; border-radius: 10px; scroll-snap-align: start;
   }
-  .ref-strip.empty .ref-add-empty { width: auto; height: 40px; }
+  .ref-strip.empty .ref-add-empty { flex-basis: auto; width: auto; height: 40px; }
   .ref-remove { top: 3px; right: 3px; width: 20px; height: 20px; }
   .ref-tip { grid-column: 1 / -1; width: 100%; min-width: 0; }
 }
