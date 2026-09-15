@@ -5,7 +5,9 @@ import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import UndoToast from './UndoToast.vue'
 import { normalizeSource, sourceFullLabel, sourceShortLabel } from '../lib/assetSource.js'
+import { collectReferencedAssetIds } from '../lib/deletion.js'
 
 const store = useWorkbenchStore()
 const emit = defineEmits(['use-as-reference', 'preview'])
@@ -32,6 +34,13 @@ const filteredAssets = computed(() => {
   return list.filter((a) => normalizeSource(a.source) === f)
 })
 const renderedAssets = computed(() => filteredAssets.value.slice(0, visibleCount.value))
+const referencedAssetIds = computed(() => new Set(collectReferencedAssetIds({
+  assetIds: store.workspaceAssets.map((asset) => asset.id),
+  generations: [
+    ...store.generations,
+    ...Object.values(store.pendingDeletes).map((item) => item.record).filter(Boolean),
+  ],
+})))
 
 function loadMore() {
   visibleCount.value = Math.min(filteredAssets.value.length, visibleCount.value + 40)
@@ -65,6 +74,12 @@ function askDeleteSelected() {
   if (!selected.value.size) return
   confirmDelAssets.value = true
 }
+function isReferenced(id) { return referencedAssetIds.value.has(id) }
+function showDeleteNotice(text) {
+  deleteNotice.value = text
+  if (deleteNoticeTimer) clearTimeout(deleteNoticeTimer)
+  deleteNoticeTimer = setTimeout(() => { deleteNotice.value = '' }, 5000)
+}
 async function toggleFavorite(id) {
   try {
     await store.toggleAssetFavorite(id)
@@ -77,21 +92,43 @@ async function doDeleteSelected() {
   confirmDelAssets.value = false
   if (!selected.value.size) return
   try {
-    const result = await store.removeAssets([...selected.value])
+    const result = await store.removeAssetsWithUndo([...selected.value])
     selected.value = new Set(result.blockedIds)
-    deleteNotice.value = ''
-    if (deleteNoticeTimer) clearTimeout(deleteNoticeTimer)
     if (result.blockedIds.length) {
-      deleteNotice.value = result.deletedIds.length
+      showDeleteNotice(result.deletedIds.length
         ? `已删除 ${result.deletedIds.length} 张；${result.blockedIds.length} 张仍被生成记录引用，已保留。`
-        : `所选素材仍被生成记录引用，不能直接删除。请先删除相关生成记录。`
-      deleteNoticeTimer = setTimeout(() => { deleteNotice.value = '' }, 5000)
+        : `所选素材仍被生成记录引用，不能直接删除。请先删除相关生成记录。`)
+    } else {
+      deleteNotice.value = ''
     }
   } catch (e) {
     selected.value = new Set()
     await store.refreshAll().catch(() => {})
-    deleteNotice.value = `删除素材失败：${e?.message || '请重试'}`
+    showDeleteNotice(`删除素材失败：${e?.message || '请重试'}`)
   }
+}
+async function deleteSingle(asset) {
+  if (isReferenced(asset.id)) {
+    showDeleteNotice('该素材被生成记录引用，无法删除。请先删除相关生成记录。')
+    return
+  }
+  try {
+    const result = await store.removeAssetsWithUndo([asset.id])
+    selected.value = new Set([...selected.value].filter((id) => id !== asset.id))
+    if (result.blockedIds.length) {
+      showDeleteNotice('该素材被生成记录引用，无法删除。请先删除相关生成记录。')
+    } else {
+      deleteNotice.value = ''
+    }
+  } catch (e) {
+    await store.refreshAll().catch(() => {})
+    showDeleteNotice(`删除素材失败：${e?.message || '请重试'}`)
+  }
+}
+async function undoAssetDelete() {
+  const batch = store.pendingAssetDelete
+  if (!batch) return
+  await store.undoAssetDelete(batch.batchId)
 }
 </script>
 
@@ -107,7 +144,14 @@ async function doDeleteSelected() {
         >
           <AppIcon name="heart" :size="13" />
         </button>
-        <button v-if="selected.size" class="btn btn-sm btn-danger" @click="askDeleteSelected">
+         <button
+           v-if="selected.size"
+           type="button"
+           class="btn btn-sm btn-danger"
+           @click="askDeleteSelected"
+           :aria-label="`删除选中的 ${selected.size} 张素材`"
+           title="删除选中的素材"
+         >
           <AppIcon name="trash" :size="13" /> {{ selected.size }}
         </button>
         <span v-else class="lib-count tnum">{{ filteredAssets.length }} 张</span>
@@ -156,30 +200,50 @@ async function doDeleteSelected() {
         draggable="true"
         @dragstart="(e) => { e.dataTransfer.setData('application/json', JSON.stringify({ assetId: a.id })) }"
       >
-        <button class="cell-img" @click="emit('preview', { asset: a, list: filteredAssets })" aria-label="预览大图">
-          <AssetImage :asset="a" />
-        </button>
-        <span v-if="a.favorite" class="fav-dot" aria-hidden="true"><AppIcon name="heart" :size="11" /></span>
-        <span class="src-badge" :class="normalizeSource(a.source)" :title="sourceFullLabel(a.source)">
-          {{ sourceShortLabel(a.source) }}
-        </span>
-        <div class="cell-actions">
-          <button class="mini" @click="toggleFavorite(a.id)" :class="{ on: a.favorite }" :aria-label="a.favorite ? '取消收藏' : '收藏'">
-            <AppIcon name="heart" :size="12" />
-          </button>
-          <button class="mini" @click="toggleSelect(a.id)" :aria-label="selected.has(a.id) ? '取消选择' : '选择'">
-            <AppIcon :name="selected.has(a.id) ? 'check' : 'plus'" :size="12" />
-          </button>
-          <button class="mini" @click="emit('use-as-reference', a.id)" title="设为参考图">
-            <AppIcon name="layers" :size="12" />
-          </button>
-        </div>
+         <button class="cell-img" @click="emit('preview', { asset: a, list: filteredAssets })" aria-label="预览大图">
+           <AssetImage :asset="a" />
+         </button>
+         <span v-if="a.favorite" class="fav-dot" aria-hidden="true"><AppIcon name="heart" :size="11" /></span>
+         <span
+           v-if="isReferenced(a.id)"
+           class="asset-reference-note"
+           title="该素材被生成记录引用，无法删除"
+         >已引用</span>
+         <span class="src-badge" :class="normalizeSource(a.source)" :title="sourceFullLabel(a.source)">
+           {{ sourceShortLabel(a.source) }}
+         </span>
+         <div class="cell-actions">
+           <button type="button" class="mini" @click="toggleFavorite(a.id)" :class="{ on: a.favorite }" :aria-label="a.favorite ? '取消收藏' : '收藏'">
+             <AppIcon name="heart" :size="12" />
+           </button>
+           <button type="button" class="mini" @click="toggleSelect(a.id)" :aria-label="selected.has(a.id) ? '取消选择' : '选择'">
+             <AppIcon :name="selected.has(a.id) ? 'check' : 'plus'" :size="12" />
+           </button>
+           <button type="button" class="mini" @click="emit('use-as-reference', a.id)" title="设为参考图" aria-label="设为参考图">
+             <AppIcon name="layers" :size="12" />
+           </button>
+           <button
+             type="button"
+             class="mini mini-danger"
+             :disabled="isReferenced(a.id)"
+             @click="deleteSingle(a)"
+             :title="isReferenced(a.id) ? '该素材被生成记录引用，无法删除' : '删除素材（可撤销）'"
+             :aria-label="isReferenced(a.id) ? '该素材被生成记录引用，无法删除' : '删除素材（可撤销）'"
+           >
+             <AppIcon name="trash" :size="12" />
+           </button>
+         </div>
       </div>
       <button v-if="renderedAssets.length < filteredAssets.length" ref="sentinel" class="load-more" type="button" @click="loadMore">
         加载更多素材（{{ filteredAssets.length - renderedAssets.length }}）
       </button>
     </div>
 
+    <UndoToast
+      v-if="store.pendingAssetDelete"
+      :message="`已移除 ${store.pendingAssetDelete.ids.length} 张素材，5 秒内可撤销`"
+      @undo="undoAssetDelete"
+    />
     <ConfirmDialog
       v-if="confirmDelAssets"
       title="删除素材"
@@ -299,6 +363,12 @@ async function doDeleteSelected() {
   padding: 3px 5px; border-radius: 5px;
   color: #fff; background: rgba(0,0,0,0.58);
 }
+.asset-reference-note {
+  position: absolute; right: 6px; bottom: 6px;
+  max-width: calc(100% - 56px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 3px 5px; border-radius: 5px; font-size: 9px; line-height: 1;
+  color: var(--color-warning); background: rgba(0,0,0,0.66);
+}
 .cell-actions {
   position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
   opacity: 0; transition: opacity var(--dur) var(--ease);
@@ -315,6 +385,7 @@ async function doDeleteSelected() {
 }
 .mini:hover { transform: scale(1.05); background: rgba(0,0,0,0.72); }
 .mini:disabled { opacity: 0.4; cursor: not-allowed; }
+.mini-danger:hover:not(:disabled) { color: #fecaca; background: color-mix(in srgb, var(--color-destructive) 70%, #000); }
 .mini.on { color: var(--color-heart); }
 .mini.on :deep(svg) { fill: var(--color-heart); }
 .load-more {

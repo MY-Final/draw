@@ -9,6 +9,7 @@ import { exportRecipe } from '../lib/share.js'
 import { downloadBlob, downloadJson, imageFileName } from '../lib/download.js'
 import { getAsset } from '../lib/assetRepo.js'
 import PendingTimer from './PendingTimer.vue'
+import UndoToast from './UndoToast.vue'
 
 const store = useWorkbenchStore()
 const emit = defineEmits(['use-as-reference', 'preview', 'reuse', 'open-settings'])
@@ -361,10 +362,7 @@ watch(() => [feed.value.length, store.generating], async () => {
     </div>
 
     <!-- 删除撤销提示 -->
-    <div v-if="undoToast" class="undo-toast" role="status" aria-live="polite">
-      <span>已删除该条生成</span>
-      <button class="undo-btn" @click="undoDelete">撤销</button>
-    </div>
+    <UndoToast v-if="undoToast" message="已删除该条生成" @undo="undoDelete" />
     <ConfirmDialog
       v-if="confirmEditDiscard"
       title="放弃编辑"
@@ -578,17 +576,6 @@ watch(() => [feed.value.length, store.generating], async () => {
   background: color-mix(in srgb, var(--color-destructive) 12%, transparent);
   color: var(--color-destructive);
 }
-
-/* 删除撤销提示 */
-.undo-toast {
-  position: fixed; bottom: 128px; left: 50%; transform: translateX(-50%); z-index: 60;
-  display: flex; align-items: center; gap: var(--space-3);
-  padding: 12px 16px; border-radius: 12px;
-  background: var(--color-elevated); border: 1px solid var(--color-border-strong);
-  font-size: 13px; color: var(--color-fg);
-}
-.undo-btn { font-size: 13px; font-weight: 650; color: var(--color-primary); padding: 4px 8px; border-radius: 999px; }
-.undo-btn:hover { background: var(--color-primary-soft); }
 
 .snippet { display: block; margin-top: 6px; font-size: 11px; max-height: 80px; overflow: auto; opacity: 0.8; white-space: pre-wrap; word-break: break-all; }
 .skeleton {

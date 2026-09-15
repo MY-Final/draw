@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 const map = new Map()
@@ -28,6 +28,7 @@ async function pending(extra = {}) {
     workspaceId: 'ws_default',
   })
 }
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 describe('workbench issue regressions', () => {
   let store
@@ -38,7 +39,12 @@ describe('workbench issue regressions', () => {
     store = useWorkbenchStore()
     const db = await getDB()
     await db.clear('assets')
+    await db.clear('assetBlobs')
     await db.clear('generations')
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('启动调和会立即终止所有遗留 pending，包括刚创建的记录', async () => {
@@ -109,6 +115,89 @@ describe('workbench issue regressions', () => {
     expect(result.deletedIds).toEqual([free.id])
     expect(await getAsset(referenced.id)).toBeTruthy()
     expect(await getAsset(free.id)).toBeUndefined()
+  })
+
+  it('单张素材删除可撤销,刷新不会让待撤销素材重新出现', async () => {
+    const asset = await putAsset({
+      blob: new Blob(['undo'], { type: 'image/png' }), mime: 'image/png', workspaceId: 'ws_default',
+    })
+    store.activeWorkspaceId = 'ws_default'
+    store.assets = await listAssets()
+
+    const result = await store.removeAssetsWithUndo([asset.id], 80)
+    expect(result.deletedIds).toEqual([asset.id])
+    expect(store.pendingAssetDelete.batchId).toBe(result.batchId)
+    expect(store.assets.some((item) => item.id === asset.id)).toBe(false)
+    expect(await getAsset(asset.id)).toMatchObject({ id: asset.id })
+
+    await store.refreshAll()
+    expect(store.assets.some((item) => item.id === asset.id)).toBe(false)
+
+    expect(await store.undoAssetDelete(result.batchId)).toBe(true)
+    expect(store.assets.map((item) => item.id)).toContain(asset.id)
+    const restored = await getAsset(asset.id)
+    expect(restored.blob).toBeInstanceOf(Blob)
+    expect(restored.blob.size).toBe(4)
+  })
+
+  it('批量素材删除到期后事务删除元数据和 Blob', async () => {
+    const first = await putAsset({
+      blob: new Blob(['a'], { type: 'image/png' }), mime: 'image/png', workspaceId: 'ws_default',
+    })
+    const second = await putAsset({
+      blob: new Blob(['bb'], { type: 'image/png' }), mime: 'image/png', workspaceId: 'ws_default',
+    })
+    store.activeWorkspaceId = 'ws_default'
+    store.assets = await listAssets()
+
+    const result = await store.removeAssetsWithUndo([first.id, second.id], 30)
+    await wait(80)
+
+    expect(result.batchId).toBeTruthy()
+    expect(store.pendingAssetDelete).toBeNull()
+    expect(await getAsset(first.id)).toBeUndefined()
+    expect(await getAsset(second.id)).toBeUndefined()
+  })
+
+  it('连续素材删除合并批次并从第二次删除重新计时', async () => {
+    const first = await putAsset({
+      blob: new Blob(['a'], { type: 'image/png' }), mime: 'image/png', workspaceId: 'ws_default',
+    })
+    const second = await putAsset({
+      blob: new Blob(['b'], { type: 'image/png' }), mime: 'image/png', workspaceId: 'ws_default',
+    })
+    store.activeWorkspaceId = 'ws_default'
+    store.assets = await listAssets()
+
+    const firstResult = await store.removeAssetsWithUndo([first.id], 60)
+    await wait(30)
+    const secondResult = await store.removeAssetsWithUndo([second.id], 60)
+    expect(secondResult.batchId).toBe(firstResult.batchId)
+    expect(store.pendingAssetDelete.ids).toEqual([first.id, second.id])
+
+    await wait(30)
+    expect(await getAsset(first.id)).toBeTruthy()
+    expect(await getAsset(second.id)).toBeTruthy()
+    await wait(60)
+    expect(await getAsset(first.id)).toBeUndefined()
+    expect(await getAsset(second.id)).toBeUndefined()
+  })
+
+  it('被生成记录引用的素材不会进入撤销集合', async () => {
+    const referenced = await putAsset({
+      blob: new Blob(['r'], { type: 'image/png' }), mime: 'image/png', workspaceId: 'ws_default',
+    })
+    await pending({ refImageIds: [referenced.id] })
+    store.activeWorkspaceId = 'ws_default'
+    store.assets = await listAssets()
+    store.generations = await listGenerations()
+
+    const result = await store.removeAssetsWithUndo([referenced.id], 5000)
+    expect(result.deletedIds).toEqual([])
+    expect(result.blockedIds).toEqual([referenced.id])
+    expect(result.batchId).toBeNull()
+    expect(store.pendingAssetDelete).toBeNull()
+    expect(await getAsset(referenced.id)).toBeTruthy()
   })
 
   it('同 conversationId 跨工作区不会串读或误删', async () => {

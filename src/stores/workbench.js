@@ -13,7 +13,7 @@ import {
   loadTitleOverrides, saveTitleOverrides,
 } from '../lib/conversations.js'
 import { collectDeletableOutputs, collectReferencedAssetIds } from '../lib/deletion.js'
-import { getDB, STORE_WORKSPACES, STORE_ASSETS } from '../lib/db.js'
+import { getDB, newId, STORE_WORKSPACES, STORE_ASSETS } from '../lib/db.js'
 import { listWorkspaces, createWorkspace as repoCreateWs, updateWorkspace, deleteWorkspace as repoDeleteWs } from '../lib/workspaceRepo.js'
 import { migrateLegacyPrompts, savePrompts } from '../lib/promptLibrary.js'
 import { checkReminder } from '../lib/backupReminder.js'
@@ -38,6 +38,9 @@ export const useWorkbenchStore = defineStore('workbench', {
     titleOverrides: {},
     // 单条删除的待落库定时器:genId -> { timer, record }(延迟提交,可撤销)。
     pendingDeletes: {},
+    // 素材删除撤销批次:{ batchId, ids, records, timer, expiresAt }。
+    // 素材在批次期间只从内存隐藏,IndexedDB 数据仍保留,以便撤销。
+    pendingAssetDelete: null,
     // 工作区状态
     workspaces: [],
     activeWorkspaceId: null,
@@ -212,6 +215,10 @@ export const useWorkbenchStore = defineStore('workbench', {
     async deleteWorkspace(id) {
       // 至少保留一个工作区
       if (this.workspaces.length <= 1) return
+      // 工作区删除是立即生效的破坏性操作,先收口素材撤销批次,避免定时器在切换后异步删除。
+      if (this.pendingAssetDelete) {
+        await this.commitAssetDelete(this.pendingAssetDelete.batchId)
+      }
 
       // 级联:删该工作区下全部 generation + 可连带删除的产出图 + 未再被引用的素材。
       // 与确认框文案一致,避免只删元数据留下孤儿数据占空间。
@@ -282,7 +289,8 @@ export const useWorkbenchStore = defineStore('workbench', {
       const [assets, generations, usage] = await Promise.all([
         listAssets(), listGenerations(), getStorageUsage(),
       ])
-      this.assets = assets
+      const pendingIds = new Set(this.pendingAssetDelete?.ids || [])
+      this.assets = assets.filter((asset) => !pendingIds.has(asset.id))
       this.generations = generations
       this.usage = usage
     },
@@ -535,6 +543,8 @@ export const useWorkbenchStore = defineStore('workbench', {
       // 先落库任何待删项,避免定时器残留
       for (const id of Object.keys(this.pendingDeletes)) clearTimeout(this.pendingDeletes[id].timer)
       this.pendingDeletes = {}
+      if (this.pendingAssetDelete) clearTimeout(this.pendingAssetDelete.timer)
+      this.pendingAssetDelete = null
       await clearAllGenerations()
       await clearAllAssets()
       this.titleOverrides = {}
@@ -547,6 +557,8 @@ export const useWorkbenchStore = defineStore('workbench', {
     // 先收口进行中的生成,避免清空后请求完成又写入新图片。
     async clearStoredImages() {
       await this.cancelAndWaitActiveGeneration()
+      if (this.pendingAssetDelete) clearTimeout(this.pendingAssetDelete.timer)
+      this.pendingAssetDelete = null
       await clearAllAssets()
       await this.refreshAll()
     },
@@ -562,21 +574,98 @@ export const useWorkbenchStore = defineStore('workbench', {
       this.assets = this.assets.map((item) => item.id === asset.id ? { ...item, blob: asset.blob } : item)
       return asset
     },
-    async removeAssets(ids) {
+    _assetRemovalCandidates(ids) {
       const uniqueIds = [...new Set(ids)].filter((id) => {
         if (!id) return false
         const asset = this.assets.find((item) => item.id === id)
         return !this.activeWorkspaceId || asset?.workspaceId === this.activeWorkspaceId
       })
-      const blockedIds = collectReferencedAssetIds({
-        assetIds: uniqueIds,
-        generations: this.generations,
-      })
+      // 生成记录软删期间仍在 IndexedDB 中引用素材,所以也必须阻止素材删除。
+      const pendingGenerations = Object.values(this.pendingDeletes).map((item) => item.record).filter(Boolean)
+      const generations = [
+        ...this.generations,
+        ...pendingGenerations.filter((record) => !this.generations.some((g) => g.id === record.id)),
+      ]
+      const blockedIds = collectReferencedAssetIds({ assetIds: uniqueIds, generations })
       const blocked = new Set(blockedIds)
-      const deletableIds = uniqueIds.filter((id) => !blocked.has(id))
+      return {
+        uniqueIds,
+        blockedIds,
+        deletableIds: uniqueIds.filter((id) => !blocked.has(id)),
+      }
+    },
+    // 兼容数据保护和已有调用方的立即删除入口。
+    async removeAssets(ids) {
+      const { blockedIds, deletableIds } = this._assetRemovalCandidates(ids)
       if (deletableIds.length) await deleteAssets(deletableIds)
       await this.refreshAll()
       return { deletedIds: deletableIds, blockedIds }
+    },
+    // 素材软删:界面立即隐藏,5 秒后才从 IndexedDB 的两个 object store 一起删除。
+    // 同一时间窗口内的连续删除复用同一个 batchId,并重置倒计时。
+    async removeAssetsWithUndo(ids, delayMs = 5000) {
+      const { blockedIds, deletableIds } = this._assetRemovalCandidates(ids)
+      if (!deletableIds.length) {
+        await this.refreshAll()
+        return { deletedIds: [], blockedIds, batchId: null }
+      }
+
+      const current = this.pendingAssetDelete
+      if (current?.committing) {
+        await this.commitAssetDelete(current.batchId)
+      }
+      const activeBatch = this.pendingAssetDelete
+      const newRecords = deletableIds
+        .map((id) => this.assets.find((asset) => asset.id === id))
+        .filter(Boolean)
+      const existingIds = new Set(activeBatch?.ids || [])
+      const mergedIds = [...(activeBatch?.ids || []), ...deletableIds.filter((id) => !existingIds.has(id))]
+      const mergedRecords = [...(activeBatch?.records || []), ...newRecords]
+      const batchId = activeBatch?.batchId || newId('asset-delete')
+      if (activeBatch?.timer) clearTimeout(activeBatch.timer)
+
+      // 先更新内存,再刷新用量和列表;refreshAll 会再次过滤同一批次 id。
+      this.assets = this.assets.filter((asset) => !deletableIds.includes(asset.id))
+      const expiresAt = Date.now() + Math.max(0, Number(delayMs) || 0)
+      const timer = setTimeout(() => { void this.commitAssetDelete(batchId) }, Math.max(0, Number(delayMs) || 0))
+      this.pendingAssetDelete = {
+        batchId,
+        ids: mergedIds,
+        records: mergedRecords,
+        timer,
+        expiresAt,
+        committing: false,
+      }
+      await this.refreshAll()
+      return { deletedIds: deletableIds, blockedIds, batchId }
+    },
+    // 撤销只恢复内存列表;数据库元数据和 Blob 在整个窗口内都未删除。
+    async undoAssetDelete(batchId) {
+      const pending = this.pendingAssetDelete
+      if (!pending || pending.batchId !== batchId) return false
+      clearTimeout(pending.timer)
+      this.pendingAssetDelete = null
+      this.assets = [...this.assets, ...pending.records]
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      return true
+    },
+    // 撤销窗口结束后事务删除 assets 与 assetBlobs,失败时重新显示素材并保留错误提示。
+    async commitAssetDelete(batchId) {
+      const pending = this.pendingAssetDelete
+      if (!pending || pending.batchId !== batchId) return false
+      clearTimeout(pending.timer)
+      this.pendingAssetDelete = { ...pending, committing: true }
+      try {
+        await deleteAssets(pending.ids)
+        if (this.pendingAssetDelete?.batchId === batchId) this.pendingAssetDelete = null
+        await this.refreshAll()
+        return true
+      } catch (error) {
+        if (this.pendingAssetDelete?.batchId === batchId) this.pendingAssetDelete = null
+        this.lastError = `删除素材失败：${error?.message || error}`
+        await this.refreshAll().catch(() => {})
+        return false
+      }
     },
     async toggleAssetFavorite(id) {
       await toggleFavorite(id)

@@ -108,9 +108,14 @@ function nHoldStop() {
 }
 function onNChange() { n.value = clampN(n.value) }
 const missingKey = computed(() => !!(store.activePreset && !store.activePreset.apiKey))
-const canGenerate = computed(() =>
-  !!prompt.value.trim() && !!store.activePreset && !missingKey.value && !store.generating
-)
+const generateDisabledReason = computed(() => {
+  if (store.generating) return ''
+  if (!store.activePreset) return '请先添加接口'
+  if (missingKey.value) return '请先填写 API Key'
+  if (!prompt.value.trim()) return '请输入提示词'
+  return ''
+})
+const canGenerate = computed(() => !generateDisabledReason.value && !store.generating)
 const promptLength = computed(() => prompt.value.length)
 const promptPlaceholder = computed(() => refAssets.value.length
   ? '输入提示词，配合参考图生成新画面…'
@@ -256,7 +261,14 @@ const refAssets = computed(() =>
   refImageIds.value.map((id) => assetById.value.get(id)).filter(Boolean)
 )
 const referenceNotice = ref('')
+const referenceOrderAnnouncement = ref('')
+const refItemEls = new Map()
 let referenceNoticeTimer = null
+
+function setRefItemRef(el, id) {
+  if (el) refItemEls.set(id, el)
+  else refItemEls.delete(id)
+}
 
 function showReferenceNotice(text) {
   referenceNotice.value = text
@@ -322,6 +334,48 @@ function onRefDrop(e, targetId) {
 function onRefDragEnd() {
   dragRefId.value = null
   dragOverRefId.value = null
+}
+function moveReference(id, targetIndex) {
+  const list = [...refImageIds.value]
+  const fromIndex = list.indexOf(id)
+  if (fromIndex < 0) return
+  const nextIndex = Math.max(0, Math.min(list.length - 1, targetIndex))
+  if (fromIndex === nextIndex) return
+  list.splice(fromIndex, 1)
+  list.splice(nextIndex, 0, id)
+  refImageIds.value = list
+  const message = `已将第 ${fromIndex + 1} 张参考图移到第 ${nextIndex + 1} 位`
+  referenceOrderAnnouncement.value = ''
+  showReferenceNotice(message)
+  nextTick(() => {
+    refItemEls.get(id)?.focus()
+    referenceOrderAnnouncement.value = message
+  })
+}
+function onRefKeydown(e, id) {
+  // 排序键只在参考图外层获得焦点时生效,避免删除按钮的方向键被父层抢走。
+  if (e.currentTarget !== e.target) return
+  const index = refImageIds.value.indexOf(id)
+  if (index < 0) return
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    const asset = refAssets.value.find((item) => item.id === id)
+    if (asset) emit('preview', { asset, list: refAssets.value })
+    return
+  }
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault()
+    moveReference(id, index - 1)
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault()
+    moveReference(id, index + 1)
+  } else if (e.key === 'Home') {
+    e.preventDefault()
+    moveReference(id, 0)
+  } else if (e.key === 'End') {
+    e.preventDefault()
+    moveReference(id, refImageIds.value.length - 1)
+  }
 }
 function hasDraft() {
   return !!prompt.value.trim() || refImageIds.value.length > 0
@@ -572,6 +626,7 @@ function onErrorAction() {
     <div v-if="referenceNotice" class="ref-notice" role="status" aria-live="polite">
       <AppIcon name="alert" :size="13" /> {{ referenceNotice }}
     </div>
+    <div class="sr-only" role="status" aria-live="polite">{{ referenceOrderAnnouncement }}</div>
 
     <!-- 主输入框 -->
     <div class="composer" :class="{ disabled: !store.activePreset }">
@@ -581,20 +636,25 @@ function onErrorAction() {
           <span class="ref-title">参考图</span>
           <span class="ref-count tnum">{{ refAssets.length }}/{{ MAX_REFERENCES }}</span>
         </div>
-        <div class="ref-items">
+        <div class="ref-items" role="list" aria-label="参考图列表">
           <div
             v-for="(a, i) in refAssets" :key="a.id"
             class="ref-thumb" :class="{ 'drag-over': dragOverRefId === a.id, dragging: dragRefId === a.id }"
+            :ref="(el) => setRefItemRef(el, a.id)"
+            role="listitem" tabindex="0"
             draggable="true"
-            title="将作为参考图发送（可拖拽排序）"
+            :aria-label="`第 ${i + 1} 张参考图，可用左右方向键、Home 或 End 调整顺序`"
+            title="将作为参考图发送（可拖拽或使用方向键排序）"
             @dragstart="onRefDragStart($event, a.id)"
             @dragover="onRefDragOver($event, a.id)"
             @drop="onRefDrop($event, a.id)"
             @dragend="onRefDragEnd"
+            @keydown="onRefKeydown($event, a.id)"
           >
             <button
               type="button"
               class="ref-preview"
+              tabindex="-1"
               @click="emit('preview', { asset: a, list: refAssets })"
               :aria-label="`预览第 ${i + 1} 张参考图`"
               title="预览参考图"
@@ -848,16 +908,24 @@ function onErrorAction() {
         </button>
         <button
           v-else
-          class="btn btn-primary send"
-          :disabled="!canGenerate"
-          @click="submit" aria-label="生成图片"
-          :title="missingKey ? '请先填写 API Key' : (!store.activePreset ? '请先添加接口' : '生成图片')"
+           class="btn btn-primary send"
+           :disabled="!canGenerate"
+           @click="submit" aria-label="生成图片"
+           aria-describedby="generate-disabled-reason"
+           :title="generateDisabledReason || '生成图片'"
         >
           <AppIcon name="sparkles" :size="16" />
-          生成
-        </button>
-      </div>
-    </div>
+           生成
+         </button>
+       </div>
+       <p
+         id="generate-disabled-reason"
+         class="generate-disabled-reason"
+         :class="{ visible: !!generateDisabledReason }"
+         role="status"
+         aria-live="polite"
+       >{{ generateDisabledReason }}</p>
+     </div>
     <p class="composer-foot">Enter 换行 · Ctrl/Cmd+Enter 生成</p>
   </div>
 </template>
@@ -933,10 +1001,11 @@ function onErrorAction() {
 }
 .ref-items { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .ref-thumb {
-  position: relative; width: 76px; height: 76px; border-radius: 12px;
+  position: relative; flex: 0 0 76px; width: 76px; height: 76px; border-radius: 12px;
   overflow: hidden; border: 1px solid var(--color-border-strong); cursor: grab;
   transition: opacity var(--dur) var(--ease), outline-color var(--dur) var(--ease);
 }
+.ref-thumb:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .ref-thumb:active { cursor: grabbing; }
 .ref-thumb.dragging { opacity: 0.45; }
 .ref-thumb.drag-over {
@@ -968,7 +1037,7 @@ function onErrorAction() {
   .ref-remove { opacity: 0.9; }
 }
 .ref-add {
-  width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+  flex: 0 0 48px; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
   border-radius: 10px; border: 1px dashed var(--color-border-strong);
   color: var(--color-fg-muted);
   flex-shrink: 0;
@@ -988,11 +1057,23 @@ function onErrorAction() {
 .ref-tip { flex: 1; min-width: 150px; font-size: 11px; line-height: 1.4; color: var(--color-fg-subtle); }
 
 @media (max-width: 520px) {
-  .ref-strip { gap: 8px; padding-bottom: 8px; }
-  .ref-thumb, .ref-add { width: 64px; height: 64px; border-radius: 10px; }
+  .ref-strip {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center;
+    gap: 8px; padding-bottom: 8px;
+  }
+  .ref-head { grid-column: 1; }
+  .ref-items {
+    grid-column: 2; width: 100%; min-width: 0; flex-wrap: nowrap; overflow-x: auto;
+    padding: 2px 1px 4px; touch-action: pan-x; scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+  }
+  .ref-strip.empty .ref-items { grid-column: 1 / -1; }
+  .ref-thumb, .ref-add {
+    flex: 0 0 64px; width: 64px; height: 64px; border-radius: 10px; scroll-snap-align: start;
+  }
   .ref-strip.empty .ref-add-empty { width: auto; height: 40px; }
   .ref-remove { top: 3px; right: 3px; width: 20px; height: 20px; }
-  .ref-tip { min-width: 130px; }
+  .ref-tip { grid-column: 1 / -1; width: 100%; min-width: 0; }
 }
 
 .composer {
@@ -1034,6 +1115,16 @@ function onErrorAction() {
 .composer-bar {
   display: flex; align-items: center; gap: var(--space-2); margin-top: 8px; padding-top: 8px;
   border-top: 1px solid var(--color-border); position: relative; flex-wrap: wrap;
+}
+.generate-disabled-reason {
+  min-height: 18px; margin: 6px 2px 0; font-size: 11px; line-height: 1.4;
+  color: var(--color-fg-subtle); visibility: hidden; opacity: 0;
+  transition: color var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+.generate-disabled-reason.visible { visibility: visible; opacity: 1; color: var(--color-warning); }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 .chip {
   display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--color-fg-muted);
