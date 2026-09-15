@@ -736,7 +736,8 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
 @media (max-width: 1024px) {
   .row-user { padding-left: 4%; }
   .row-ai { padding-right: 2%; }
-  .feed-inner { padding-left: var(--space-3); padding-right: var(--space-3); }
+  /* 移动端素材库悬浮按钮浮在结果区上方,留出底部空间,避免盖住队列的「移除」等操作 */
+  .feed-inner { padding-left: var(--space-3); padding-right: var(--space-3); padding-bottom: calc(var(--space-8) + 56px); }
   .avatar { display: none; }
   .empty { padding-top: 3vh; padding-bottom: 1vh; gap: 6px; }
   .empty-icon { width: 44px; height: 44px; border-radius: 12px; }

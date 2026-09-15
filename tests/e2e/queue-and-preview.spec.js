@@ -59,6 +59,18 @@ test.describe('生成队列与预览细节', () => {
     await input.press('Control+Enter')
     await expect(page.locator('.ref-notice')).toContainText('队列已满')
     await expect(page.locator('.queue-item')).toHaveCount(5)
+
+    // 移动端素材库悬浮按钮不能压住队列的「移除」按钮:
+    // 滚到底(用户查看队列时的实际位置)后,最后一条必须完全在悬浮按钮上方。
+    if (test.info().project.name === 'mobile') {
+      await page.locator('.feed').evaluate((el) => { el.scrollTop = el.scrollHeight })
+      await expect.poll(async () => page.evaluate(() => {
+        const items = document.querySelectorAll('.queue-item')
+        const last = items[items.length - 1].getBoundingClientRect()
+        const fab = document.querySelector('.mobile-assets-fab').getBoundingClientRect()
+        return Math.round(fab.top - last.bottom)
+      }), { timeout: 4000 }).toBeGreaterThan(0)
+    }
   })
 
   test('大图预览支持缩放并展示提示词', async ({ page }) => {
