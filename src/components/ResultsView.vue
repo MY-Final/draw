@@ -129,15 +129,20 @@ const editText = ref('')
 const editOriginalText = ref('')
 const confirmEditDiscard = ref(false)
 const editInput = ref(null)
+// 用户手动调整过的高度(px);非空时接管自动增高,重进编辑复位
+const manualEditHeight = ref(null)
+const editResizing = ref(false)
 function startEdit(gen) {
   if (store.generating || gen.status === 'pending') return
   editingGenId.value = gen.id
   editText.value = gen.prompt || ''
   editOriginalText.value = editText.value
+  manualEditHeight.value = null
   // 聚焦并让光标落在文末,进入即可继续输入
   nextTick(() => {
     const el = editInput.value
     if (el) {
+      el.style.height = '' // 清掉上次编辑残留的手动高度
       el.focus()
       const len = el.value.length
       el.setSelectionRange(len, len)
@@ -166,11 +171,45 @@ function onEditEnter(e, gen) {
 // 编辑框自适应高度:内容多高撑多高(上限约 80% 视口高),长 prompt 完整展开
 function autogrowEdit() {
   const el = editInput.value
-  if (!el) return
+  if (!el || manualEditHeight.value) return
   el.style.height = 'auto'
   void el.offsetHeight // 强制同步回流,确保 scrollHeight 是最终布局值
-  const cap = Math.round((window.innerHeight || 800) * 0.8)
-  el.style.height = Math.min(el.scrollHeight, cap) + 'px'
+  el.style.height = Math.min(el.scrollHeight, editMaxHeight()) + 'px'
+}
+// 高度上限:约 80% 视口高,和自动增高保持一致
+function editMaxHeight() { return Math.round((window.innerHeight || 800) * 0.8) }
+// 下限取编辑框自身的保底高度(clamp 的解析 px 值),避免和 CSS min-height 打架
+function applyEditHeight(next) {
+  const el = editInput.value
+  if (!el) return
+  const min = parseFloat(getComputedStyle(el).minHeight) || 96
+  const h = Math.max(min, Math.min(next, editMaxHeight()))
+  el.style.height = `${h}px`
+  manualEditHeight.value = h
+}
+// 拖动把手手动调整编辑框高度:以按下时的高度为基准
+let editResizeStart = null
+function onEditResizeStart(e) {
+  const el = editInput.value
+  if (!el) return
+  e.preventDefault() // 抑制拖拽期间选中文本
+  editResizeStart = { y: e.clientY, h: el.getBoundingClientRect().height }
+  editResizing.value = true
+  e.currentTarget.setPointerCapture?.(e.pointerId)
+}
+function onEditResizeMove(e) {
+  if (!editResizeStart) return
+  applyEditHeight(editResizeStart.h + (e.clientY - editResizeStart.y))
+}
+function onEditResizeEnd() { editResizeStart = null; editResizing.value = false }
+// 键盘可达:把手聚焦后 ↑/↓ 增高/降低
+function onEditResizeKey(e) {
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+  const el = editInput.value
+  if (!el) return
+  e.preventDefault()
+  const base = manualEditHeight.value ?? el.getBoundingClientRect().height
+  applyEditHeight(base + (e.key === 'ArrowUp' ? 24 : -24))
 }
 // 兜底:编辑态切换 / 内容变化时都重新量一次高度,避免任何时序漏测
 watch(editingGenId, (id) => { if (id) nextTick(() => requestAnimationFrame(autogrowEdit)) })
@@ -255,6 +294,15 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
                   @input="autogrowEdit"
                   @keydown.enter="onEditEnter($event, gen)" @keydown.esc="cancelEdit"
                 />
+                <button
+                  type="button" class="bubble-edit-resize" :class="{ active: editResizing }"
+                  @pointerdown="onEditResizeStart" @pointermove="onEditResizeMove"
+                  @pointerup="onEditResizeEnd" @pointercancel="onEditResizeEnd"
+                  @keydown="onEditResizeKey"
+                  title="拖动调整编辑框高度" aria-label="调整编辑框高度,可拖动或用上下方向键"
+                >
+                  <span class="bubble-edit-grip" aria-hidden="true" />
+                </button>
                 <div class="bubble-edit-actions">
                   <span class="bubble-edit-hint">Enter 换行 · Ctrl/Cmd+Enter 保存并生成 · Esc 取消</span>
                   <div class="bubble-edit-btns">
@@ -572,6 +620,27 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
 .bubble-edit-input:focus {
   outline: 2px solid rgba(255,255,255,0.85); outline-offset: 1px; border-color: rgba(255,255,255,0.85);
 }
+/* 编辑框高度把手:指针拖动 / 键盘 ↑↓ 均可调整 */
+.bubble-edit-resize {
+  align-self: center; display: flex; align-items: center; justify-content: center;
+  padding: 4px 14px; border-radius: 999px; cursor: ns-resize;
+  color: rgba(255,255,255,0.7); touch-action: none;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.bubble-edit-resize:hover,
+.bubble-edit-resize:focus-visible,
+.bubble-edit-resize.active { background: rgba(255,255,255,0.16); color: #fff; }
+.bubble-edit-resize:focus-visible { outline: 2px solid rgba(255,255,255,0.85); outline-offset: 1px; }
+.bubble-edit-grip {
+  display: block; position: relative; width: 22px; height: 3px;
+  background: currentColor; border-radius: 999px;
+}
+.bubble-edit-grip::before, .bubble-edit-grip::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 3px;
+  background: currentColor; border-radius: 999px;
+}
+.bubble-edit-grip::before { top: -5px; }
+.bubble-edit-grip::after { top: 5px; }
 .bubble-edit-actions {
   display: flex; align-items: center; justify-content: space-between;
   gap: 8px; flex-wrap: wrap;
