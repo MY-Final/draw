@@ -1,0 +1,26 @@
+export default {
+  zh: {
+    workspace: '工作区',
+    conversation: '会话',
+    asset: '素材',
+    favoriteAsset: '收藏素材 {id}',
+    assetWithId: '素材 {id}',
+    unknownWorkspace: '未知工作区',
+    favoriteMark: '收藏',
+    placeholder: '搜索工作区、会话、Prompt、素材…',
+    noResults: '未找到匹配结果',
+    hint: '输入关键词搜索工作区、会话、Prompt 或素材',
+  },
+  en: {
+    workspace: 'Workspace',
+    conversation: 'Conversation',
+    asset: 'Asset',
+    favoriteAsset: 'Favorite asset {id}',
+    assetWithId: 'Asset {id}',
+    unknownWorkspace: 'Unknown workspace',
+    favoriteMark: 'Favorite',
+    placeholder: 'Search workspaces, conversations, prompts, assets…',
+    noResults: 'No matching results',
+    hint: 'Type keywords to search workspaces, conversations, prompts, or assets',
+  },
+}

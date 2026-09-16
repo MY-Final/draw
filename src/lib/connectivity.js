@@ -1,6 +1,7 @@
 // 连通性检查 —— 只探活,不触发计费生成。
 // 用 GET /v1/models(官方约定);失败时如实归类,不再回退到 images/generations。
 import { ApiError } from './http.js'
+import { tl } from '../i18n/translate.js'
 
 const PING_TIMEOUT_MS = 15000
 
@@ -14,9 +15,9 @@ function authHeader(key) {
 }
 
 export async function checkConnectivity(preset) {
-  if (!preset) return { ok: false, category: 'unknown', message: '未选择接口预设' }
-  if (!preset.baseURL) return { ok: false, category: 'unknown', message: '缺少 baseURL' }
-  if (!preset.apiKey) return { ok: false, category: 'auth', message: '缺少 API Key' }
+  if (!preset) return { ok: false, category: 'unknown', message: tl('lib.connectivity.noPreset') }
+  if (!preset.baseURL) return { ok: false, category: 'unknown', message: tl('lib.connectivity.missingBaseURL') }
+  if (!preset.apiKey) return { ok: false, category: 'auth', message: tl('lib.connectivity.missingKey') }
 
   const url = `${preset.baseURL}/v1/models`
   let resp
@@ -32,14 +33,14 @@ export async function checkConnectivity(preset) {
       return {
         ok: false,
         category: 'timeout',
-        message: `连通性检查在 ${PING_TIMEOUT_MS / 1000}s 内未响应(已超时)。`,
+        message: tl('lib.connectivity.timeout', { seconds: PING_TIMEOUT_MS / 1000 }),
         detail: String(e),
       }
     }
     return {
       ok: false,
       category: 'network-or-cors',
-      message: '无法连接接口:可能是网络问题或接口未开放跨域(CORS)。',
+      message: tl('lib.connectivity.cors'),
       detail: String(e),
     }
   }
@@ -48,7 +49,7 @@ export async function checkConnectivity(preset) {
     return {
       ok: false,
       category: 'auth',
-      message: `鉴权失败(HTTP ${resp.status}):请检查 API Key 是否正确、是否有权限。`,
+      message: tl('lib.connectivity.auth', { status: resp.status }),
     }
   }
   if (!resp.ok) {
@@ -58,12 +59,12 @@ export async function checkConnectivity(preset) {
     return {
       ok: false,
       category: 'api',
-      message: `接口返回错误(HTTP ${resp.status})。探测地址: GET /v1/models(不会触发画图计费)。`,
+      message: tl('lib.connectivity.api', { status: resp.status }),
       detail: detail.slice(0, 500),
     }
   }
 
-  return { ok: true, category: 'ok', message: '连接成功' }
+  return { ok: true, category: 'ok', message: tl('lib.connectivity.ok') }
 }
 
 // 供测试断言:连通性检查永不调用计费端点。

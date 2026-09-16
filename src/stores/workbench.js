@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import {
   loadPresets, savePreset, deletePreset, getActivePresetId, setActivePresetId, clearAllKeys,
-  PROTOCOL_IMAGES,
 } from '../lib/presets.js'
 import { listAssets, getAsset, deleteAssets, toggleFavorite, clearAllAssets, putAsset } from '../lib/assetRepo.js'
 import { listGenerations, deleteGenerations, clearAllGenerations, updateGeneration } from '../lib/generationRepo.js'
@@ -17,6 +16,7 @@ import { getDB, newId, STORE_WORKSPACES, STORE_ASSETS } from '../lib/db.js'
 import { listWorkspaces, createWorkspace as repoCreateWs, updateWorkspace, deleteWorkspace as repoDeleteWs } from '../lib/workspaceRepo.js'
 import { migrateLegacyPrompts, savePrompts } from '../lib/promptLibrary.js'
 import { checkReminder } from '../lib/backupReminder.js'
+import { tl } from '../i18n/translate.js'
 
 // 生成队列上限:图片生成很慢(30-120s),排太多只会让等待失控;满额后明确告知用户。
 export const MAX_GENERATION_QUEUE = 5
@@ -30,6 +30,8 @@ export const useWorkbenchStore = defineStore('workbench', {
     usage: null,
     generating: false,
     lastError: null,
+    // lastError 的语义类别:'settings' 表示该错误可通过去接口设置解决;其余为 null。
+    lastErrorKind: null,
     // 当前进行中的生成:用于取消(abort)与删除 pending 时中止网络请求。
     activeGeneration: null, // { genId, conversationId, workspaceId, controller, done }
     // 当前会话(新建创作 = 新会话)。会话只是视图分组,持久保留,可在左侧导航切回。
@@ -87,13 +89,6 @@ export const useWorkbenchStore = defineStore('workbench', {
     currentWorkspace(state) {
       return state.workspaces.find((w) => w.id === state.activeWorkspaceId) || null
     },
-    // 当前工作区下的会话(继承 conversations 逻辑但加过滤)。
-    workspaceConversations() {
-      return this.conversations
-    },
-    workspaceConversationGroups() {
-      return groupConversationsByDate(this.workspaceConversations)
-    },
     // 当前工作区下的素材。
     workspaceAssets(state) {
       if (!state.activeWorkspaceId) return state.visibleAssets
@@ -140,7 +135,7 @@ export const useWorkbenchStore = defineStore('workbench', {
       if (!stale.length) return
       await Promise.all(stale.map((g) => updateGeneration(g.id, {
         status: 'failed',
-        error: '生成中断（页面已刷新）',
+        error: tl('lib.store.interrupted'),
         elapsedMs: Math.max(0, now - g.createdAt),
       })))
       await this.refreshAll()
@@ -150,7 +145,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     newConversation() {
       this.conversationId = this.newConversationId()
       localStorage.setItem('workbench.conversationId', this.conversationId)
-      this.lastError = null
+      this.clearLastError()
     },
 
     // 切到某段历史会话。
@@ -160,7 +155,7 @@ export const useWorkbenchStore = defineStore('workbench', {
       if (!valid && id !== this.conversationId) return false
       this.conversationId = id
       localStorage.setItem('workbench.conversationId', id)
-      this.lastError = null
+      this.clearLastError()
       return true
     },
 
@@ -171,7 +166,7 @@ export const useWorkbenchStore = defineStore('workbench', {
       if (list.length === 0) {
         // 首次运行:创建默认工作区,迁移存量数据。
         const db = await getDB()
-        const ws = await repoCreateWs({ name: '我的工作区' })
+        const ws = await repoCreateWs({ name: tl('lib.store.initialWorkspaceName') })
         // 覆写 id 为固定 ws_default,便于引用。
         await db.delete(STORE_WORKSPACES, ws.id)
         const defaultWs = { ...ws, id: 'ws_default' }
@@ -210,7 +205,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     },
 
     async createWorkspace(name) {
-      const ws = await repoCreateWs({ name: name || '未命名工作区' })
+      const ws = await repoCreateWs({ name: name || tl('lib.defaults.workspaceName') })
       this.workspaces = await listWorkspaces()
       await this.switchWorkspace(ws.id)
       return ws
@@ -297,7 +292,7 @@ export const useWorkbenchStore = defineStore('workbench', {
           .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
         this.generations = [...this.generations, ...pending.genRecords]
           .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-        this.lastError = `删除工作区失败：${error?.message || error}`
+        this.setError(tl('lib.store.deleteWorkspaceFailed', { message: error?.message || error }))
         await this.refreshAll().catch(() => {})
         return false
       }
@@ -362,7 +357,7 @@ export const useWorkbenchStore = defineStore('workbench', {
       const last = wsGens.length ? convIdOf(wsGens[0]) : null
       this.conversationId = last || this.newConversationId()
       localStorage.setItem('workbench.conversationId', this.conversationId)
-      this.lastError = null
+      this.clearLastError()
       return true
     },
 
@@ -422,19 +417,19 @@ export const useWorkbenchStore = defineStore('workbench', {
     // context 允许队列把结果写回「发起排队时」的工作区/会话,而不是当前正在看的上下文。
     async generate({ prompt, fullPrompt, refImageIds = [], params = {} }, context = null) {
       if (!this.activePreset) {
-        this.lastError = '请先添加并选择一个接口预设。'
+        this.setError(tl('lib.store.noPreset'), 'settings')
         return { ok: false }
       }
       if (!this.activePreset.apiKey) {
-        this.lastError = '当前接口缺少 API Key,请先在接口设置中填写。'
+        this.setError(tl('lib.store.missingKey'), 'settings')
         return { ok: false }
       }
       if (this.generating) {
-        this.lastError = '已有生成进行中,请等待完成或取消后再试。'
+        this.setError(tl('lib.store.busy'))
         return { ok: false }
       }
       this.generating = true
-      this.lastError = null
+      this.clearLastError()
       const workspaceId = context?.workspaceId ?? this.activeWorkspaceId
       const conversationId = context?.conversationId ?? this.conversationId
       const controller = new AbortController()
@@ -464,11 +459,11 @@ export const useWorkbenchStore = defineStore('workbench', {
           },
         })
         await this.refreshAll()
-        if (gen?.cancelled || gen?.error === '已取消') {
+        if (gen?.cancelled) {
           return { ok: false, cancelled: true, generation: gen }
         }
         if (gen.status === 'empty') {
-          this.lastError = '接口返回了内容,但未能识别出图片(已保留响应片段供诊断)。'
+          this.setError(tl('lib.store.emptyResponse'))
         }
         return { ok: gen.status === 'success', generation: gen }
       } catch (e) {
@@ -477,7 +472,7 @@ export const useWorkbenchStore = defineStore('workbench', {
           await this.refreshAll()
           return { ok: false, cancelled: true }
         }
-        this.lastError = String(e?.message || e)
+        this.setError(String(e?.message || e), e?.category === 'auth' ? 'settings' : 'generic')
         await this.refreshAll()
         return { ok: false, error: this.lastError }
       } finally {
@@ -584,8 +579,14 @@ export const useWorkbenchStore = defineStore('workbench', {
       })
     },
 
+    setError(message, kind = null) {
+      this.lastError = message
+      this.lastErrorKind = kind
+    },
+
     clearLastError() {
       this.lastError = null
+      this.lastErrorKind = null
     },
 
     // ── 删除单条生成(延迟提交,可撤销)──
@@ -628,7 +629,7 @@ export const useWorkbenchStore = defineStore('workbench', {
         await this._deleteGensAndOrphans([genId], full)
         await this.refreshAll()
       } catch (error) {
-        this.lastError = `删除生成失败：${error?.message || error}`
+        this.setError(tl('lib.store.deleteGenerationFailed', { message: error?.message || error }))
         await this.refreshAll().catch(() => {})
       }
     },
@@ -668,7 +669,7 @@ export const useWorkbenchStore = defineStore('workbench', {
 
       const title = this.titleOverrides[id]
         || records[0]?.prompt?.slice(0, 24)
-        || '新创作'
+        || tl('sidebar.newConversation')
 
       // 空会话(草稿)没有记录要删,直接切走即可,不必给一个假的撤销窗口。
       if (!records.length) {
@@ -747,7 +748,7 @@ export const useWorkbenchStore = defineStore('workbench', {
         // 落库失败就把记录放回去,不能让用户以为删掉了、数据却还在(或反之)。
         this.generations = [...this.generations, ...pending.records]
           .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-        this.lastError = `删除会话失败：${error?.message || error}`
+        this.setError(tl('lib.store.deleteConversationFailed', { message: error?.message || error }))
         await this.refreshAll().catch(() => {})
         return false
       }
@@ -904,7 +905,7 @@ export const useWorkbenchStore = defineStore('workbench', {
         return true
       } catch (error) {
         if (this.pendingAssetDelete?.batchId === batchId) this.pendingAssetDelete = null
-        this.lastError = `删除素材失败：${error?.message || error}`
+        this.setError(tl('lib.store.deleteAssetFailed', { message: error?.message || error }))
         await this.refreshAll().catch(() => {})
         return false
       }
@@ -925,10 +926,6 @@ export const useWorkbenchStore = defineStore('workbench', {
       const usage = await getStorageUsage()
       this.usage = usage
       return checkReminder(usage.businessBytes)
-    },
-
-    defaultProtocolLabel() {
-      return PROTOCOL_IMAGES
     },
   },
 })

@@ -156,6 +156,12 @@ npm run test:e2e -- --workers=1   # 端到端测试(自动启动 dev server)
 
 详见 `openspec/changes/archive/2026-07-11-bootstrap-drawing-workbench/` (proposal / design / specs / tasks)。
 
+## 参与贡献
+
+- 贡献流程与提交前检查见 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。
+- 架构与数据流见 [`docs/architecture.md`](./docs/architecture.md)。
+- 版本变更见 [`CHANGELOG.md`](./CHANGELOG.md)。
+
 ## 许可证
 
 [MIT](./LICENSE) © MY-Final

@@ -1,6 +1,7 @@
 <script setup>
 // 中栏对话流:每条生成 = 用户请求气泡(右)+ AI 回复卡(左),左右明显错开。
 import { computed, ref, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
@@ -12,6 +13,7 @@ import PendingTimer from './PendingTimer.vue'
 import UndoToast from './UndoToast.vue'
 
 const store = useWorkbenchStore()
+const { t } = useI18n()
 const emit = defineEmits(['use-as-reference', 'preview', 'reuse', 'open-settings', 'fill-prompt'])
 const scroller = ref(null)
 // 用户主动上翻时不抢滚动;仅贴近底部才跟滚。
@@ -25,10 +27,10 @@ const searchModKey = (() => {
 
 // 冷启动灵感:点一下直接填进输入框,比只给一句操作说明更有用。
 const INSPIRATIONS = [
-  { label: '赛博朋克', icon: 'sparkles', prompt: '雨夜霓虹街头，赛博朋克风格，毛玻璃质感，雨滴反光，电影感打光' },
-  { label: '柔光猫咪', icon: 'heart', prompt: '一只安静的猫，柔和窗光，浅景深，细腻毛发质感，暖色调' },
-  { label: '极简建筑', icon: 'layers', prompt: '极简主义建筑，清水混凝土，几何构成，正午硬光，天空留白' },
-  { label: '超现实主义', icon: 'image', prompt: '超现实场景，悬浮的鲸鱼与云层，柔和逆光，梦境氛围，超广角' },
+  { key: 'cyberpunk', icon: 'sparkles' },
+  { key: 'softCat', icon: 'heart' },
+  { key: 'minimalArchitecture', icon: 'layers' },
+  { key: 'surrealism', icon: 'image' },
 ]
 
 // 时间正序(旧→新);只显示当前会话。
@@ -51,16 +53,17 @@ function hasMissingOutputs(gen) {
   const expected = gen.outputImageIds || []
   return gen.status === 'success' && expected.length > outputsOf(gen).length
 }
-function modelOf(gen) { return gen.params?.model || '模型' }
+function modelOf(gen) { return gen.params?.model || t('results.modelFallback') }
 function qualityOf(gen) {
   const q = gen.params?.quality
-  if (q === 'medium') return '中'
-  if (q === 'low') return '低'
-  if (q === 'high') return '高'
+  if (q === 'medium') return t('results.quality.medium')
+  if (q === 'low') return t('results.quality.low')
+  if (q === 'high') return t('results.quality.high')
   return ''
 }
-function isSettingsError(msg) {
-  return /API Key|接口|预设|Key|401|403|Unauthorized|鉴权|认证/i.test(String(msg || ''))
+function isSettingsError(gen) {
+  // 鉴权类失败(含 401/403、缺 Key)才引导去设置;用分类而非文案判断,避免受语言影响。
+  return gen?.failureCategory === 'auth'
 }
 
 // 把这条的 prompt/参数/参考图填回输入框,方便改画质后再发。
@@ -263,22 +266,22 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
       <!-- 空状态 -->
       <div v-if="!feed.length && !store.generating" class="empty">
         <div class="empty-icon"><AppIcon name="sparkles" :size="26" /></div>
-        <h1>画点什么?</h1>
-        <p>在下方描述你想要的画面，Ctrl/Cmd+Enter 即可生成。结果会自动存入本地素材库。</p>
-        <div class="empty-inspire" role="group" aria-label="灵感示例">
+        <h1>{{ t('results.empty.title') }}</h1>
+        <p>{{ t('results.empty.description') }}</p>
+        <div class="empty-inspire" role="group" :aria-label="t('results.empty.inspirationsAria')">
           <button
-            v-for="idea in INSPIRATIONS" :key="idea.label"
+            v-for="idea in INSPIRATIONS" :key="idea.key"
             type="button" class="empty-chip chip-action"
-            @click="emit('fill-prompt', idea.prompt)"
+            @click="emit('fill-prompt', t(`results.inspirations.${idea.key}.prompt`))"
           >
-            <AppIcon :name="idea.icon" :size="12" /> {{ idea.label }}
+            <AppIcon :name="idea.icon" :size="12" /> {{ t(`results.inspirations.${idea.key}.label`) }}
           </button>
         </div>
         <div class="empty-hints">
-          <span class="empty-chip"><AppIcon name="image" :size="12" /> 可拖入参考图</span>
-          <span class="empty-chip"><AppIcon name="keyboard" :size="12" /> Ctrl/Cmd+Enter 生成</span>
-          <span class="empty-chip"><AppIcon name="search" :size="12" /> {{ searchModKey }}K 搜索</span>
-          <span class="empty-chip"><AppIcon name="plus" :size="12" /> Alt+N 新建创作</span>
+          <span class="empty-chip"><AppIcon name="image" :size="12" /> {{ t('results.empty.dropReference') }}</span>
+          <span class="empty-chip"><AppIcon name="keyboard" :size="12" /> {{ t('results.empty.generateHint') }}</span>
+          <span class="empty-chip"><AppIcon name="search" :size="12" /> {{ t('results.empty.searchHint', { mod: searchModKey }) }}</span>
+          <span class="empty-chip"><AppIcon name="plus" :size="12" /> {{ t('results.empty.newCreationHint') }}</span>
         </div>
       </div>
 
@@ -299,15 +302,15 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
                   @pointerdown="onEditResizeStart" @pointermove="onEditResizeMove"
                   @pointerup="onEditResizeEnd" @pointercancel="onEditResizeEnd"
                   @keydown="onEditResizeKey"
-                  title="拖动调整编辑框高度" aria-label="调整编辑框高度,可拖动或用上下方向键"
+                  :title="t('results.edit.resizeTitle')" :aria-label="t('results.edit.resizeAria')"
                 >
                   <span class="bubble-edit-grip" aria-hidden="true" />
                 </button>
                 <div class="bubble-edit-actions">
-                  <span class="bubble-edit-hint">Enter 换行 · Ctrl/Cmd+Enter 保存并生成 · Esc 取消</span>
+                  <span class="bubble-edit-hint">{{ t('results.edit.hint') }}</span>
                   <div class="bubble-edit-btns">
-                    <button class="bubble-edit-btn-cancel" @click="cancelEdit">取消</button>
-                    <button class="bubble-edit-btn-save" @click="saveEdit(gen)" :disabled="!editText.trim()">以此 Prompt 生成</button>
+                    <button class="bubble-edit-btn-cancel" @click="cancelEdit">{{ t('common.cancel') }}</button>
+                    <button class="bubble-edit-btn-save" @click="saveEdit(gen)" :disabled="!editText.trim()">{{ t('results.edit.regenerate') }}</button>
                   </div>
                 </div>
               </div>
@@ -316,9 +319,9 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
               </template>
               <div v-if="refsOf(gen).length" class="bubble-refs">
                 <div v-for="a in refsOf(gen)" :key="a.id" class="bubble-ref">
-                  <AssetImage :asset="a" alt="参考图" />
+                  <AssetImage :asset="a" :alt="t('results.referenceImage')" />
                 </div>
-                <span class="ref-hint">参考图</span>
+                <span class="ref-hint">{{ t('results.referenceImage') }}</span>
               </div>
             </div>
             <!-- 编辑按钮:贴在用户消息气泡正下方 -->
@@ -327,9 +330,9 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
                 class="user-edit-btn"
                 @click="startEdit(gen)"
                 :disabled="store.generating"
-                title="编辑这条消息并重新生成"
+                :title="t('results.edit.actionTitle')"
               >
-                <AppIcon name="edit" :size="13" /> 编辑
+                <AppIcon name="edit" :size="13" /> {{ t('results.edit.button') }}
               </button>
             </div>
           </div>
@@ -342,11 +345,11 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
           <div class="card">
             <div class="card-head">
               <span class="model">{{ modelOf(gen) }}</span>
-              <span v-if="qualityOf(gen)" class="badge-soft tnum" :title="'画质 ' + qualityOf(gen)">{{ qualityOf(gen) }}</span>
-              <span v-if="gen.status === 'success'" class="badge badge-ok"><AppIcon name="check" :size="11" /> 已完成</span>
-              <span v-else-if="gen.status === 'failed'" class="badge badge-danger">失败</span>
-              <span v-else-if="gen.status === 'empty'" class="badge badge-warn">无图片</span>
-              <span v-else class="badge"><AppIcon name="refresh" :size="11" class="spin" /> {{ gen.statusMessage || '生成中' }}</span>
+              <span v-if="qualityOf(gen)" class="badge-soft tnum" :title="t('results.qualityTitle', { quality: qualityOf(gen) })">{{ qualityOf(gen) }}</span>
+              <span v-if="gen.status === 'success'" class="badge badge-ok"><AppIcon name="check" :size="11" /> {{ t('results.status.success') }}</span>
+              <span v-else-if="gen.status === 'failed'" class="badge badge-danger">{{ t('results.status.failed') }}</span>
+              <span v-else-if="gen.status === 'empty'" class="badge badge-warn">{{ t('results.status.empty') }}</span>
+              <span v-else class="badge"><AppIcon name="refresh" :size="11" class="spin" /> {{ gen.statusMessage || t('results.status.generating') }}</span>
                <PendingTimer v-if="gen.status === 'pending'" :created-at="gen.createdAt" />
                <span v-else-if="elapsedText(gen)" class="elapsed tnum">{{ elapsedText(gen) }}</span>
             </div>
@@ -355,27 +358,27 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
               <AppIcon name="alert" :size="14" />
               <span class="note-text">{{ gen.error }}</span>
               <button
-                v-if="isSettingsError(gen.error)"
+                v-if="isSettingsError(gen)"
                 type="button"
                 class="note-action"
                 @click="emit('open-settings')"
-              >去设置</button>
+              >{{ t('results.settingsAction') }}</button>
               <details v-if="gen.errorDetail" class="error-detail">
-                <summary>查看接口详情</summary>
+                <summary>{{ t('results.errorDetail') }}</summary>
                 <pre>{{ gen.errorDetail }}</pre>
               </details>
             </div>
             <div v-else-if="gen.status === 'empty'" class="note note-warn">
-              <div>接口未返回可识别图片。<code class="snippet">{{ gen.rawResponseSnippet }}</code></div>
+              <div>{{ t('results.emptyResponse') }}<code class="snippet">{{ gen.rawResponseSnippet }}</code></div>
             </div>
             <div v-else-if="hasMissingOutputs(gen)" class="note note-warn">
               <AppIcon name="alert" :size="14" />
-              <span class="note-text">图片已从浏览器存储中清理,生成记录仍保留。</span>
+              <span class="note-text">{{ t('results.missingOutputs') }}</span>
             </div>
             <div v-else-if="gen.status === 'success' && gen.partialNote" class="note note-warn">
               <AppIcon name="alert" :size="14" />
               <div class="note-text">
-                {{ gen.partialNote }}——请核对接口是否支持批量生成及计费。
+                {{ t('results.partialNote', { note: gen.partialNote }) }}
                 <code v-if="gen.rawResponseSnippet" class="snippet">{{ gen.rawResponseSnippet }}</code>
               </div>
             </div>
@@ -387,12 +390,12 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
                   v-if="store.activeGeneration?.genId === gen.id"
                   class="pending-del act"
                   @click="store.cancelActiveGeneration()"
-                  title="取消本次生成"
+                  :title="t('results.cancelGenerationTitle')"
                 >
-                  <AppIcon name="x" :size="13" /> 取消
+                  <AppIcon name="x" :size="13" /> {{ t('common.cancel') }}
                 </button>
-                <button class="pending-del act act-danger" @click="deleteGen(gen)" title="删除这条卡住的生成">
-                  <AppIcon name="trash" :size="13" /> 卡住了?删除
+                <button class="pending-del act act-danger" @click="deleteGen(gen)" :title="t('results.deleteStuckTitle')">
+                  <AppIcon name="trash" :size="13" /> {{ t('results.deleteStuck') }}
                 </button>
               </div>
             </div>
@@ -404,13 +407,13 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
                 @mouseenter="focusAsset(gen.id, a.id)"
                 @focusin="focusAsset(gen.id, a.id)"
               >
-                <button class="fig-img" @click="focusAsset(gen.id, a.id); emit('preview', { asset: a, list: outputsOf(gen) })" aria-label="放大预览">
+                <button class="fig-img" @click="focusAsset(gen.id, a.id); emit('preview', { asset: a, list: outputsOf(gen) })" :aria-label="t('results.zoomPreview')">
                   <AssetImage :asset="a" :alt="gen.prompt" />
                 </button>
                 <button
                   class="fav" :class="{ on: a.favorite }"
                   @click.stop="store.toggleAssetFavorite(a.id)"
-                  :aria-label="a.favorite ? '取消收藏' : '收藏'"
+                  :aria-label="a.favorite ? t('results.unfavorite') : t('results.favorite')"
                 >
                   <AppIcon name="heart" :size="14" />
                 </button>
@@ -423,29 +426,29 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
                 class="act"
                 @click="emit('use-as-reference', activeOutput(gen)?.id)"
                 :disabled="!activeOutput(gen)"
-                :title="outputsOf(gen).length > 1 ? '用当前选中的这张图继续创作' : '用这张图继续创作'"
+                :title="outputsOf(gen).length > 1 ? t('results.continueWithSelected') : t('results.continueWithThis')"
               >
-                <AppIcon name="layers" :size="14" /> 设为参考图
+                <AppIcon name="layers" :size="14" /> {{ t('results.setAsReference') }}
               </button>
-              <button class="act" @click="store.regenerate(gen.id)" :disabled="store.generating" title="按原参数再跑一次">
-                <AppIcon name="refresh" :size="14" /> 重新生成
+              <button class="act" @click="store.regenerate(gen.id)" :disabled="store.generating" :title="t('results.regenerateTitle')">
+                <AppIcon name="refresh" :size="14" /> {{ t('results.regenerate') }}
               </button>
-              <button class="act" @click="reuseInComposer(gen)" title="填回输入框,可改画质/比例后再生成">
-                <AppIcon name="message" :size="14" /> 填入输入框
+              <button class="act" @click="reuseInComposer(gen)" :title="t('results.refillTitle')">
+                <AppIcon name="message" :size="14" /> {{ t('results.refill') }}
               </button>
               <button
                 class="act"
                 @click="downloadImage(activeOutput(gen), gen)"
                 :disabled="!activeOutput(gen)"
-                :title="outputsOf(gen).length > 1 ? '下载当前选中图' : '下载'"
+                :title="outputsOf(gen).length > 1 ? t('results.downloadSelected') : t('results.download')"
               >
-                <AppIcon name="download" :size="14" /> 下载
+                <AppIcon name="download" :size="14" /> {{ t('results.download') }}
               </button>
-              <button class="act" @click="shareRecipe(gen)" title="分享配方(不含 Key)">
-                <AppIcon name="share" :size="14" /> 分享
+              <button class="act" @click="shareRecipe(gen)" :title="t('results.shareTitle')">
+                <AppIcon name="share" :size="14" /> {{ t('results.share') }}
               </button>
-              <button class="act act-danger" @click="deleteGen(gen)" title="删除这条生成">
-                <AppIcon name="trash" :size="14" /> 删除
+              <button class="act act-danger" @click="deleteGen(gen)" :title="t('results.deleteTitle')">
+                <AppIcon name="trash" :size="14" /> {{ t('common.delete') }}
               </button>
             </div>
           </div>
@@ -453,23 +456,23 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
       </div>
 
       <!-- 排队中的请求:生成是单通道的,这里让用户看见「还排着几单」并能调整 -->
-      <div v-if="queuedHere.length" class="queue" role="list" aria-label="生成队列">
+      <div v-if="queuedHere.length" class="queue" role="list" :aria-label="t('results.queue.aria')">
         <div class="queue-head">
           <AppIcon name="layers" :size="13" />
-          <span>排队中 {{ queuedHere.length }} 单</span>
-          <span class="queue-hint">当前任务完成后按顺序自动开始</span>
+          <span>{{ t('results.queue.count', { count: queuedHere.length }) }}</span>
+          <span class="queue-hint">{{ t('results.queue.hint') }}</span>
         </div>
         <div v-for="(q, qi) in queuedHere" :key="q.id" class="queue-item" role="listitem">
           <span class="queue-pos tnum">{{ qi + 1 }}</span>
           <span class="queue-text" :title="q.prompt">{{ q.prompt }}</span>
           <button
             v-if="qi > 0" class="queue-act" type="button"
-            @click="store.promoteQueuedGeneration(q.id)" title="移到队首"
-          >提前</button>
+            @click="store.promoteQueuedGeneration(q.id)" :title="t('results.queue.promoteTitle')"
+          >{{ t('results.queue.promote') }}</button>
           <button
             class="queue-act queue-act-danger" type="button"
-            @click="store.removeQueuedGeneration(q.id)" :aria-label="`移除排队中的第 ${qi + 1} 单`"
-          >移除</button>
+            @click="store.removeQueuedGeneration(q.id)" :aria-label="t('results.queue.removeAria', { position: qi + 1 })"
+          >{{ t('results.queue.remove') }}</button>
         </div>
       </div>
       </div>
@@ -480,16 +483,16 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
       v-if="missedResults"
       type="button" class="new-results" @click="scrollToLatest"
     >
-      <AppIcon name="chevron-down" :size="14" /> {{ missedResults }} 条新结果
+      <AppIcon name="chevron-down" :size="14" /> {{ t('results.newResults', { count: missedResults }) }}
     </button>
 
     <!-- 删除撤销提示 -->
-    <UndoToast v-if="undoToast" message="已删除该条生成" @undo="undoDelete" />
+    <UndoToast v-if="undoToast" :message="t('results.deletedToast')" @undo="undoDelete" />
     <ConfirmDialog
       v-if="confirmEditDiscard"
-      title="放弃编辑"
-      message="当前 Prompt 已修改，关闭后将丢失这些修改。确定放弃吗？"
-      confirm-text="放弃" danger
+      :title="t('results.discard.title')"
+      :message="t('results.discard.message')"
+      :confirm-text="t('results.discard.confirm')" danger
       @confirm="finishCancelEdit" @cancel="confirmEditDiscard = false"
     />
   </div>

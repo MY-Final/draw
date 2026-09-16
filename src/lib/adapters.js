@@ -6,6 +6,7 @@
 // 上层拿到 images 后统一交给 http.toBlob 落库。
 
 import { callApi, DEFAULT_REQUEST_TIMEOUT_MS } from './http.js'
+import { tl } from '../i18n/translate.js'
 
 // 从各种响应形态中提取图片,尽量不丢图:
 //  标准:data[].b64_json / data[].url
@@ -97,7 +98,7 @@ async function generateViaImagesEdit({ preset, prompt, refImages, params, signal
 }
 
 export async function generate({ preset, prompt, refImages = [], params = {}, signal } = {}) {
-  if (!preset) throw new Error('未选择接口预设')
+  if (!preset) throw new Error(tl('lib.adapters.noPreset'))
   const hasRefs = refImages.length > 0
   // 标准 OpenAI images 接口:有参考图 → images/edits(改图);无 → images/generations(文生图)
   if (hasRefs) {

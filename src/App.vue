@@ -1,6 +1,7 @@
 <script setup>
 // 对话式布局:左安静栏 · 中(结果流 + 底部固定输入)· 右素材库。低频操作进抽屉。
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useWorkbenchStore } from './stores/workbench.js'
 import SideBar from './components/SideBar.vue'
 import ResultsView from './components/ResultsView.vue'
@@ -17,6 +18,7 @@ import AppIcon from './components/AppIcon.vue'
 import { useDialogA11y } from './composables/useDialogA11y.js'
 
 const store = useWorkbenchStore()
+const { t } = useI18n()
 const composer = ref(null)
 const dock = ref(null)
 const preview = ref(null)
@@ -60,7 +62,7 @@ async function initialize() {
     const r = await store.checkBackupReminder()
     if (r) { showBackupReminder.value = true; reminderBytes.value = store.usage?.businessBytes || 0 }
   } catch (error) {
-    bootError.value = error?.message || '本地数据初始化失败，请重试。'
+    bootError.value = error?.message || t('app.loadFailedDefault')
   } finally {
     booting.value = false
   }
@@ -159,16 +161,16 @@ const conversationUndoMessage = computed(() => {
   const entries = store.pendingConversationDelete?.entries || []
   if (!entries.length) return ''
   return entries.length === 1
-    ? `已删除会话「${entries[0].title}」`
-    : `已删除 ${entries.length} 段会话`
+    ? t('app.undo.conversationOne', { title: entries[0].title })
+    : t('app.undo.conversationMany', { count: entries.length })
 })
 const assetUndoMessage = computed(() => {
   const count = store.pendingAssetDelete?.ids?.length || 0
-  return count ? `已移除 ${count} 张素材` : ''
+  return count ? t('app.undo.assets', { count }) : ''
 })
 const workspaceUndoMessage = computed(() => {
   const name = store.pendingWorkspaceDelete?.workspace?.name
-  return name ? `已删除工作区「${name}」` : ''
+  return name ? t('app.undo.workspace', { name }) : ''
 })
 const hasAnyUndo = computed(() => !!(
   store.pendingAssetDelete || store.pendingConversationDelete || store.pendingWorkspaceDelete
@@ -250,19 +252,18 @@ function openStorage() {
   <div class="app">
     <!-- 左侧安静栏(桌面) -->
     <aside class="rail">
-      <div class="logo" title="AI 绘画工作台">
+      <div class="logo" :title="t('app.title')">
         <span class="logo-mark" aria-hidden="true">
-          <span class="logo-mark-glow" />
           <AppIcon name="sparkles" :size="15" />
         </span>
         <div class="logo-copy">
-          <span class="logo-text">绘画工作台</span>
-          <span class="logo-sub">本地 · 零后端</span>
+          <span class="logo-text">{{ t('app.brand') }}</span>
+          <span class="logo-sub">{{ t('app.brandSub') }}</span>
         </div>
       </div>
-      <button class="search-chip" @click="searchOpen = true" title="搜索 (Ctrl/⌘ K)">
+      <button class="search-chip" @click="searchOpen = true" :title="`${t('app.search')} (${searchModKey} K)`">
         <AppIcon name="search" :size="14" />
-        <span>搜索</span>
+        <span>{{ t('app.search') }}</span>
         <kbd>{{ searchModKey }}K</kbd>
       </button>
       <div class="rail-side">
@@ -278,16 +279,16 @@ function openStorage() {
 
     <!-- 移动端顶栏 -->
     <header class="mobile-top">
-      <button ref="mobileMenuButton" class="mobile-icon-btn" @click="mobileNavOpen = true" aria-label="打开菜单">
+      <button ref="mobileMenuButton" class="mobile-icon-btn" @click="mobileNavOpen = true" :aria-label="t('app.openMenu')">
         <AppIcon name="menu" :size="18" />
       </button>
       <div class="mobile-brand">
         <span class="logo-mark mobile-logo" aria-hidden="true">
           <AppIcon name="sparkles" :size="13" />
         </span>
-        <span class="mobile-title">绘画工作台</span>
+        <span class="mobile-title">{{ t('app.brand') }}</span>
       </div>
-      <button class="mobile-icon-btn" @click="searchOpen = true" :aria-label="`搜索 (${searchModKey}+K)`">
+      <button class="mobile-icon-btn" @click="searchOpen = true" :aria-label="`${t('app.search')} (${searchModKey}+K)`">
         <AppIcon name="search" :size="16" />
       </button>
     </header>
@@ -314,7 +315,7 @@ function openStorage() {
 
     <!-- 右侧素材库(可收起) -->
     <aside class="assets" :class="{ collapsed: !rightOpen }">
-      <button class="collapse-tab" @click="rightOpen = !rightOpen" :aria-label="rightOpen ? '收起素材库' : '展开素材库'">
+      <button class="collapse-tab" @click="rightOpen = !rightOpen" :aria-label="rightOpen ? t('app.collapseAssets') : t('app.expandAssets')">
         <AppIcon :name="rightOpen ? 'chevron-right' : 'layers'" :size="14" />
       </button>
       <div v-if="rightOpen" class="assets-body">
@@ -325,25 +326,24 @@ function openStorage() {
     <!-- 移动端侧栏抽屉 -->
     <Transition name="nav">
       <div v-if="mobileNavOpen" class="mobile-nav-scrim" @click.self="mobileNavOpen = false">
-        <div ref="mobileNavPanel" class="mobile-nav-panel" role="dialog" aria-modal="true" aria-label="导航" tabindex="-1">
+        <div ref="mobileNavPanel" class="mobile-nav-panel" role="dialog" aria-modal="true" :aria-label="t('app.nav')" tabindex="-1">
           <div class="mobile-nav-head">
-            <div class="logo" title="AI 绘画工作台">
+            <div class="logo" :title="t('app.title')">
               <span class="logo-mark" aria-hidden="true">
-                <span class="logo-mark-glow" />
                 <AppIcon name="sparkles" :size="15" />
               </span>
               <div class="logo-copy">
-                <span class="logo-text">绘画工作台</span>
-                <span class="logo-sub">本地 · 零后端</span>
+                <span class="logo-text">{{ t('app.brand') }}</span>
+                <span class="logo-sub">{{ t('app.brandSub') }}</span>
               </div>
             </div>
-            <button class="mobile-icon-btn" @click="mobileNavOpen = false" aria-label="关闭菜单">
+            <button class="mobile-icon-btn" @click="mobileNavOpen = false" :aria-label="t('app.closeMenu')">
               <AppIcon name="x" :size="16" />
             </button>
           </div>
           <button class="search-chip mobile-search" @click="searchOpen = true; mobileNavOpen = false">
             <AppIcon name="search" :size="14" />
-            <span>搜索</span>
+            <span>{{ t('app.search') }}</span>
             <kbd>{{ searchModKey }}K</kbd>
           </button>
           <div class="mobile-nav-body">
@@ -362,11 +362,11 @@ function openStorage() {
     <!-- 移动端素材库抽屉(桌面右侧栏在 ≤1024 隐藏) -->
     <Transition name="sheet">
       <div v-if="mobileAssetsOpen" class="mobile-assets-scrim" @click.self="mobileAssetsOpen = false">
-        <div ref="mobileAssetsSheet" class="mobile-assets-sheet" role="dialog" aria-modal="true" aria-label="素材库" tabindex="-1">
+        <div ref="mobileAssetsSheet" class="mobile-assets-sheet" role="dialog" aria-modal="true" :aria-label="t('app.assetsLibrary')" tabindex="-1">
           <div class="mobile-assets-handle" aria-hidden="true" />
           <div class="mobile-assets-head">
-            <strong>素材库</strong>
-            <button class="btn btn-sm btn-ghost" @click="mobileAssetsOpen = false" aria-label="关闭">
+            <strong>{{ t('app.assetsLibrary') }}</strong>
+            <button class="btn btn-sm btn-ghost" @click="mobileAssetsOpen = false" :aria-label="t('common.close')">
               <AppIcon name="x" :size="14" />
             </button>
           </div>
@@ -376,7 +376,7 @@ function openStorage() {
         </div>
       </div>
     </Transition>
-    <button class="mobile-assets-fab" @click="mobileAssetsOpen = true" aria-label="打开素材库">
+    <button class="mobile-assets-fab" @click="mobileAssetsOpen = true" :aria-label="t('app.openAssets')">
       <AppIcon name="layers" :size="18" />
     </button>
 
@@ -424,18 +424,18 @@ function openStorage() {
 
     <ConfirmDialog
       v-if="pendingRecipe"
-      title="导入配方将覆盖当前输入"
-      message="当前输入框已有 prompt 或参考图，导入配方会覆盖它们。确定导入吗？"
-      confirm-text="覆盖导入" danger
+      :title="t('app.recipeOverwriteTitle')"
+      :message="t('app.recipeOverwriteMessage')"
+      :confirm-text="t('app.recipeOverwriteConfirm')" danger
       @confirm="confirmApplyRecipe" @cancel="pendingRecipe = null"
     />
   </div>
   <div v-if="booting || bootError" class="boot-screen" role="status" aria-live="polite">
     <div class="boot-panel">
       <AppIcon :name="bootError ? 'alert' : 'sparkles'" :size="20" />
-      <strong>{{ bootError ? '本地数据加载失败' : '正在加载工作台' }}</strong>
+      <strong>{{ bootError ? t('app.loadFailed') : t('app.loading') }}</strong>
       <p v-if="bootError">{{ bootError }}</p>
-      <button v-if="bootError" class="btn btn-primary" type="button" @click="initialize">重试</button>
+      <button v-if="bootError" class="btn btn-primary" type="button" @click="initialize">{{ t('app.retry') }}</button>
     </div>
   </div>
 </template>
@@ -499,9 +499,6 @@ function openStorage() {
   background: var(--color-primary);
   flex-shrink: 0;
   overflow: hidden;
-}
-.logo-mark-glow {
-  display: none;
 }
 .logo-copy {
   display: flex;

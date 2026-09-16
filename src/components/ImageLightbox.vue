@@ -1,6 +1,7 @@
 <script setup>
 // 大图预览(Task 6.3)。modal-motion / escape-routes / scrim(blur-purpose)。
 import { computed, ref, watch, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
@@ -15,6 +16,7 @@ const props = defineProps({
   list: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['close', 'use-as-reference', 'change'])
+const { t } = useI18n()
 const store = useWorkbenchStore()
 const viewer = ref(null)
 
@@ -104,23 +106,23 @@ async function copyPrompt() {
   if (!promptText.value) return
   try {
     await navigator.clipboard.writeText(promptText.value)
-    showFlash('已复制提示词')
+    showFlash(t('lightbox.copiedPrompt'))
   } catch {
-    showFlash('复制失败，请手动选中')
+    showFlash(t('lightbox.copyFailedManual'))
   }
 }
 async function copyImage() {
   const full = await fullAsset()
   if (!full?.blob) return
   if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
-    showFlash('当前浏览器不支持复制图片，请用下载')
+    showFlash(t('lightbox.copyImageUnsupported'))
     return
   }
   try {
     await navigator.clipboard.write([new ClipboardItem({ [full.mime || 'image/png']: full.blob })])
-    showFlash('已复制图片')
+    showFlash(t('lightbox.copiedImage'))
   } catch {
-    showFlash('复制图片失败，请用下载')
+    showFlash(t('lightbox.copyImageFailed'))
   }
 }
 
@@ -155,7 +157,7 @@ async function download() {
 
 <template>
   <div class="scrim" @click.self="emit('close')">
-    <div ref="viewer" class="viewer" role="dialog" aria-modal="true" aria-label="图片预览" tabindex="-1">
+    <div ref="viewer" class="viewer" role="dialog" aria-modal="true" :aria-label="t('lightbox.preview')" tabindex="-1">
       <div
         class="viewer-img" :class="{ zoomed: scale > MIN_SCALE, panning }"
         @wheel="onWheel" @dblclick="toggleZoom"
@@ -164,31 +166,31 @@ async function download() {
       >
         <!-- 变换放在内层 stage 上:AssetImage 是多根节点组件,样式不会透传到 <img> -->
         <div class="viewer-stage" :style="zoomStyle">
-          <AssetImage :asset="live" alt="预览" />
+          <AssetImage :asset="live" :alt="t('lightbox.previewAlt')" />
         </div>
       </div>
       <p v-if="promptText" class="viewer-prompt" :title="promptText">
         <span class="viewer-prompt-text">{{ promptText }}</span>
-        <button class="btn btn-sm btn-ghost" @click="copyPrompt"><AppIcon name="edit" :size="12" /> 复制提示词</button>
+        <button class="btn btn-sm btn-ghost" @click="copyPrompt"><AppIcon name="edit" :size="12" /> {{ t('lightbox.copyPrompt') }}</button>
       </p>
       <div class="viewer-bar tnum">
         <span>{{ live.width && live.height ? `${live.width}×${live.height}` : '' }} {{ live.mime }}</span>
         <span class="src-chip">{{ sourceFullLabel(live.source) }}</span>
         <div v-if="canNav" class="viewer-nav">
-          <button class="btn btn-sm btn-ghost" @click="step(-1)" aria-label="上一张">
+          <button class="btn btn-sm btn-ghost" @click="step(-1)" :aria-label="t('lightbox.prev')">
             <AppIcon name="chevron-left" :size="13" />
           </button>
           <span class="nav-count tnum">{{ idx + 1 }} / {{ list.length }}</span>
-          <button class="btn btn-sm btn-ghost" @click="step(1)" aria-label="下一张">
+          <button class="btn btn-sm btn-ghost" @click="step(1)" :aria-label="t('lightbox.next')">
             <AppIcon name="chevron-right" :size="13" />
           </button>
         </div>
         <div class="viewer-zoom">
-          <button class="btn btn-sm btn-ghost" @click="zoomBy(-0.25)" :disabled="scale <= MIN_SCALE" aria-label="缩小">
+          <button class="btn btn-sm btn-ghost" @click="zoomBy(-0.25)" :disabled="scale <= MIN_SCALE" :aria-label="t('lightbox.zoomOut')">
             <AppIcon name="minus" :size="13" />
           </button>
-          <button class="btn btn-sm btn-ghost zoom-value" @click="resetView" title="双击图片也能缩放/还原">{{ zoomLabel }}</button>
-          <button class="btn btn-sm btn-ghost" @click="zoomBy(0.25)" :disabled="scale >= MAX_SCALE" aria-label="放大">
+          <button class="btn btn-sm btn-ghost zoom-value" @click="resetView" :title="t('lightbox.zoomHint')">{{ zoomLabel }}</button>
+          <button class="btn btn-sm btn-ghost" @click="zoomBy(0.25)" :disabled="scale >= MAX_SCALE" :aria-label="t('lightbox.zoomIn')">
             <AppIcon name="plus" :size="13" />
           </button>
         </div>
@@ -198,18 +200,18 @@ async function download() {
           class="btn btn-sm"
           :class="{ on: live.favorite }"
           @click="store.toggleAssetFavorite(live.id)"
-          :aria-label="live.favorite ? '取消收藏' : '收藏'"
+          :aria-label="live.favorite ? t('lightbox.unfavorite') : t('lightbox.favorite')"
         >
-          <AppIcon name="heart" :size="13" /> {{ live.favorite ? '已收藏' : '收藏' }}
+          <AppIcon name="heart" :size="13" /> {{ live.favorite ? t('lightbox.favorited') : t('lightbox.favorite') }}
         </button>
         <button class="btn btn-sm" @click="emit('use-as-reference', live.id)">
-          <AppIcon name="layers" :size="13" /> 设为参考图
+          <AppIcon name="layers" :size="13" /> {{ t('lightbox.useAsReference') }}
         </button>
-        <button class="btn btn-sm" @click="copyImage" title="复制图片到剪贴板">
-          <AppIcon name="image" :size="13" /> 复制图片
+        <button class="btn btn-sm" @click="copyImage" :title="t('lightbox.copyImageHint')">
+          <AppIcon name="image" :size="13" /> {{ t('lightbox.copyImage') }}
         </button>
-        <button class="btn btn-sm" @click="download"><AppIcon name="download" :size="13" /> 下载</button>
-        <button class="btn btn-sm btn-ghost" @click="emit('close')" aria-label="关闭"><AppIcon name="x" :size="14" /></button>
+        <button class="btn btn-sm" @click="download"><AppIcon name="download" :size="13" /> {{ t('lightbox.download') }}</button>
+        <button class="btn btn-sm btn-ghost" @click="emit('close')" :aria-label="t('common.close')"><AppIcon name="x" :size="14" /></button>
       </div>
     </div>
   </div>

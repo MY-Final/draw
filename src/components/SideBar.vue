@@ -1,14 +1,17 @@
 <script setup>
 // 左侧栏:工作区树 + 会话列表(按日期分组)+ 底部导航。
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import { deriveConversations, groupConversationsByDate, convIdOf } from '../lib/conversations.js'
 import AppIcon from './AppIcon.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import LocaleToggle from './LocaleToggle.vue'
 
 const store = useWorkbenchStore()
+const { t, locale } = useI18n()
 const emit = defineEmits(['open-settings', 'open-storage', 'toggle-theme', 'new-canvas'])
-const props = defineProps({ theme: String })
+defineProps({ theme: String })
 
 // ── 工作区 ──
 const expandedWs = ref(new Set())
@@ -61,7 +64,7 @@ async function doWsDelete() {
   try {
     await store.deleteWorkspaceWithUndo(target.id)
   } catch (error) {
-    store.lastError = `删除工作区失败：${error?.message || '请重试'}`
+    store.lastError = t('sidebar.deleteWorkspaceFailed', { message: error?.message || t('sidebar.retryHint') })
     await store.refreshAll().catch(() => {})
   }
 }
@@ -71,6 +74,23 @@ const menuFor = ref(null)
 const confirmDel = ref(null)
 const renaming = ref(null)
 const renameText = ref('')
+
+function groupLabel(group) {
+  if (group.key === 'today') return t('dates.today')
+  if (group.key === 'yesterday') return t('dates.yesterday')
+  if (group.key === 'this-month') return t('dates.thisMonthEarlier')
+  const matched = /^m-(\d+)-(\d+)$/.exec(group.key)
+  if (!matched) return group.label
+  const year = Number(matched[1])
+  const month = Number(matched[2])
+  const sameYear = year === new Date().getFullYear()
+  try {
+    return new Intl.DateTimeFormat(locale.value, sameYear ? { month: 'long' } : { year: 'numeric', month: 'long' })
+      .format(new Date(year, month, 1))
+  } catch {
+    return group.label
+  }
+}
 
 function wsConversationGroups(wsId) {
   const gens = store.generations.filter(g => g.workspaceId === wsId)
@@ -83,7 +103,7 @@ function wsConversationGroups(wsId) {
   ) {
     const draft = {
       id: store.conversationId,
-      title: store.titleOverrides[store.conversationId] || '新创作',
+      title: store.titleOverrides[store.conversationId] || t('sidebar.newConversation'),
       createdAt: Date.now(),
       lastAt: Date.now(),
       count: 0,
@@ -91,16 +111,13 @@ function wsConversationGroups(wsId) {
     }
     let today = groups.find((g) => g.key === 'today')
     if (!today) {
-      today = { key: 'today', label: '今天', order: 0, items: [] }
+      today = { key: 'today', label: t('dates.today'), order: 0, items: [] }
       groups.unshift(today)
     }
     // 草稿置顶
     today.items = [draft, ...today.items.filter((c) => c.id !== draft.id)]
   }
   return groups
-}
-function wsCount(wsId) {
-  return store.generations.filter(g => g.workspaceId === wsId).length
 }
 function wsHasConversations(wsId) {
   if (store.generations.some(g => g.workspaceId === wsId)) return true
@@ -121,7 +138,7 @@ async function deleteConversationFlow(target) {
   try {
     await store.deleteConversationWithUndo(target.id)
   } catch (error) {
-    store.lastError = `删除会话失败：${error?.message || '请重试'}`
+    store.lastError = t('sidebar.deleteConversationFailed', { message: error?.message || t('sidebar.retryHint') })
     await store.refreshAll().catch(() => {})
   }
 }
@@ -137,7 +154,7 @@ const vFocus = { mounted: (el) => el.focus() }
     <div class="side-top">
       <!-- 高频:新会话;工作区降级到树底部次级入口 -->
       <button class="btn btn-primary new-btn" @click="emit('new-canvas')">
-        <AppIcon name="plus" :size="15" /> 新建创作
+        <AppIcon name="plus" :size="15" /> {{ t('sidebar.newCanvas') }}
       </button>
 
       <!-- 工作区树 -->
@@ -145,7 +162,7 @@ const vFocus = { mounted: (el) => el.focus() }
         <div v-for="ws in store.workspaces" :key="ws.id" class="ws-block">
           <!-- 工作区头部:点名称切换;chevron 只负责展开 -->
           <div class="ws-header" :class="{ active: ws.id === store.activeWorkspaceId }">
-            <button class="ws-chevron" @click.stop="toggleWs(ws.id)" :aria-label="expandedWs.has(ws.id) ? '折叠工作区' : '展开工作区'">
+            <button class="ws-chevron" @click.stop="toggleWs(ws.id)" :aria-label="expandedWs.has(ws.id) ? t('sidebar.collapseWorkspace') : t('sidebar.expandWorkspace')">
               <AppIcon :name="expandedWs.has(ws.id) ? 'chevron-down' : 'chevron-right'" :size="13" />
             </button>
             <!-- 重命名态 -->
@@ -160,7 +177,7 @@ const vFocus = { mounted: (el) => el.focus() }
               class="ws-select"
               @click="selectWorkspace(ws.id)"
               :aria-expanded="expandedWs.has(ws.id)"
-              :aria-label="`${ws.name}工作区`"
+              :aria-label="t('sidebar.workspaceAria', { name: ws.name })"
               @keydown="onWorkspaceKeydown($event, ws.id)"
             >
               <span class="ws-icon">
@@ -171,11 +188,11 @@ const vFocus = { mounted: (el) => el.focus() }
               <span class="ws-name">{{ ws.name }}</span>
               <span v-if="ws.id === store.activeWorkspaceId" class="ws-dot" aria-hidden="true" />
             </button>
-            <button class="ws-menu-toggle" @click.stop="openWsMenu(ws.id, $event)" aria-label="工作区操作">⋯</button>
+            <button class="ws-menu-toggle" @click.stop="openWsMenu(ws.id, $event)" :aria-label="t('common.workspaceActions')">⋯</button>
             <!-- 工作区菜单 -->
             <div v-if="wsMenuFor === ws.id" class="menu ws-menu" @click.stop>
-              <button class="menu-item" @click="startWsRename(ws)"><AppIcon name="settings" :size="13" /> 重命名</button>
-              <button class="menu-item danger" @click="askWsDelete(ws)"><AppIcon name="trash" :size="13" /> 删除</button>
+              <button class="menu-item" @click="startWsRename(ws)"><AppIcon name="settings" :size="13" /> {{ t('common.rename') }}</button>
+              <button class="menu-item danger" @click="askWsDelete(ws)"><AppIcon name="trash" :size="13" /> {{ t('common.delete') }}</button>
             </div>
           </div>
 
@@ -183,7 +200,7 @@ const vFocus = { mounted: (el) => el.focus() }
           <div v-if="expandedWs.has(ws.id)" class="ws-convs">
             <template v-if="wsHasConversations(ws.id)">
               <div v-for="g in wsConversationGroups(ws.id)" :key="g.key" class="hist-group">
-                <div class="hist-label">{{ g.label }}</div>
+                <div class="hist-label">{{ groupLabel(g) }}</div>
                 <div
                   v-for="c in g.items" :key="c.id"
                   class="hist-row" :class="{ active: c.id === store.conversationId }"
@@ -197,48 +214,49 @@ const vFocus = { mounted: (el) => el.focus() }
                     <button class="hist-item" @click="store.switchConversation(c.id)" :title="c.title">
                       <AppIcon name="image" :size="13" />
                       <span class="hist-title">{{ c.title }}</span>
-                      <span v-if="c.draft" class="hist-draft">草稿</span>
+                      <span v-if="c.draft" class="hist-draft">{{ t('sidebar.draft') }}</span>
                       <span v-else class="hist-count tnum">{{ c.count }}</span>
                     </button>
-                    <button class="hist-menu" @click="openMenu(c.id, $event)" aria-label="会话操作">⋯</button>
+                    <button class="hist-menu" @click="openMenu(c.id, $event)" :aria-label="t('common.conversationActions')">⋯</button>
                     <div v-if="menuFor === c.id" class="menu conv-menu" @click.stop>
-                      <button class="menu-item" @click="startRename(c)"><AppIcon name="settings" :size="13" /> 重命名</button>
-                      <button class="menu-item danger" @click="askDelete(c)"><AppIcon name="trash" :size="13" /> 删除会话</button>
+                      <button class="menu-item" @click="startRename(c)"><AppIcon name="settings" :size="13" /> {{ t('common.rename') }}</button>
+                      <button class="menu-item danger" @click="askDelete(c)"><AppIcon name="trash" :size="13" /> {{ t('sidebar.deleteConversation') }}</button>
                     </div>
                   </template>
                 </div>
               </div>
             </template>
-            <p v-else class="hist-empty helper">还没有会话。点上方「新建创作」开始。</p>
+            <p v-else class="hist-empty helper">{{ t('sidebar.noConversations') }}</p>
           </div>
         </div>
         <button class="btn btn-sm new-ws-btn" @click="store.createWorkspace()">
-          <AppIcon name="plus" :size="11" /> 新建工作区
+          <AppIcon name="plus" :size="11" /> {{ t('sidebar.newWorkspace') }}
         </button>
       </div>
-      <p v-else class="hist-empty helper">还没有工作区。新建一个工作区开始创作。</p>
+      <p v-else class="hist-empty helper">{{ t('sidebar.noWorkspaces') }}</p>
     </div>
 
     <div class="side-bottom">
       <button class="nav-item" @click="emit('open-storage')">
-        <AppIcon name="image" :size="16" /> 数据保护
+        <AppIcon name="image" :size="16" /> {{ t('sidebar.dataProtection') }}
         <span v-if="store.assets.length" class="nav-meta tnum">{{ store.assets.length }}</span>
       </button>
       <button class="nav-item" @click="emit('open-settings')">
-        <AppIcon name="settings" :size="16" /> 接口设置
+        <AppIcon name="settings" :size="16" /> {{ t('sidebar.apiSettings') }}
       </button>
       <div class="nav-meta-row">
         <button class="nav-item nav-item-grow" @click="emit('toggle-theme')">
           <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="16" />
-          {{ theme === 'dark' ? '浅色模式' : '深色模式' }}
+          {{ theme === 'dark' ? t('sidebar.lightMode') : t('sidebar.darkMode') }}
         </button>
+        <LocaleToggle />
         <a
           class="nav-icon"
           href="https://github.com/MY-Final/draw"
           target="_blank"
           rel="noopener noreferrer"
-          title="在 GitHub 打开"
-          aria-label="GitHub"
+          :title="t('sidebar.github')"
+          :aria-label="t('sidebar.github')"
         >
           <AppIcon name="github" :size="15" />
         </a>
@@ -248,16 +266,16 @@ const vFocus = { mounted: (el) => el.focus() }
     <!-- 删除确认弹窗 -->
     <ConfirmDialog
       v-if="confirmDel"
-      title="删除会话"
-      :message="`将删除会话「${confirmDel.title}」及其全部生成记录。未收藏且未被引用的产出图会一并删除,此操作不可撤销。`"
-      confirm-text="删除" danger
+      :title="t('sidebar.deleteConversation')"
+      :message="t('sidebar.deleteConversationMessage', { title: confirmDel.title })"
+      :confirm-text="t('common.delete')" danger
       @confirm="doDelete" @cancel="confirmDel = null"
     />
     <ConfirmDialog
       v-if="confirmDelWs"
-      title="删除工作区"
-      :message="`将删除工作区「${confirmDelWs.name}」及其全部生成记录和素材（收藏的图片也会一并删除）。删除后 5 秒内可以撤销。`"
-      confirm-text="删除" danger
+      :title="t('sidebar.deleteWorkspace')"
+      :message="t('sidebar.deleteWorkspaceMessage', { name: confirmDelWs.name })"
+      :confirm-text="t('common.delete')" danger
       @confirm="doWsDelete" @cancel="confirmDelWs = null"
     />
 

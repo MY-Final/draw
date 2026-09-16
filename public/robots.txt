@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://120403.xyz/draw/sitemap.xml

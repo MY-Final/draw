@@ -5,6 +5,8 @@
 //
 // 关键不变量(design D8):导出分享时必须剥离 apiKey。见 share.js 的 stripKey。
 
+import { tl } from '../i18n/translate.js'
+
 export const PRESETS_STORAGE_KEY = 'workbench.presets.v1'
 export const ACTIVE_PRESET_KEY = 'workbench.activePresetId.v1'
 
@@ -66,7 +68,7 @@ export function savePreset(preset, options = {}) {
   }
   const record = {
     id,
-    name: preset.name || '未命名接口',
+    name: preset.name || tl('lib.defaults.presetName'),
     baseURL: (preset.baseURL || '').trim().replace(/\/+$/, ''),
     apiKey,
     model: preset.model || '',
@@ -109,9 +111,4 @@ export function clearAllKeys() {
   const presets = loadPresets().map((p) => ({ ...p, apiKey: '' }))
   persist(presets)
   return presets
-}
-
-// 判断预设是否缺少 Key(用于导入分享后的提示,见 share.js)。
-export function isMissingKey(preset) {
-  return !preset || !preset.apiKey
 }

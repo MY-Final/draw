@@ -160,6 +160,12 @@ Sharing    : all share-level exports are forced through stripKey() to strip the 
 
 See `openspec/changes/archive/2026-07-11-bootstrap-drawing-workbench/` (proposal / design / specs / tasks) for details.
 
+## Contributing
+
+- Contribution flow and pre-commit checks: [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+- Architecture and data flow: [`docs/architecture.md`](./docs/architecture.md).
+- Release notes: [`CHANGELOG.md`](./CHANGELOG.md).
+
 ## License
 
 [MIT](./LICENSE) © MY-Final

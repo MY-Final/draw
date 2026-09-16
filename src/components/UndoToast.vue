@@ -1,7 +1,9 @@
 <script setup>
+import { i18n } from '../i18n/index.js'
+
 defineProps({
   message: { type: String, required: true },
-  actionLabel: { type: String, default: '撤销' },
+  actionLabel: { type: String, default: () => i18n.global.t('dialogs.undoToast.actionLabel') },
   // 默认自带定位(单条提示);放进 .undo-stack 时用 fixed=false 由容器排版。
   fixed: { type: Boolean, default: true },
 })

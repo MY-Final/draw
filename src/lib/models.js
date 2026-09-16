@@ -1,6 +1,8 @@
 // 模型发现:读取 OpenAI 兼容接口的 GET /v1/models,只返回可用于下拉选择的 id。
 // 失败时保留分类,让设置页同时支持明确提示与手动填写。
 
+import { tl } from '../i18n/translate.js'
+
 export const MODEL_LIST_TIMEOUT_MS = 15000
 
 export class ModelListError extends Error {
@@ -42,7 +44,7 @@ function modelId(item) {
 
 export async function fetchModels({ baseURL, apiKey = '', timeoutMs = MODEL_LIST_TIMEOUT_MS } = {}) {
   const url = modelsUrl(baseURL)
-  if (!url) throw new ModelListError('unknown', '请先填写 Base URL。')
+  if (!url) throw new ModelListError('unknown', tl('lib.models.needBaseURL'))
 
   const timeout = timeoutSignal(Math.max(1000, Number(timeoutMs) || MODEL_LIST_TIMEOUT_MS))
   let response
@@ -54,32 +56,32 @@ export async function fetchModels({ baseURL, apiKey = '', timeoutMs = MODEL_LIST
     })
   } catch (error) {
     if (isTimeout(error)) {
-      throw new ModelListError('timeout', `获取模型列表超过 ${Math.round((Number(timeoutMs) || MODEL_LIST_TIMEOUT_MS) / 1000)} 秒，已超时。`, String(error))
+      throw new ModelListError('timeout', tl('lib.models.timeout', { seconds: Math.round((Number(timeoutMs) || MODEL_LIST_TIMEOUT_MS) / 1000) }), String(error))
     }
-    throw new ModelListError('network-or-cors', '无法获取模型列表，可能是网络问题或接口未开放跨域(CORS)。', String(error))
+    throw new ModelListError('network-or-cors', tl('lib.models.cors'), String(error))
   } finally {
     timeout.dispose()
   }
 
   if (response.status === 401 || response.status === 403) {
-    throw new ModelListError('auth', `获取模型列表鉴权失败(HTTP ${response.status})，请检查 API Key。`)
+    throw new ModelListError('auth', tl('lib.models.auth', { status: response.status }))
   }
   if (!response.ok) {
     let detail = ''
     try { detail = await response.text() } catch { /* ignore */ }
-    throw new ModelListError('api', `模型列表接口返回错误(HTTP ${response.status})。`, detail.slice(0, 1000))
+    throw new ModelListError('api', tl('lib.models.api', { status: response.status }), detail.slice(0, 1000))
   }
 
   let payload
   try {
     payload = await response.json()
   } catch (error) {
-    throw new ModelListError('api', '模型列表响应不是有效 JSON。', String(error))
+    throw new ModelListError('api', tl('lib.models.invalidJson'), String(error))
   }
 
   const raw = Array.isArray(payload) ? payload : (payload?.data || payload?.models)
   if (!Array.isArray(raw)) {
-    throw new ModelListError('api', '模型列表响应缺少 data 数组。')
+    throw new ModelListError('api', tl('lib.models.missingData'))
   }
   const models = [...new Set(raw.map(modelId).filter(Boolean))]
   return { models, url }

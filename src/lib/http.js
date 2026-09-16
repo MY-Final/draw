@@ -4,6 +4,8 @@
 // - toBlob:把提取到的 {kind,value} 图片统一拉取/解码为 Blob(design D4 收尾 + D 风险:
 //   外链 url 立即下载落库,不长期依赖)。
 
+import { tl } from '../i18n/translate.js'
+
 export class ApiError extends Error {
   constructor(category, message, detail = null) {
     super(message)
@@ -91,22 +93,22 @@ export async function callApi(url, { apiKey, body, signal, timeoutMs } = {}) {
     // 用户主动取消保留 AbortError 语义，交给生成服务收口为“已取消”。
     if (signal?.aborted) throw e
     if (timeoutController.signal.aborted || isTimeout(e)) {
-      throw new ApiError('timeout', `接口请求超过 ${Math.round(timeout / 1000)} 秒，已超时。`, String(e))
+      throw new ApiError('timeout', tl('lib.http.timeout', { seconds: Math.round(timeout / 1000) }), String(e))
     }
     // fetch 抛异常 = 网络层失败,浏览器不区分 CORS 与断网(安全策略),统一归类。
-    throw new ApiError('network-or-cors', '无法连接接口:可能是网络问题或接口未开放跨域(CORS)。', String(e))
+    throw new ApiError('network-or-cors', tl('lib.http.cors'), String(e))
   }
   if (timer) clearTimeout(timer)
 
   if (resp.status === 401 || resp.status === 403) {
-    throw new ApiError('auth', `鉴权失败(HTTP ${resp.status}):请检查 API Key 是否正确、是否有权限。`)
+    throw new ApiError('auth', tl('lib.http.auth', { status: resp.status }))
   }
   if (!resp.ok) {
     let detail = ''
     try {
       detail = await resp.text()
     } catch { /* ignore */ }
-    throw new ApiError('api', `接口返回错误(HTTP ${resp.status})。`, detail.slice(0, 2000))
+    throw new ApiError('api', tl('lib.http.api', { status: resp.status }), detail.slice(0, 2000))
   }
 
   return resp.json()
@@ -131,9 +133,9 @@ export async function toBlob(image, signal) {
     // 外部 signal 表示用户主动取消，保留原始 AbortError 语义给上层收口。
     if (signal?.aborted) throw e
     if (isTimeout(e)) {
-      throw new ApiError('timeout', `图片外链下载超过 ${IMAGE_TIMEOUT_MS / 1000}s(已超时)。`, String(e))
+      throw new ApiError('timeout', tl('lib.http.imageTimeout', { seconds: IMAGE_TIMEOUT_MS / 1000 }), String(e))
     }
-    throw new ApiError('network-or-cors', '图片外链下载失败(可能已过期或不允许跨域)。', String(e))
+    throw new ApiError('network-or-cors', tl('lib.http.imageDownload'), String(e))
   }
 }
 

@@ -1,6 +1,7 @@
 <script setup>
 // 数据保护:居中弹窗。存储概览 + 导入导出 + 持久化 + 危险区。
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AppIcon from './AppIcon.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -11,6 +12,7 @@ import { downloadBlob, downloadJson, pickFile } from '../lib/download.js'
 import { useDialogA11y } from '../composables/useDialogA11y.js'
 
 const store = useWorkbenchStore()
+const { t } = useI18n()
 const emit = defineEmits(['recipe-imported', 'close'])
 const busy = ref('')
 const toast = ref(null)
@@ -33,9 +35,9 @@ const usagePct = computed(() => {
 
 const health = computed(() => {
   const bytes = store.usage?.businessBytes || 0
-  if (bytes < 500 * 1024 * 1024) return { level: 'good', label: '正常', color: 'var(--color-success)' }
-  if (bytes < 2 * 1024 * 1024 * 1024) return { level: 'warn', label: '较多,建议导出备份', color: 'var(--color-warning)' }
-  return { level: 'danger', label: '很大,建议立即导出备份', color: 'var(--color-destructive)' }
+  if (bytes < 500 * 1024 * 1024) return { level: 'good', label: t('backup.healthGood'), color: 'var(--color-success)' }
+  if (bytes < 2 * 1024 * 1024 * 1024) return { level: 'warn', label: t('backup.healthWarn'), color: 'var(--color-warning)' }
+  return { level: 'danger', label: t('backup.healthDanger'), color: 'var(--color-destructive)' }
 })
 
 async function checkPersisted() {
@@ -46,8 +48,8 @@ async function checkPersisted() {
 async function doPersist() {
   try {
     persisted.value = await navigator.storage.persist()
-    showToast(persisted.value ? '持久化存储已启用' : '启用失败,浏览器可能不支持')
-  } catch { showToast('启用失败', 'danger') }
+    showToast(persisted.value ? t('backup.persistEnabled') : t('backup.persistUnsupported'))
+  } catch { showToast(t('backup.persistFailed'), 'danger') }
 }
 
 async function doExportLibrary() {
@@ -55,9 +57,9 @@ async function doExportLibrary() {
   try {
     const { blob, filename } = await exportLibraryZip()
     downloadBlob(blob, filename)
-    showToast('备份成功')
+    showToast(t('backup.backupSuccess'))
   } catch (e) {
-    showToast(`备份失败：${e?.message || '请重试'}`, 'danger')
+    showToast(t('backup.backupFailed', { message: e?.message || t('backup.retryHint') }), 'danger')
   } finally { busy.value = '' }
 }
 // 整库导入可能持续几十秒,所以既要有进度,也要把「合并而不是清空」讲清楚。
@@ -65,34 +67,34 @@ const importProgress = ref(null) // { label, percent }
 async function doImportLibrary() {
   const f = await pickFile('.zip'); if (!f) return
   busy.value = 'i'
-  importProgress.value = { label: '正在读取备份…', percent: 0 }
+  importProgress.value = { label: t('backup.readingBackup'), percent: 0 }
   try {
     const r = await importLibraryZip(f, {
       onProgress: ({ phase, done, total }) => {
         if (phase === 'read') {
           const percent = total ? Math.round((done / total) * 90) : 0
-          importProgress.value = { label: `正在导入图片 ${done}/${total || '?'}`, percent }
+          importProgress.value = { label: t('backup.importingImages', { done, total: total || '?' }), percent }
         } else {
-          importProgress.value = { label: '正在写入本地数据库…', percent: 95 }
+          importProgress.value = { label: t('backup.writingDatabase'), percent: 95 }
         }
       },
     })
     await store.init()
-    let parts = [`图片 ${r.assetCount} 张`, `记录 ${r.genCount} 条`]
-    if (r.promptCount) parts.push(`Prompt ${r.promptCount} 条`)
-    showToast(`恢复完成: ${parts.join(' · ')}`)
+    let parts = [t('backup.importDoneAssets', { count: r.assetCount }), t('backup.importDoneGenerations', { count: r.genCount })]
+    if (r.promptCount) parts.push(t('backup.importDonePrompts', { count: r.promptCount }))
+    showToast(t('backup.restoreComplete', { parts: parts.join(' · ') }))
   } catch (e) { showToast(e instanceof ImportError ? e.message : String(e), 'danger') }
   finally { busy.value = ''; importProgress.value = null }
 }
 
 function doExportPresets() {
   const d = exportPresets()
-  if (!d.presets.length) return showToast('没有可导出的接口预设', 'warn')
-  downloadJson(d, 'presets-share.json'); showToast('接口预设已导出(已剥离 Key)')
+  if (!d.presets.length) return showToast(t('backup.noPresetsToExport'), 'warn')
+  downloadJson(d, 'presets-share.json'); showToast(t('backup.presetsExported'))
 }
 async function doImportPresets() {
   const f = await pickFile('.json'); if (!f) return
-  try { const r = importPresets(await f.text()); store.presets = loadPresets(); showToast(`已导入 ${r.presets.length} 个预设,请分别填写 Key`) }
+  try { const r = importPresets(await f.text()); store.presets = loadPresets(); showToast(t('backup.presetsImported', { count: r.presets.length })) }
   catch (e) { showToast(e instanceof ImportError ? e.message : String(e), 'danger') }
 }
 async function doImportRecipe() {
@@ -100,7 +102,7 @@ async function doImportRecipe() {
   try {
     const { prefill, needsProtocolNotice } = await importRecipe(await f.text(), store.presets, store.activeWorkspaceId)
     await store.refreshAll(); emit('recipe-imported', prefill)
-    showToast(needsProtocolNotice || '配方已载入,可在底部发起复现', needsProtocolNotice ? 'warn' : 'ok')
+    showToast(needsProtocolNotice || t('backup.recipeLoaded'), needsProtocolNotice ? 'warn' : 'ok')
   } catch (e) { showToast(e instanceof ImportError ? e.message : String(e), 'danger') }
 }
 
@@ -109,10 +111,10 @@ async function doReset() {
   busy.value = 'r'
   try {
     await store.resetWorkbench()
-    showToast('已清空全部素材与记录')
+    showToast(t('backup.resetSuccess'))
   } catch (e) {
     await store.refreshAll().catch(() => {})
-    showToast(`清空失败：${e?.message || '请重试'}`, 'danger')
+    showToast(t('backup.resetFailed', { message: e?.message || t('backup.retryHint') }), 'danger')
   }
   finally { busy.value = '' }
 }
@@ -122,10 +124,10 @@ async function doClearImages() {
   busy.value = 'images'
   try {
     await store.clearStoredImages()
-    showToast('已清理本机图片,生成记录仍保留')
+    showToast(t('backup.clearImagesSuccess'))
   } catch (e) {
     await store.refreshAll().catch(() => {})
-    showToast(`清理图片失败：${e?.message || '请重试'}`, 'danger')
+    showToast(t('backup.clearImagesFailed', { message: e?.message || t('backup.retryHint') }), 'danger')
   }
   finally { busy.value = '' }
 }
@@ -137,10 +139,10 @@ onMounted(() => {
 
 <template>
   <div class="scrim" @click.self="emit('close')">
-    <div ref="modal" class="modal" role="dialog" aria-modal="true" aria-label="数据保护" tabindex="-1">
+    <div ref="modal" class="modal" role="dialog" aria-modal="true" :aria-label="t('sidebar.dataProtection')" tabindex="-1">
       <header class="modal-head">
-        <strong>数据保护</strong>
-        <button class="icon-btn" @click="emit('close')" aria-label="关闭">
+        <strong>{{ t('sidebar.dataProtection') }}</strong>
+        <button class="icon-btn" @click="emit('close')" :aria-label="t('common.close')">
           <AppIcon name="x" :size="15" />
         </button>
       </header>
@@ -150,19 +152,19 @@ onMounted(() => {
         <section class="dp-section">
           <div class="dp-stats">
             <div class="stat-row">
-              <span class="stat-label">素材占用</span>
+              <span class="stat-label">{{ t('backup.storageUsed') }}</span>
               <span class="stat-value tnum">{{ formatBytes(store.usage?.businessBytes) }}</span>
             </div>
             <div class="stat-row">
-              <span class="stat-label">素材数量</span>
-              <span class="stat-value tnum">{{ store.assets.length }} 张</span>
+              <span class="stat-label">{{ t('backup.assetCount') }}</span>
+              <span class="stat-value tnum">{{ t('backup.assetCountValue', { count: store.assets.length }) }}</span>
             </div>
             <div class="stat-row">
-              <span class="stat-label">浏览器剩余</span>
+              <span class="stat-label">{{ t('backup.browserFree') }}</span>
               <span class="stat-value tnum">{{ store.usage?.browserQuota ? formatBytes(store.usage.browserQuota - (store.usage.browserUsage || 0)) : '—' }}</span>
             </div>
             <div class="usage-bar-wrap">
-              <div class="usage-bar" role="img" :aria-label="`已用 ${usagePct}%`">
+              <div class="usage-bar" role="img" :aria-label="t('backup.usedPercent', { percent: usagePct })">
                 <div class="usage-fill" :style="{ width: usagePct + '%' }" />
               </div>
             </div>
@@ -177,19 +179,19 @@ onMounted(() => {
 
         <section class="dp-section">
           <button class="dp-btn" @click="doExportLibrary" :disabled="busy === 'x'">
-            <AppIcon name="download" :size="16" /> 导出备份
+            <AppIcon name="download" :size="16" /> {{ t('backup.exportBackup') }}
           </button>
           <button class="dp-btn" @click="doImportLibrary" :disabled="busy === 'i'">
-            <AppIcon name="upload" :size="16" /> 导入备份
+            <AppIcon name="upload" :size="16" /> {{ t('backup.importBackup') }}
           </button>
           <div v-if="importProgress" class="import-progress" role="status" aria-live="polite">
             <div class="import-progress-text">{{ importProgress.label }}</div>
-            <div class="usage-bar" :aria-label="`导入进度 ${importProgress.percent}%`">
+            <div class="usage-bar" :aria-label="t('backup.importProgressAria', { percent: importProgress.percent })">
               <div class="usage-fill" :style="{ width: importProgress.percent + '%' }" />
             </div>
           </div>
           <p v-else class="helper">
-            导入采用合并方式：同 ID 覆盖，不主动清空本机数据，已有 API Key 保留。
+            {{ t('backup.importMergeHint') }}
           </p>
         </section>
 
@@ -197,50 +199,50 @@ onMounted(() => {
 
         <section class="dp-section">
           <div class="persist-row">
-            <span class="stat-label">持久化存储</span>
-            <span v-if="persisted === true" class="persist-status persist-on">● 已启用</span>
-            <span v-else class="persist-status persist-off">● 未启用</span>
+            <span class="stat-label">{{ t('backup.persistentStorage') }}</span>
+            <span v-if="persisted === true" class="persist-status persist-on">{{ t('backup.persistOn') }}</span>
+            <span v-else class="persist-status persist-off">{{ t('backup.persistOff') }}</span>
           </div>
           <p v-if="persisted === false" class="helper persist-helper">
-            启用后浏览器将尽可能避免因空间不足自动清理本应用数据。
+            {{ t('backup.persistHint') }}
           </p>
           <button v-if="persisted === false" class="dp-btn dp-btn-sm" @click="doPersist">
-            立即启用
+            {{ t('backup.enableNow') }}
           </button>
         </section>
 
         <div class="dp-divider" />
 
         <section class="dp-section dp-secondary">
-          <div class="sec-title">分享与导入</div>
+          <div class="sec-title">{{ t('backup.shareAndImport') }}</div>
           <div class="share-row">
-            <button class="btn btn-sm" @click="doExportPresets"><AppIcon name="share" :size="13"/> 导出接口预设</button>
-            <button class="btn btn-sm" @click="doImportPresets"><AppIcon name="upload" :size="13"/> 导入接口预设</button>
+            <button class="btn btn-sm" @click="doExportPresets"><AppIcon name="share" :size="13"/> {{ t('backup.exportPresets') }}</button>
+            <button class="btn btn-sm" @click="doImportPresets"><AppIcon name="upload" :size="13"/> {{ t('backup.importPresets') }}</button>
           </div>
-          <button class="btn btn-sm full" @click="doImportRecipe"><AppIcon name="upload" :size="13"/> 导入生成配方</button>
-          <p class="helper">所有分享导出均强制剥离 API Key。</p>
+          <button class="btn btn-sm full" @click="doImportRecipe"><AppIcon name="upload" :size="13"/> {{ t('backup.importRecipe') }}</button>
+          <p class="helper">{{ t('backup.shareStripsKeys') }}</p>
         </section>
 
         <div class="dp-divider" />
 
         <section class="dp-section dp-danger">
-          <div class="sec-title">危险区</div>
+          <div class="sec-title">{{ t('backup.dangerZone') }}</div>
           <div class="danger-action">
             <div>
-              <strong>清空本机图片</strong>
-              <p class="helper">删除浏览器中保存的全部图片,保留生成记录、Prompt 和接口配置。</p>
+              <strong>{{ t('backup.clearImages') }}</strong>
+              <p class="helper">{{ t('backup.clearImagesHint') }}</p>
             </div>
             <button class="btn btn-sm btn-danger full" @click="confirmClearImages = true" :disabled="busy || !store.assets.length">
-              <AppIcon name="trash" :size="13" /> 清空图片
+              <AppIcon name="trash" :size="13" /> {{ t('backup.clearImagesAction') }}
             </button>
           </div>
           <div class="danger-action">
             <div>
-              <strong>清空全部数据</strong>
-              <p class="helper">同时删除图片和生成记录,保留接口预设与 Key。不可撤销。</p>
+              <strong>{{ t('backup.resetAll') }}</strong>
+              <p class="helper">{{ t('backup.resetAllHint') }}</p>
             </div>
             <button class="btn btn-sm btn-danger full" @click="confirmReset = true" :disabled="busy || (!store.assets.length && !store.generations.length)">
-              <AppIcon name="trash" :size="13" /> 清空全部
+              <AppIcon name="trash" :size="13" /> {{ t('backup.resetAllAction') }}
             </button>
           </div>
         </section>
@@ -250,16 +252,16 @@ onMounted(() => {
 
       <ConfirmDialog
         v-if="confirmClearImages"
-        title="清空本机图片"
-        :message="`将永久删除浏览器中保存的全部 ${store.assets.length} 张图片。生成记录、Prompt、工作区和接口预设会保留,但历史结果将无法再查看图片。此操作不可撤销。`"
-        confirm-text="清空图片" danger
+        :title="t('backup.clearImages')"
+        :message="t('backup.clearImagesConfirm', { count: store.assets.length })"
+        :confirm-text="t('backup.clearImagesAction')" danger
         @confirm="doClearImages" @cancel="confirmClearImages = false"
       />
       <ConfirmDialog
         v-if="confirmReset"
-        title="清空全部"
-        :message="`将永久删除全部 ${store.assets.length} 张素材与所有生成记录。接口预设与 Key 会保留。此操作不可撤销。`"
-        confirm-text="清空全部" danger
+        :title="t('backup.resetAllAction')"
+        :message="t('backup.resetConfirm', { count: store.assets.length })"
+        :confirm-text="t('backup.resetAllAction')" danger
         @confirm="doReset" @cancel="confirmReset = false"
       />
     </div>

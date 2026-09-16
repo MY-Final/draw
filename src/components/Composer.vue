@@ -1,6 +1,7 @@
 <script setup>
 // 底部固定输入区(composer,对话式布局)。prompt + 内联参数 + 参考图 chips + 生成。
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useWorkbenchStore, MAX_GENERATION_QUEUE } from '../stores/workbench.js'
 import AppIcon from './AppIcon.vue'
 import AssetImage from './AssetImage.vue'
@@ -29,17 +30,16 @@ const RESOLUTIONS = [
 ]
 // 画质:真实 quality 参数(high/medium/low),独立于分辨率
 const QUALITIES = [
-  { key: 'high', label: '高' },
-  { key: 'medium', label: '中' },
-  { key: 'low', label: '低' },
+  { key: 'high' },
+  { key: 'medium' },
+  { key: 'low' },
 ]
 const RES_LABELS = { '1k': '1K', '2k': '2K', '4k': '4K' }
-const Q_LABELS = { high: '高', medium: '中', low: '低' }
 // 画质预设:分辨率 × 画质 的快捷组合;「标准」为默认(1K+中)
 const QUALITY_PRESETS = [
-  { key: 'standard', label: '标准', res: '1k', q: 'medium' },
-  { key: 'hd', label: '高清', res: '2k', q: 'high' },
-  { key: 'uhd', label: '超清', res: '4k', q: 'high' },
+  { key: 'standard', res: '1k', q: 'medium' },
+  { key: 'hd', res: '2k', q: 'high' },
+  { key: 'uhd', res: '4k', q: 'high' },
 ]
 
 function computeSize(r, res) {
@@ -51,8 +51,16 @@ function computeSize(r, res) {
   return `${Math.round(base * w / h)}x${base}`
 }
 
+const { t } = useI18n()
 const store = useWorkbenchStore()
 const emit = defineEmits(['open-settings', 'preview'])
+
+function labelForQuality(key) {
+  return t(`composer.qualities.${key}`)
+}
+function labelForPreset(key) {
+  return t(`composer.qualityPresets.${key}`)
+}
 
 const prompt = ref('')
 const MAX_PROMPT_LENGTH = 1000
@@ -93,8 +101,8 @@ const activePresetKey = computed(() =>
 const settingsSummary = computed(() => {
   const ratioLabel = ratio.value === 'auto' ? 'Auto' : ratio.value
   const resLabel = RES_LABELS[resolution.value] || resolution.value
-  const qLabel = Q_LABELS[quality.value] || quality.value
-  return `${ratioLabel} · ${resLabel} · ${qLabel}画质 · 生成 ${clampN(n.value)} 张`
+  const qLabel = labelForQuality(quality.value)
+  return t('composer.params.summary', { ratio: ratioLabel, res: resLabel, quality: qLabel, count: clampN(n.value) })
 })
 
 function selectPreset(p) { resolution.value = p.res; quality.value = p.q }
@@ -119,20 +127,20 @@ function onNChange() { n.value = clampN(n.value) }
 const missingKey = computed(() => !!(store.activePreset && !store.activePreset.apiKey))
 const generateDisabledReason = computed(() => {
   if (store.generating) return ''
-  if (!store.activePreset) return '请先添加接口'
-  if (missingKey.value) return '请先填写 API Key'
-  if (!prompt.value.trim()) return '请输入提示词'
+  if (!store.activePreset) return t('composer.generate.noPreset')
+  if (missingKey.value) return t('composer.generate.noApiKey')
+  if (!prompt.value.trim()) return t('composer.generate.noPrompt')
   return ''
 })
 const canGenerate = computed(() => !generateDisabledReason.value && !store.generating)
 // 生成中把快捷键含义写出来:此时 Ctrl/Cmd+Enter 是「加入队列」而不是「生成」。
 const composerFootHint = computed(() => store.generating
-  ? `生成中 · Ctrl/Cmd+Enter 加入队列（${store.generationQueue.length}/${MAX_GENERATION_QUEUE}）`
-  : 'Enter 换行 · Ctrl/Cmd+Enter 生成')
+  ? t('composer.footHint.generating', { current: store.generationQueue.length, max: MAX_GENERATION_QUEUE })
+  : t('composer.footHint.idle'))
 const promptLength = computed(() => prompt.value.length)
 const promptPlaceholder = computed(() => refAssets.value.length
-  ? '输入提示词，配合参考图生成新画面…'
-  : '描述你脑海中的画面，例如：雨夜霓虹街头，毛玻璃质感…')
+  ? t('composer.prompt.placeholderWithRefs')
+  : t('composer.prompt.placeholderDefault'))
 const promptLengthClass = computed(() => ({
   'near-limit': promptLength.value >= MAX_PROMPT_LENGTH * 0.9,
   'at-limit': promptLength.value >= MAX_PROMPT_LENGTH,
@@ -196,14 +204,14 @@ function onPresetMenuKeydown(e) {
 }
 
 function saveCurrentPrompt() {
-  const t = prompt.value.trim()
-  if (!t) return
-  const r = addPrompt(t, store.activeWorkspaceId)
+  const text = prompt.value.trim()
+  if (!text) return
+  const r = addPrompt(text, store.activeWorkspaceId)
   if (r.ok) {
     loadSavedPrompts()
-    promptLibToast.value = { type: 'success', text: '已收藏 prompt' }
+    promptLibToast.value = { type: 'success', text: t('composer.promptLib.saved') }
   } else if (r.reason === 'duplicate') {
-    promptLibToast.value = { type: 'warn', text: '已收藏过该 prompt' }
+    promptLibToast.value = { type: 'warn', text: t('composer.promptLib.alreadySaved') }
   }
   setTimeout(() => { promptLibToast.value = null }, 2000)
 }
@@ -231,7 +239,7 @@ function startEditPrompt(p) {
 function savePromptEdit(p) {
   const r = updatePrompt(p.id, editingPromptText.value, store.activeWorkspaceId)
   if (!r.ok) {
-    promptLibToast.value = { type: 'warn', text: r.reason === 'duplicate' ? '已有相同的 prompt' : '内容不能为空' }
+    promptLibToast.value = { type: 'warn', text: r.reason === 'duplicate' ? t('composer.promptLib.duplicate') : t('composer.promptLib.emptyContent') }
     setTimeout(() => { promptLibToast.value = null }, 2000)
     return
   }
@@ -320,18 +328,18 @@ watch([
   const removed = refImageIds.value.length - valid.length
   if (!removed) return
   refImageIds.value = valid
-  showReferenceNotice(`${removed} 张参考图已不存在，已从本次生成中移除。`)
+  showReferenceNotice(t('composer.ref.missingRemoved', { count: removed }))
 })
 
 // quiet:内部路径(上传/拖入)不弹提示,缩略图就在眼前;外部路径(素材库/预览设为参考)给反馈。
 function addReference(id, { quiet = false } = {}) {
   if (refImageIds.value.includes(id)) return
   if (refImageIds.value.length >= MAX_REFERENCES) {
-    showReferenceNotice(`参考图最多 ${MAX_REFERENCES} 张，已忽略新添加的图片。`)
+    showReferenceNotice(t('composer.ref.maxReached', { max: MAX_REFERENCES }))
     return
   }
   refImageIds.value = [...refImageIds.value, id]
-  if (!quiet) showReferenceNotice(`已加入参考图（当前 ${refImageIds.value.length} 张）`)
+  if (!quiet) showReferenceNotice(t('composer.ref.added', { count: refImageIds.value.length }))
 }
 function removeReference(id) {
   refImageIds.value = refImageIds.value.filter((x) => x !== id)
@@ -378,7 +386,7 @@ function moveReference(id, targetIndex) {
   list.splice(fromIndex, 1)
   list.splice(nextIndex, 0, id)
   refImageIds.value = list
-  const message = `已将第 ${fromIndex + 1} 张参考图移到第 ${nextIndex + 1} 位`
+  const message = t('composer.ref.moved', { from: fromIndex + 1, to: nextIndex + 1 })
   referenceOrderAnnouncement.value = ''
   showReferenceNotice(message)
   nextTick(() => {
@@ -426,7 +434,7 @@ async function uploadRefImage(file) {
     const asset = await store.addReferenceAsset(file)
     addReference(asset.id, { quiet: true })
   } catch (e) {
-    showReferenceNotice(`参考图添加失败：${e?.message || '请重试'}`)
+    showReferenceNotice(t('composer.ref.uploadFailed', { error: e?.message || t('composer.ref.retry') }))
   } finally {
     if (fileInput.value) fileInput.value.value = ''
   }
@@ -488,7 +496,7 @@ async function onDrop(e) {
 function applyPrefill(prefill) {
   if (!prefill) return
   if (Array.isArray(prefill.refImageIds) && prefill.refImageIds.length > MAX_REFERENCES) {
-    showReferenceNotice(`配方最多支持 ${MAX_REFERENCES} 张参考图，未载入。`)
+    showReferenceNotice(t('composer.ref.recipeOverLimit', { max: MAX_REFERENCES }))
     return
   }
   prompt.value = String(prefill.prompt || '')
@@ -549,7 +557,7 @@ function currentParams() {
 function enqueueCurrentDraft() {
   const text = prompt.value.trim()
   if (!text) {
-    showNotice('请输入提示词后再加入队列。', 'warn')
+    showNotice(t('composer.queue.empty'), 'warn')
     return false
   }
   const r = store.enqueueGeneration({
@@ -560,15 +568,15 @@ function enqueueCurrentDraft() {
   })
   if (r.ok) {
     clear()
-    showNotice(`已加入队列 · 第 ${r.position} 位(当前任务完成后自动开始)`, 'info')
+    showNotice(t('composer.queue.enqueued', { position: r.position }), 'info')
     return true
   }
   if (r.reason === 'full') {
-    showNotice(`队列已满(最多 ${r.max} 条),请等待或先取消当前任务。`, 'warn')
+    showNotice(t('composer.queue.full', { max: r.max }), 'warn')
   } else if (r.reason === 'no-preset') {
-    showNotice('请先添加接口,再加入队列。', 'warn')
+    showNotice(t('composer.queue.noPreset'), 'warn')
   } else if (r.reason === 'no-key') {
-    store.lastError = '当前接口缺少 API Key,请先在接口设置中填写。'
+    store.lastError = t('composer.queue.noKey')
   }
   return false
 }
@@ -581,7 +589,7 @@ async function submit() {
   }
   if (!canGenerate.value) {
     if (missingKey.value) {
-      store.lastError = '当前接口缺少 API Key,请先在接口设置中填写。'
+      store.lastError = t('composer.queue.noKey')
     }
     return
   }
@@ -636,10 +644,7 @@ function onPromptInput(e) {
 // 这里兜底同步高度,避免清空后空输入框仍占着长 prompt 的高度。
 watch(prompt, () => { nextTick(() => autogrow()) })
 
-const settingsRelatedError = computed(() => {
-  const msg = store.lastError || ''
-  return /API Key|接口|预设|Key/i.test(msg)
-})
+const settingsRelatedError = computed(() => store.lastErrorKind === 'settings')
 
 function dismissError() { store.clearLastError() }
 function onErrorAction() {
@@ -661,7 +666,7 @@ function onErrorAction() {
     <!-- 整区拖放提示:覆盖整个输入区,松开即添加 -->
     <div v-if="dropActive" class="drop-overlay" aria-hidden="true">
       <AppIcon name="layers" :size="18" />
-      <span>松开以添加参考图</span>
+      <span>{{ t('composer.drop.overlay') }}</span>
     </div>
 
     <!-- 无接口 / 缺 Key:提示本身可点,文案不写死「左侧」(移动端侧栏在汉堡里) -->
@@ -671,7 +676,7 @@ function onErrorAction() {
       class="hint hint-btn"
       @click="emit('open-settings', { create: true })"
     >
-      <AppIcon name="alert" :size="14" /> 还没有可用接口 —— 点此添加,填好即可开始。
+      <AppIcon name="alert" :size="14" /> {{ t('composer.hint.noPreset') }}
     </button>
     <button
       v-else-if="missingKey"
@@ -679,7 +684,7 @@ function onErrorAction() {
       class="hint hint-btn"
       @click="emit('open-settings')"
     >
-      <AppIcon name="alert" :size="14" /> 当前接口缺少 API Key —— 点此填写后即可生成。
+      <AppIcon name="alert" :size="14" /> {{ t('composer.hint.missingKey') }}
     </button>
     <div v-if="store.lastError" class="err-bar" role="alert">
       <AppIcon name="alert" :size="14" />
@@ -689,8 +694,8 @@ function onErrorAction() {
         type="button"
         class="err-action"
         @click="onErrorAction"
-      >去设置</button>
-      <button class="err-close" @click="dismissError" aria-label="关闭错误">
+      >{{ t('composer.error.goSettings') }}</button>
+      <button class="err-close" @click="dismissError" :aria-label="t('composer.error.close')">
         <AppIcon name="x" :size="12" />
       </button>
     </div>
@@ -703,20 +708,20 @@ function onErrorAction() {
     <!-- 主输入框 -->
     <div class="composer" :class="{ disabled: !store.activePreset }">
       <!-- 参考图与 Prompt 同属一次创作,保持在同一个输入容器内。 -->
-      <div class="ref-strip" :class="{ empty: !refAssets.length }" role="group" aria-label="参考图设置">
+      <div class="ref-strip" :class="{ empty: !refAssets.length }" role="group" :aria-label="t('composer.ref.groupAria')">
         <div v-if="refAssets.length" class="ref-head">
-          <span class="ref-title">参考图</span>
+          <span class="ref-title">{{ t('composer.ref.title') }}</span>
           <span class="ref-count tnum">{{ refAssets.length }}/{{ MAX_REFERENCES }}</span>
         </div>
-        <div class="ref-items" role="list" aria-label="参考图列表">
+        <div class="ref-items" role="list" :aria-label="t('composer.ref.listAria')">
           <div
             v-for="(a, i) in refAssets" :key="a.id"
             class="ref-thumb" :class="{ 'drag-over': dragOverRefId === a.id, dragging: dragRefId === a.id }"
             :ref="(el) => setRefItemRef(el, a.id)"
             role="listitem" tabindex="0"
             draggable="true"
-            :aria-label="`第 ${i + 1} 张参考图，可用左右方向键、Home 或 End 调整顺序`"
-            title="将作为参考图发送（可拖拽或使用方向键排序）"
+            :aria-label="t('composer.ref.itemAria', { index: i + 1 })"
+            :title="t('composer.ref.itemTitle')"
             @dragstart="onRefDragStart($event, a.id)"
             @dragover="onRefDragOver($event, a.id)"
             @drop="onRefDrop($event, a.id)"
@@ -728,13 +733,13 @@ function onErrorAction() {
               class="ref-preview"
               tabindex="-1"
               @click="emit('preview', { asset: a, list: refAssets })"
-              :aria-label="`预览第 ${i + 1} 张参考图`"
-              title="预览参考图"
+              :aria-label="t('composer.ref.previewAria', { index: i + 1 })"
+              :title="t('composer.ref.previewTitle')"
             >
-              <AssetImage :asset="a" alt="参考图" />
+              <AssetImage :asset="a" :alt="t('composer.ref.alt')" />
               <span class="ref-badge">{{ i + 1 }}</span>
             </button>
-            <button type="button" class="ref-remove" @click="removeReference(a.id)" aria-label="移除参考图" title="移除此参考图">
+            <button type="button" class="ref-remove" @click="removeReference(a.id)" :aria-label="t('composer.ref.removeAria')" :title="t('composer.ref.removeTitle')">
               <AppIcon name="x" :size="11" />
             </button>
           </div>
@@ -744,18 +749,18 @@ function onErrorAction() {
             class="ref-add"
             :class="{ 'ref-add-empty': !refAssets.length }"
             @click="fileInput?.click()"
-            title="上传参考图"
-            aria-label="上传参考图"
+            :title="t('composer.ref.uploadTitle')"
+            :aria-label="t('composer.ref.uploadAria')"
           >
             <AppIcon name="plus" :size="14" />
-            <span v-if="!refAssets.length" class="ref-add-label">添加参考图</span>
+            <span v-if="!refAssets.length" class="ref-add-label">{{ t('composer.ref.add') }}</span>
           </button>
           <input ref="fileInput" type="file" accept="image/*" multiple class="hidden-input" @change="onFilePick" />
         </div>
         <span class="ref-tip">
           {{ refAssets.length >= MAX_REFERENCES
-            ? `已添加 ${MAX_REFERENCES} 张参考图`
-            : (refAssets.length ? '点击缩略图预览 · 拖拽调整顺序' : '粘贴、拖入或上传参考图') }}
+            ? t('composer.ref.tipFull', { count: MAX_REFERENCES })
+            : (refAssets.length ? t('composer.ref.tipReorder') : t('composer.ref.tipEmpty')) }}
         </span>
       </div>
 
@@ -766,7 +771,7 @@ function onErrorAction() {
           v-model="prompt" rows="3" class="composer-input"
           :maxlength="MAX_PROMPT_LENGTH"
           :placeholder="promptPlaceholder"
-          aria-label="描述要生成的画面"
+          :aria-label="t('composer.prompt.inputAria')"
           @input="onPromptInput"
           @keydown.enter="onEnter"
         />
@@ -775,8 +780,8 @@ function onErrorAction() {
             v-if="prompt"
             type="button"
             class="clear-prompt"
-            aria-label="清空提示词"
-            title="清空提示词"
+            :aria-label="t('composer.prompt.clearAria')"
+            :title="t('composer.prompt.clearTitle')"
             @click="clearPrompt"
           >
             <AppIcon name="x" :size="12" />
@@ -794,16 +799,16 @@ function onErrorAction() {
           @click="toggleAdvanced"
           :aria-expanded="moreParamsOpen"
           aria-controls="composer-params"
-          :title="moreParamsOpen ? '收起生成参数' : '展开生成参数'"
+          :title="moreParamsOpen ? t('composer.params.collapse') : t('composer.params.expand')"
         >
           <AppIcon name="settings" :size="12" />
-          <span>参数 · {{ settingsSummary }}</span>
+          <span>{{ t('composer.params.label') }} · {{ settingsSummary }}</span>
           <AppIcon :name="moreParamsOpen ? 'chevron-down' : 'chevron-right'" :size="11" />
         </button>
 
         <div v-if="moreParamsOpen" id="composer-params" class="params-panel" @click.stop>
           <div class="params-row">
-            <span class="params-tag-label">比例</span>
+            <span class="params-tag-label">{{ t('composer.params.ratio') }}</span>
             <div class="ratio-grid">
               <button
                 class="tag ratio-auto" :class="{ active: ratio === 'auto' }"
@@ -824,7 +829,7 @@ function onErrorAction() {
           </div>
 
           <div class="params-row">
-            <span class="params-tag-label">预设</span>
+            <span class="params-tag-label">{{ t('composer.params.preset') }}</span>
             <div class="tag-group">
               <button
                 v-for="p in QUALITY_PRESETS" :key="p.key"
@@ -832,13 +837,13 @@ function onErrorAction() {
                 type="button" @click="selectPreset(p)"
               >
                 <AppIcon v-if="activePresetKey === p.key" name="check" :size="10" />
-                {{ p.label }}
+                {{ labelForPreset(p.key) }}
               </button>
             </div>
           </div>
 
           <div class="params-row params-row-settings">
-            <span class="params-tag-label">分辨率</span>
+            <span class="params-tag-label">{{ t('composer.params.resolution') }}</span>
             <div class="tag-group">
               <button
                 v-for="r in RESOLUTIONS" :key="r.key"
@@ -849,7 +854,7 @@ function onErrorAction() {
                 {{ r.label }}
               </button>
             </div>
-            <span class="params-tag-label params-tag-label-n">画质</span>
+            <span class="params-tag-label params-tag-label-n">{{ t('composer.params.quality') }}</span>
             <div class="tag-group">
               <button
                 v-for="q in QUALITIES" :key="q.key"
@@ -857,13 +862,13 @@ function onErrorAction() {
                 type="button" @click="quality = q.key"
               >
                 <AppIcon v-if="quality === q.key" name="check" :size="10" />
-                {{ q.label }}
+                {{ labelForQuality(q.key) }}
               </button>
             </div>
-            <span class="params-tag-label params-tag-label-n">数量</span>
-            <div class="n-stepper" title="生成数量（1-4）">
+            <span class="params-tag-label params-tag-label-n">{{ t('composer.params.count') }}</span>
+            <div class="n-stepper" :title="t('composer.params.countTitle')">
               <button
-                class="n-btn" type="button" aria-label="减少数量"
+                class="n-btn" type="button" :aria-label="t('composer.params.decrease')"
                 @pointerdown.prevent="nHoldStart(-1)"
                 @pointerup="nHoldStop" @pointerleave="nHoldStop" @pointercancel="nHoldStop"
               >
@@ -871,10 +876,10 @@ function onErrorAction() {
               </button>
               <input
                 class="n-input" type="number" min="1" max="4"
-                v-model.number="n" @change="onNChange" aria-label="生成数量"
+                v-model.number="n" @change="onNChange" :aria-label="t('composer.params.countAria')"
               />
               <button
-                class="n-btn" type="button" aria-label="增加数量"
+                class="n-btn" type="button" :aria-label="t('composer.params.increase')"
                 @pointerdown.prevent="nHoldStart(1)"
                 @pointerup="nHoldStop" @pointerleave="nHoldStop" @pointercancel="nHoldStop"
               >
@@ -886,7 +891,7 @@ function onErrorAction() {
       </div>
 
       <div class="composer-bar">
-        <span class="proto-tip">{{ refAssets.length ? '改图 · 带参考图' : '文生图' }}</span>
+        <span class="proto-tip">{{ refAssets.length ? t('composer.mode.edit') : t('composer.mode.generate') }}</span>
 
         <!-- 当前接口:跟随生成上下文,紧挨输入区切换 -->
         <div class="preset-pick-wrap">
@@ -896,20 +901,20 @@ function onErrorAction() {
             @click="togglePresetMenu"
             @keydown="onPresetButtonKeydown"
             :aria-expanded="presetMenuOpen" aria-haspopup="listbox"
-            :title="store.activePreset ? store.activePreset.name || '未命名' : ''"
+            :title="store.activePreset ? store.activePreset.name || t('composer.preset.unnamed') : ''"
           >
             <AppIcon name="settings" :size="12" />
-            <span class="preset-pick-name">{{ store.activePreset?.name || '未命名' }}</span>
+            <span class="preset-pick-name">{{ store.activePreset?.name || t('composer.preset.unnamed') }}</span>
             <span
               v-if="store.activePreset && !store.activePreset.apiKey"
               class="badge badge-warn preset-key-badge"
               @click.stop="presetMenuOpen = false; emit('open-settings')"
-              title="填写 API Key"
-            >缺 Key</span>
+              :title="t('composer.preset.keyTitle')"
+            >{{ t('composer.preset.keyBadge') }}</span>
             <AppIcon name="chevron-down" :size="11" class="preset-pick-chev" />
           </button>
-          <div v-if="presetMenuOpen" class="preset-pop" role="listbox" aria-label="选择接口" @keydown="onPresetMenuKeydown">
-            <div class="preset-pop-head">切换接口</div>
+          <div v-if="presetMenuOpen" class="preset-pop" role="listbox" :aria-label="t('composer.preset.selectAria')" @keydown="onPresetMenuKeydown">
+            <div class="preset-pop-head">{{ t('composer.preset.switch') }}</div>
             <button
               v-for="p in store.presets" :key="p.id"
               :ref="(el) => setPresetOptionRef(el, p.id)"
@@ -920,15 +925,15 @@ function onErrorAction() {
               @click="selectPresetUi(p.id)"
             >
               <span class="preset-pop-main">
-                <span class="preset-pop-name">{{ p.name || '未命名' }}</span>
-                <span class="preset-pop-meta">{{ p.model || '未设模型' }} · {{ p.baseURL || '' }}</span>
+                <span class="preset-pop-name">{{ p.name || t('composer.preset.unnamed') }}</span>
+                <span class="preset-pop-meta">{{ p.model || t('composer.preset.noModel') }} · {{ p.baseURL || '' }}</span>
               </span>
-              <span v-if="!p.apiKey" class="badge badge-warn preset-key-badge">缺 Key</span>
+              <span v-if="!p.apiKey" class="badge badge-warn preset-key-badge">{{ t('composer.preset.keyBadge') }}</span>
               <AppIcon v-if="p.id === store.activePresetId" name="check" :size="12" />
             </button>
             <div class="preset-pop-divider" />
             <button class="preset-pop-item" @click="presetMenuOpen = false; emit('open-settings')">
-              <AppIcon name="settings" :size="13" /> 管理接口
+              <AppIcon name="settings" :size="13" /> {{ t('composer.preset.manage') }}
             </button>
           </div>
         </div>
@@ -940,8 +945,8 @@ function onErrorAction() {
             ref="promptLibButton"
             class="chip star-btn" :class="{ active: showPromptLib, highlight: prompt.trim() && !showPromptLib }"
             @click.stop="togglePromptLib"
-            :title="prompt.trim() ? '收藏 / 打开 Prompt 库' : '打开 Prompt 库'"
-            aria-label="Prompt 库"
+            :title="prompt.trim() ? t('composer.promptLib.starTitleWithText') : t('composer.promptLib.starTitle')"
+            :aria-label="t('composer.promptLib.aria')"
           >
             <AppIcon name="heart" :size="13" />
           </button>
@@ -949,24 +954,24 @@ function onErrorAction() {
           <div v-if="showPromptLib" class="prompt-pop" @click.stop>
             <div v-if="promptLibToast" class="prompt-toast" :class="promptLibToast.type">{{ promptLibToast.text }}</div>
             <div class="prompt-pop-head">
-              <span class="prompt-pop-title">已收藏</span>
-              <button class="pop-save" :disabled="!prompt.trim()" @click="saveCurrentPrompt" title="收藏当前 prompt">
-                <AppIcon name="plus" :size="13" /> 收藏当前
+              <span class="prompt-pop-title">{{ t('composer.promptLib.title') }}</span>
+              <button class="pop-save" :disabled="!prompt.trim()" @click="saveCurrentPrompt" :title="t('composer.promptLib.saveTitle')">
+                <AppIcon name="plus" :size="13" /> {{ t('composer.promptLib.save') }}
               </button>
             </div>
-            <div v-if="!savedPrompts.length" class="prompt-empty">暂无收藏的 prompt</div>
+            <div v-if="!savedPrompts.length" class="prompt-empty">{{ t('composer.promptLib.empty') }}</div>
             <template v-else>
               <div class="prompt-search">
                 <AppIcon name="search" :size="12" />
                 <input
                   v-model="promptQuery" class="prompt-search-input"
-                  placeholder="搜索收藏的 prompt" aria-label="搜索收藏的 prompt"
+                  :placeholder="t('composer.promptLib.searchPlaceholder')" :aria-label="t('composer.promptLib.searchAria')"
                 />
-                <button v-if="promptQuery" class="prompt-search-clear" @click="promptQuery = ''" aria-label="清空搜索">
+                <button v-if="promptQuery" class="prompt-search-clear" @click="promptQuery = ''" :aria-label="t('composer.promptLib.searchClear')">
                   <AppIcon name="x" :size="11" />
                 </button>
               </div>
-              <div v-if="!visiblePrompts.length" class="prompt-empty">没有匹配的 prompt</div>
+              <div v-if="!visiblePrompts.length" class="prompt-empty">{{ t('composer.promptLib.noMatch') }}</div>
               <div v-else class="prompt-list">
                 <div
                   v-for="p in visiblePrompts" :key="p.id"
@@ -980,10 +985,10 @@ function onErrorAction() {
                     @blur="savePromptEdit(p)"
                   />
                   <span v-else class="prompt-text">{{ p.text }}</span>
-                  <button class="prompt-edit" @click.stop="startEditPrompt(p)" title="编辑" aria-label="编辑这条 prompt">
+                  <button class="prompt-edit" @click.stop="startEditPrompt(p)" :title="t('composer.promptLib.editTitle')" :aria-label="t('composer.promptLib.editAria')">
                     <AppIcon name="edit" :size="11" />
                   </button>
-                  <button class="prompt-del" @click.stop="deletePrompt(p.id)" title="删除" aria-label="删除这条 prompt">
+                  <button class="prompt-del" @click.stop="deletePrompt(p.id)" :title="t('common.delete')" :aria-label="t('composer.promptLib.deleteAria')">
                     <AppIcon name="x" :size="11" />
                   </button>
                 </div>
@@ -996,21 +1001,21 @@ function onErrorAction() {
           v-if="store.generating"
           class="btn btn-ghost send cancel"
           @click="store.cancelActiveGeneration()"
-          aria-label="取消生成"
+          :aria-label="t('composer.generate.cancelAria')"
         >
           <AppIcon name="x" :size="16" />
-          取消
+          {{ t('common.cancel') }}
         </button>
         <button
           v-else
            class="btn btn-primary send"
            :disabled="!canGenerate"
-           @click="submit" aria-label="生成图片"
+           @click="submit" :aria-label="t('composer.generate.aria')"
            aria-describedby="generate-disabled-reason"
-           :title="generateDisabledReason || '生成图片'"
+           :title="generateDisabledReason || t('composer.generate.title')"
         >
           <AppIcon name="sparkles" :size="16" />
-           生成
+           {{ t('composer.generate.short') }}
          </button>
        </div>
        <p

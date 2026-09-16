@@ -1,12 +1,14 @@
 <script setup>
 // 统一搜索(⌘K 面板):跨工作区搜索会话/prompt/素材/工作区。
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import { deriveConversations, convIdOf } from '../lib/conversations.js'
 import { getAllPrompts } from '../lib/promptLibrary.js'
 import AppIcon from './AppIcon.vue'
 import AssetImage from './AssetImage.vue'
 
+const { t } = useI18n()
 const store = useWorkbenchStore()
 const props = defineProps({ visible: Boolean })
 const emit = defineEmits(['jump', 'close'])
@@ -31,7 +33,7 @@ function buildIndex() {
 
   // 工作区
   for (const ws of store.workspaces) {
-    items.push({ type: 'workspace', id: ws.id, label: ws.name, subtitle: '工作区', wsId: ws.id })
+    items.push({ type: 'workspace', id: ws.id, label: ws.name, subtitle: t('search.workspace'), wsId: ws.id })
   }
 
   // 会话(通过 generations 推导,跨工作区)
@@ -80,12 +82,12 @@ function buildIndex() {
     const shortId = a.id.slice(0, 10)
     const label = prompt
       ? (prompt.length > 48 ? prompt.slice(0, 48) + '…' : prompt)
-      : (a.favorite ? `收藏素材 ${shortId}` : `素材 ${shortId}`)
+      : (a.favorite ? t('search.favoriteAsset', { id: shortId }) : t('search.assetWithId', { id: shortId }))
     items.push({
       type: 'asset', id: a.id, label,
       // 额外可搜字段:完整 prompt + id
-      searchText: `${label} ${prompt} ${a.id} ${a.favorite ? '收藏' : ''}`,
-      subtitle: ws ? ws.name : '未知工作区', wsId: a.workspaceId, asset: a,
+      searchText: `${label} ${prompt} ${a.id} ${a.favorite ? t('search.favoriteMark') : ''}`,
+      subtitle: ws ? ws.name : t('search.unknownWorkspace'), wsId: a.workspaceId, asset: a,
     })
   }
 
@@ -114,7 +116,7 @@ function doSearch() {
   for (const item of allItems.value) {
     const text = (item.searchText || item.label || '').toLowerCase()
     // 多关键词:所有词都匹配才算
-    const matchAll = terms.every((t) => text.includes(t))
+    const matchAll = terms.every((term) => text.includes(term))
     if (!matchAll) continue
     if (groups[item.type] && groups[item.type].length < 5) {
       groups[item.type].push({ ...item })
@@ -123,13 +125,13 @@ function doSearch() {
 
   const flat = []
   const typeOrder = ['workspace', 'conversation', 'prompt', 'asset']
-  const typeLabels = { workspace: '工作区', conversation: '会话', prompt: 'Prompt', asset: '素材' }
+  const typeLabels = { workspace: t('search.workspace'), conversation: t('search.conversation'), prompt: 'Prompt', asset: t('search.asset') }
   const typeIcons = { workspace: 'folder', conversation: 'image', prompt: 'star', asset: 'image' }
 
-  for (const t of typeOrder) {
-    if (groups[t].length) {
-      flat.push({ _group: true, label: typeLabels[t], icon: typeIcons[t] })
-      for (const item of groups[t]) flat.push(item)
+  for (const type of typeOrder) {
+    if (groups[type].length) {
+      flat.push({ _group: true, label: typeLabels[type], icon: typeIcons[type] })
+      for (const item of groups[type]) flat.push(item)
     }
   }
 
@@ -215,7 +217,7 @@ buildIndex()
             ref="inputEl"
             v-model="query"
             class="search-input"
-            placeholder="搜索工作区、会话、Prompt、素材…"
+            :placeholder="t('search.placeholder')"
             @input="onInput"
             @keydown="onKeydown"
           />
@@ -248,10 +250,10 @@ buildIndex()
           </template>
         </div>
         <div v-else-if="query.trim()" class="search-empty">
-          未找到匹配结果
+          {{ t('search.noResults') }}
         </div>
         <div v-else class="search-hint">
-          输入关键词搜索工作区、会话、Prompt 或素材
+          {{ t('search.hint') }}
         </div>
       </div>
     </div>

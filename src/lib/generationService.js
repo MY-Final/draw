@@ -6,18 +6,19 @@ import { toBlob, ApiError } from './http.js'
 import { putAsset, getAssets, deleteAssets } from './assetRepo.js'
 import { createGeneration, updateGeneration } from './generationRepo.js'
 import { PROTOCOL_IMAGES } from './presets.js'
+import { tl } from '../i18n/translate.js'
 
 // refImageIds:素材库中的 asset id 列表(参考图走 images/edits)。
 // onPending:pending 记录落库后立即回调,供 store 做乐观上屏(请求即时上屏)。
 
-const STATUS_MESSAGES = [
-  '正在排队',
-  '模型正在处理中',
-  '正在生成图片',
-  '即将完成',
-  '正在渲染',
-  '正在优化细节',
-  'AI 正在创作',
+const STATUS_MESSAGE_KEYS = [
+  'queueing',
+  'processing',
+  'generating',
+  'almost',
+  'rendering',
+  'refining',
+  'creating',
 ]
 
 function isAbortError(e, signal) {
@@ -48,7 +49,7 @@ export async function runGeneration({
   preset, prompt, fullPrompt, refImageIds = [], params = {}, signal, onPending, workspaceId,
 }) {
   // 1. 先落一条 pending 记录(即使失败也留痕,便于诊断)
-  const statusMessage = STATUS_MESSAGES[Math.floor(Math.random() * STATUS_MESSAGES.length)]
+  const statusMessage = tl(`lib.generation.status.${STATUS_MESSAGE_KEYS[Math.floor(Math.random() * STATUS_MESSAGE_KEYS.length)]}`)
   const gen = await createGeneration({
     prompt,
     refImageIds,
@@ -69,7 +70,7 @@ export async function runGeneration({
       refAssets.length !== refImageIds.length
       || (workspaceId && refAssets.some((asset) => asset.workspaceId && asset.workspaceId !== workspaceId))
     ) {
-      throw new ApiError('reference', '参考图已不存在，请重新选择后再生成。')
+      throw new ApiError('reference', tl('lib.generation.refMissing'))
     }
     const refImages = refAssets.map((a) => ({ blob: a.blob, mime: a.mime }))
 
@@ -112,14 +113,14 @@ export async function runGeneration({
       outputImageIds,
       elapsedMs: Date.now() - gen.createdAt,
       ...(partial ? {
-        partialNote: `请求 ${requested} 张，接口实际返回 ${images.length} 张`,
+        partialNote: tl('lib.generation.partialNote', { requested, returned: images.length }),
         rawResponseSnippet: snippet || snippetOf(raw),
       } : {}),
     })
     // 记录在请求期间已被删除（删会话/清空）时，产物不能成为孤儿或重新出现。
     if (!updated) {
       if (createdAssetIds.length) await deleteAssets(createdAssetIds)
-      return { ...gen, status: 'failed', error: '生成记录已删除', cancelled: true }
+      return { ...gen, status: 'failed', error: tl('lib.generation.recordDeleted'), cancelled: true }
     }
     return updated
   } catch (e) {
@@ -130,7 +131,7 @@ export async function runGeneration({
 
     const aborted = isAbortError(e, signal)
     const message = aborted
-      ? '已取消'
+      ? tl('lib.generation.cancelled')
       : (e instanceof ApiError ? `[${e.category}] ${e.message}` : String(e?.message || e))
 
     const updated = await safeUpdate(gen.id, {

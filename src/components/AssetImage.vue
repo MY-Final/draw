@@ -2,13 +2,17 @@
 // 素材图片渲染 —— 统一走 objectURL 管理(design D5 / Task 2.4),挂载 acquire、卸载 release。
 // image-dimension 规则:用 aspect-ratio 预留空间,避免布局跳动(CLS)。
 import { ref, watch, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { i18n } from '../i18n/index.js'
 import { acquireUrl, releaseUrl } from '../lib/objectUrl.js'
 import { getAssetBlob } from '../lib/assetRepo.js'
 import AppIcon from './AppIcon.vue'
 
+const { t } = useI18n()
+
 const props = defineProps({
   asset: { type: Object, required: true },
-  alt: { type: String, default: '生成的图片' },
+  alt: { type: String, default: () => i18n.global.t('dialogs.assetImage.altDefault') },
 })
 
 const url = ref('')
@@ -59,7 +63,7 @@ onUnmounted(() => {
   <div v-if="loading && !url" class="asset-image-placeholder" aria-hidden="true">
     <AppIcon name="image" :size="14" />
   </div>
-  <div v-else-if="failed" class="asset-image-placeholder asset-image-placeholder-error" role="img" :aria-label="`${alt}加载失败`">
+  <div v-else-if="failed" class="asset-image-placeholder asset-image-placeholder-error" role="img" :aria-label="t('dialogs.assetImage.loadFailed', { alt })">
     <AppIcon name="alert" :size="14" />
   </div>
   <img v-else :src="url" :alt="alt" loading="lazy" class="asset-img" @error="onImageError" />

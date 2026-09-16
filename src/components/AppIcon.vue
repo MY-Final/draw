@@ -1,6 +1,6 @@
 <script setup>
 // 内联 SVG 图标(no-emoji-icons 规则)。Lucide 风格,统一 1.75 描边。
-const props = defineProps({ name: String, size: { type: Number, default: 18 } })
+defineProps({ name: String, size: { type: Number, default: 18 } })
 
 const paths = {
   sparkles: 'M9 3l1.5 4.5L15 9l-4.5 1.5L9 15l-1.5-4.5L3 9l4.5-1.5L9 3zM18 13l.8 2.4L21 16l-2.2.6L18 19l-.8-2.4L15 16l2.2-.6L18 13z',
@@ -33,6 +33,7 @@ const paths = {
   message: 'M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z',
   keyboard: 'M2 6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6zm4 3h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M10 13h8',
   edit: 'M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z',
+  globe: 'M12 2a10 10 0 100 20 10 10 0 000-20zM2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20',
 }
 </script>
 

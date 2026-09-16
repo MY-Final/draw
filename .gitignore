@@ -5,6 +5,7 @@ dist/
 .playwright-mcp/
 .qa/
 test-results/
+playwright-report/
 # Windows accidental redirect artifact
 /nul
 nul

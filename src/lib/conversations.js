@@ -2,6 +2,8 @@
 // 会话不是独立的表:它从 generations 的 conversationId 聚合而来。
 // 兼容旧记录:优先读 conversationId,回退到早期的 canvasId。
 
+import { tl, activeLocale } from '../i18n/translate.js'
+
 export function convIdOf(gen) {
   return gen?.params?.conversationId || gen?.params?.canvasId || null
 }
@@ -40,7 +42,7 @@ export function deriveConversations(generations, overrides = {}) {
   const list = [...map.values()].map(({ _firstAt, ...c }) => ({
     ...c,
     // 手动重命名优先;否则用派生标题;再否则占位
-    title: overrides[c.id] || c.title || '未命名会话',
+    title: overrides[c.id] || c.title || tl('lib.defaults.conversationTitle'),
   }))
   return list.sort((a, b) => b.lastAt - a.lastAt)
 }
@@ -67,23 +69,35 @@ export function groupConversationsByDate(conversations, now = Date.now()) {
   }
 
   for (const c of conversations) {
-    const t = c.lastAt
-    if (t >= todayStart) {
-      ensure('today', '今天', 0).items.push(c)
-    } else if (t >= yesterdayStart) {
-      ensure('yesterday', '昨天', 1).items.push(c)
-    } else if (t >= monthStart) {
-      ensure('this-month', '本月更早', 2).items.push(c)
+    const at = c.lastAt
+    if (at >= todayStart) {
+      ensure('today', tl('dates.today'), 0).items.push(c)
+    } else if (at >= yesterdayStart) {
+      ensure('yesterday', tl('dates.yesterday'), 1).items.push(c)
+    } else if (at >= monthStart) {
+      ensure('this-month', tl('dates.thisMonthEarlier'), 2).items.push(c)
     } else {
-      const d = new Date(t)
-      const sameYear = d.getFullYear() === nowD.getFullYear()
-      const label = sameYear ? `${d.getMonth() + 1}月` : `${d.getFullYear()}年${d.getMonth() + 1}月`
+      const d = new Date(at)
       const key = `m-${d.getFullYear()}-${d.getMonth()}`
       // order:更早月份排在后面,越近越靠前
       const order = 3 + (nowD.getFullYear() - d.getFullYear()) * 12 + (nowD.getMonth() - d.getMonth())
-      ensure(key, label, order).items.push(c)
+      ensure(key, monthLabel(d, nowD), order).items.push(c)
     }
   }
   // 组内已按 lastAt 倒序(conversations 本就倒序);组间按 order
   return groups.sort((a, b) => a.order - b.order)
+}
+
+// 更早月份标签:中文用「6月 / 2025年12月」,其他语言交给 Intl。
+function monthLabel(d, nowD) {
+  const sameYear = d.getFullYear() === nowD.getFullYear()
+  const locale = String(activeLocale() || '')
+  if (locale.startsWith('zh')) {
+    return sameYear ? `${d.getMonth() + 1}月` : `${d.getFullYear()}年${d.getMonth() + 1}月`
+  }
+  try {
+    return new Intl.DateTimeFormat(locale || undefined, sameYear ? { month: 'long' } : { year: 'numeric', month: 'long' }).format(d)
+  } catch {
+    return sameYear ? `${d.getMonth() + 1}月` : `${d.getFullYear()}年${d.getMonth() + 1}月`
+  }
 }

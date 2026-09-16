@@ -5,6 +5,7 @@ import { loadPresets, savePreset, PROTOCOL_IMAGES, PRESETS_STORAGE_KEY, ACTIVE_P
 import { listWorkspaces } from './workspaceRepo.js'
 import { loadPrompts, savePrompts, promptStorageKey } from './promptLibrary.js'
 import { getDB, STORE_ASSETS, STORE_ASSET_BLOBS, STORE_GENERATIONS, STORE_WORKSPACES } from './db.js'
+import { tl } from '../i18n/translate.js'
 
 // 导入导出。v2 新增 workspace 和 promptLibrary。
 export const SCHEMA_VERSION = 2
@@ -85,21 +86,21 @@ export async function importLibraryZip(file, { onProgress = null } = {}) {
   }
   report('read', 0, 0)
   const zip = await JSZip.loadAsync(file).catch(() => null)
-  if (!zip) throw new ImportError('文件不是有效的 zip。')
+  if (!zip) throw new ImportError(tl('lib.share.notZip'))
   const manifestFile = zip.file('manifest.json')
-  if (!manifestFile) throw new ImportError('缺少 manifest.json,不是本工作台导出的文件。')
+  if (!manifestFile) throw new ImportError(tl('lib.share.missingManifest'))
 
   let manifest
   try {
     manifest = JSON.parse(await manifestFile.async('string'))
   } catch {
-    throw new ImportError('manifest.json 解析失败。')
+    throw new ImportError(tl('lib.share.manifestParse'))
   }
   assertSchema(manifest)
-  if (manifest.kind !== 'library') throw new ImportError('该文件不是整库导出。')
+  if (manifest.kind !== 'library') throw new ImportError(tl('lib.share.notLibrary'))
   for (const key of ['assets', 'generations', 'workspaces', 'presets']) {
     if (manifest[key] != null && !Array.isArray(manifest[key])) {
-      throw new ImportError(`${key} 字段无效。`)
+      throw new ImportError(tl('lib.share.invalidField', { key }))
     }
   }
   validatePresets(manifest.presets || [])
@@ -117,11 +118,11 @@ export async function importLibraryZip(file, { onProgress = null } = {}) {
   let assetDone = 0
   for (const a of manifest.assets || []) {
     validateAsset(a)
-    if (assetIds.has(a.id)) throw new ImportError(`备份中存在重复素材 id: ${a.id}`)
+    if (assetIds.has(a.id)) throw new ImportError(tl('lib.share.duplicateAsset', { id: a.id }))
     const entry = zip.file(a.file)
-    if (!entry) throw new ImportError(`缺少素材文件: ${a.file}`)
+    if (!entry) throw new ImportError(tl('lib.share.missingAssetFile', { file: a.file }))
     if (a.workspaceId && !workspaceIds.has(a.workspaceId)) {
-      throw new ImportError(`素材 ${a.id} 引用了不存在的工作区。`)
+      throw new ImportError(tl('lib.share.assetMissingWorkspace', { id: a.id }))
     }
     const buf = await entry.async('arraybuffer')
     assetDone += 1
@@ -143,7 +144,7 @@ export async function importLibraryZip(file, { onProgress = null } = {}) {
   const generationIds = new Set()
   for (const source of manifest.generations || []) {
     validateGeneration(source, workspaceIds, assetIds)
-    if (generationIds.has(source.id)) throw new ImportError(`备份中存在重复生成 id: ${source.id}`)
+    if (generationIds.has(source.id)) throw new ImportError(tl('lib.share.duplicateGeneration', { id: source.id }))
     generationIds.add(source.id)
     const pending = source.status === 'pending'
     generations.push({
@@ -151,7 +152,7 @@ export async function importLibraryZip(file, { onProgress = null } = {}) {
       workspaceId: source.workspaceId || null,
       ...(pending ? {
         status: 'failed',
-        error: '导入时已中断',
+        error: tl('lib.share.importAborted'),
         elapsedMs: Math.max(0, Date.now() - (source.createdAt || Date.now())),
       } : {}),
     })
@@ -202,7 +203,7 @@ export function exportPresets(presetIds = null) {
 export function importPresets(json) {
   const data = typeof json === 'string' ? JSON.parse(json) : json
   assertSchema(data)
-  if (data.kind !== 'presets') throw new ImportError('该文件不是接口预设分享文件。')
+  if (data.kind !== 'presets') throw new ImportError(tl('lib.share.notPresets'))
   validatePresets(data.presets || [])
   const imported = []
   for (const p of data.presets || []) {
@@ -236,17 +237,17 @@ export async function exportRecipe(generation) {
 export async function importRecipe(json, availablePresets, workspaceId = null) {
   const data = typeof json === 'string' ? JSON.parse(json) : json
   assertSchema(data)
-  if (data.kind !== 'recipe') throw new ImportError('该文件不是生成配方。')
+  if (data.kind !== 'recipe') throw new ImportError(tl('lib.share.notRecipe'))
 
-  if (!Array.isArray(data.refs)) throw new ImportError('配方参考图字段无效。')
-  if (data.refs.length > 16) throw new ImportError('配方最多支持 16 张参考图，请删减后再导入。')
+  if (!Array.isArray(data.refs)) throw new ImportError(tl('lib.share.recipeRefsInvalid'))
+  if (data.refs.length > 16) throw new ImportError(tl('lib.share.recipeTooManyRefs'))
   const refBlobs = []
   for (const ref of data.refs) {
     if (!ref || typeof ref.dataUrl !== 'string' || !ref.dataUrl.startsWith('data:')) {
-      throw new ImportError('配方中存在无效的参考图。')
+      throw new ImportError(tl('lib.share.recipeInvalidRef'))
     }
     let blob
-    try { blob = dataUrlToBlob(ref.dataUrl) } catch { throw new ImportError('配方中存在无法解析的参考图。') }
+    try { blob = dataUrlToBlob(ref.dataUrl) } catch { throw new ImportError(tl('lib.share.recipeUnparsableRef')) }
     refBlobs.push({ blob, mime: ref.mime })
   }
   const refImageIds = []
@@ -260,9 +261,9 @@ export async function importRecipe(json, availablePresets, workspaceId = null) {
   const hasMatchingProtocol = presets.some((p) => p.protocol === data.protocol)
   // 协议已统一为 images;旧配方里的 chat 也按 images 处理,仅在完全没有预设时提示。
   const needsProtocolNotice = !presets.length
-    ? `此配方需要一个 ${PROTOCOL_IMAGES} 协议的接口预设,请先添加并填写 Key。`
+    ? tl('lib.share.recipeNeedsProtocol', { protocol: PROTOCOL_IMAGES })
     : (!hasMatchingProtocol && data.protocol && data.protocol !== PROTOCOL_IMAGES
-      ? '此配方来自旧版协议,当前工作台统一使用 images 接口,已为你载入参数,请用现有接口复现。'
+      ? tl('lib.share.recipeLegacy')
       : null)
 
   return {
@@ -280,16 +281,16 @@ export class ImportError extends Error {
 }
 
 function assertSchema(data) {
-  if (!data || typeof data !== 'object') throw new ImportError('文件格式无法识别。')
-  if (typeof data.schemaVersion !== 'number') throw new ImportError('缺少 schemaVersion,无法识别的分享文件。')
+  if (!data || typeof data !== 'object') throw new ImportError(tl('lib.share.badFormat'))
+  if (typeof data.schemaVersion !== 'number') throw new ImportError(tl('lib.share.missingSchemaVersion'))
   if (data.schemaVersion > SCHEMA_VERSION) {
-    throw new ImportError(`该文件由更新版本的工作台导出(v${data.schemaVersion}),请升级后再导入。`)
+    throw new ImportError(tl('lib.share.newerSchema', { version: data.schemaVersion }))
   }
 }
 
 function sanitizeParams(params = {}) {
   // 明确剔除任何可能夹带凭据的字段(双保险)。
-  const { apiKey, key, authorization, ...safe } = params
+  const { apiKey: _apiKey, key: _key, authorization: _authorization, ...safe } = params
   return safe
 }
 
@@ -312,16 +313,16 @@ function dataUrlToBlob(dataUrl) {
 }
 
 function validateWorkspaces(workspaces) {
-  if (!Array.isArray(workspaces)) throw new ImportError('workspaces 字段无效。')
+  if (!Array.isArray(workspaces)) throw new ImportError(tl('lib.share.workspacesInvalid'))
   const ids = new Set()
   return workspaces.map((ws) => {
     if (!ws || typeof ws !== 'object' || typeof ws.id !== 'string' || !ws.id) {
-      throw new ImportError('备份中存在无效工作区。')
+      throw new ImportError(tl('lib.share.invalidWorkspace'))
     }
-    if (ids.has(ws.id)) throw new ImportError(`备份中存在重复工作区 id: ${ws.id}`)
+    if (ids.has(ws.id)) throw new ImportError(tl('lib.share.duplicateWorkspace', { id: ws.id }))
     ids.add(ws.id)
     return {
-      id: ws.id, name: ws.name || '未命名工作区', createdAt: ws.createdAt || Date.now(),
+      id: ws.id, name: ws.name || tl('lib.defaults.workspaceName'), createdAt: ws.createdAt || Date.now(),
       updatedAt: ws.updatedAt || Date.now(), settings: ws.settings || {},
     }
   })
@@ -329,42 +330,42 @@ function validateWorkspaces(workspaces) {
 
 function validateAsset(asset) {
   if (!asset || typeof asset !== 'object' || typeof asset.id !== 'string' || !asset.id || typeof asset.file !== 'string') {
-    throw new ImportError('备份中存在无效素材记录。')
+    throw new ImportError(tl('lib.share.invalidAsset'))
   }
 }
 
 function validateGeneration(generation, workspaceIds, assetIds) {
   if (!generation || typeof generation !== 'object' || typeof generation.id !== 'string' || !generation.id) {
-    throw new ImportError('备份中存在无效生成记录。')
+    throw new ImportError(tl('lib.share.invalidGeneration'))
   }
   if (generation.workspaceId && !workspaceIds.has(generation.workspaceId)) {
-    throw new ImportError(`生成记录 ${generation.id} 引用了不存在的工作区。`)
+    throw new ImportError(tl('lib.share.generationMissingWorkspace', { id: generation.id }))
   }
   if (!Array.isArray(generation.refImageIds) || !Array.isArray(generation.outputImageIds)) {
-    throw new ImportError(`生成记录 ${generation.id} 的素材引用字段无效。`)
+    throw new ImportError(tl('lib.share.generationAssetRefInvalid', { id: generation.id }))
   }
   for (const id of [...(generation.refImageIds || []), ...(generation.outputImageIds || [])]) {
-    if (!assetIds.has(id)) throw new ImportError(`生成记录 ${generation.id} 引用了不存在的素材。`)
+    if (!assetIds.has(id)) throw new ImportError(tl('lib.share.generationMissingAsset', { id: generation.id }))
   }
 }
 
 function validatePromptLibrary(promptLibrary, workspaceIds) {
   for (const [wsId, prompts] of Object.entries(promptLibrary)) {
-    if (!workspaceIds.has(wsId)) throw new ImportError(`Prompt 模板引用了不存在的工作区: ${wsId}`)
-    if (!Array.isArray(prompts)) throw new ImportError(`工作区 ${wsId} 的 Prompt 模板无效。`)
+    if (!workspaceIds.has(wsId)) throw new ImportError(tl('lib.share.promptMissingWorkspace', { id: wsId }))
+    if (!Array.isArray(prompts)) throw new ImportError(tl('lib.share.promptInvalid', { id: wsId }))
     for (const prompt of prompts) {
       if (!prompt || typeof prompt !== 'object' || typeof prompt.text !== 'string') {
-        throw new ImportError(`工作区 ${wsId} 的 Prompt 模板无效。`)
+        throw new ImportError(tl('lib.share.promptInvalid', { id: wsId }))
       }
     }
   }
 }
 
 function validatePresets(presets) {
-  if (!Array.isArray(presets)) throw new ImportError('presets 字段无效。')
+  if (!Array.isArray(presets)) throw new ImportError(tl('lib.share.presetsInvalid'))
   for (const preset of presets) {
     if (!preset || typeof preset !== 'object' || typeof preset.name !== 'string' || typeof preset.baseURL !== 'string') {
-      throw new ImportError('备份中存在无效接口预设。')
+      throw new ImportError(tl('lib.share.invalidPreset'))
     }
   }
 }

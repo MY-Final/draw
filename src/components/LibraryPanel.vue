@@ -1,6 +1,7 @@
 <script setup>
 // 右栏(安静):素材库网格 + 来源筛选 + 设为参考 + 预览 + 删除。用量/备份已移入抽屉。
 import { ref, computed, watch, onMounted, nextTick, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
 import AppIcon from './AppIcon.vue'
@@ -9,13 +10,14 @@ import { normalizeSource, sourceFullLabel, sourceShortLabel } from '../lib/asset
 import { collectReferencedAssetIds } from '../lib/deletion.js'
 
 const store = useWorkbenchStore()
+const { t } = useI18n()
 const emit = defineEmits(['use-as-reference', 'preview'])
-const SOURCE_FILTERS = [
-  { key: 'all', label: '全部' },
-  { key: 'generated', label: 'AI 生成' },
-  { key: 'reference-uploaded', label: '我的上传' },
-  { key: 'imported', label: '导入' },
-]
+const SOURCE_FILTERS = computed(() => [
+  { key: 'all', label: t('library.sourceAll') },
+  { key: 'generated', label: t('library.sourceGenerated') },
+  { key: 'reference-uploaded', label: t('library.sourceUploaded') },
+  { key: 'imported', label: t('library.sourceImported') },
+])
 const selected = ref(new Set())
 const confirmDelAssets = ref(false)
 const deleteNotice = ref('')
@@ -84,7 +86,7 @@ async function toggleFavorite(id) {
     await store.toggleAssetFavorite(id)
   } catch (e) {
     await store.refreshAll().catch(() => {})
-    deleteNotice.value = `收藏状态更新失败：${e?.message || '请重试'}`
+    deleteNotice.value = t('library.favoriteFailed', { message: e?.message || t('library.retryHint') })
   }
 }
 async function doDeleteSelected() {
@@ -95,33 +97,33 @@ async function doDeleteSelected() {
     selected.value = new Set(result.blockedIds)
     if (result.blockedIds.length) {
       showDeleteNotice(result.deletedIds.length
-        ? `已删除 ${result.deletedIds.length} 张；${result.blockedIds.length} 张仍被生成记录引用，已保留。`
-        : `所选素材仍被生成记录引用，不能直接删除。请先删除相关生成记录。`)
+        ? t('library.deletePartial', { deleted: result.deletedIds.length, blocked: result.blockedIds.length })
+        : t('library.deleteAllBlocked'))
     } else {
       deleteNotice.value = ''
     }
   } catch (e) {
     selected.value = new Set()
     await store.refreshAll().catch(() => {})
-    showDeleteNotice(`删除素材失败：${e?.message || '请重试'}`)
+    showDeleteNotice(t('library.deleteFailed', { message: e?.message || t('library.retryHint') }))
   }
 }
 async function deleteSingle(asset) {
   if (isReferenced(asset.id)) {
-    showDeleteNotice('该素材被生成记录引用，无法删除。请先删除相关生成记录。')
+    showDeleteNotice(t('library.assetReferenced'))
     return
   }
   try {
     const result = await store.removeAssetsWithUndo([asset.id])
     selected.value = new Set([...selected.value].filter((id) => id !== asset.id))
     if (result.blockedIds.length) {
-      showDeleteNotice('该素材被生成记录引用，无法删除。请先删除相关生成记录。')
+      showDeleteNotice(t('library.assetReferenced'))
     } else {
       deleteNotice.value = ''
     }
   } catch (e) {
     await store.refreshAll().catch(() => {})
-    showDeleteNotice(`删除素材失败：${e?.message || '请重试'}`)
+    showDeleteNotice(t('library.deleteFailed', { message: e?.message || t('library.retryHint') }))
   }
 }
 
@@ -130,12 +132,12 @@ async function deleteSingle(asset) {
 <template>
   <div class="library">
     <div class="lib-head">
-      <span class="lib-title">素材库</span>
+      <span class="lib-title">{{ t('library.title') }}</span>
       <div class="lib-head-actions">
         <button
           class="filter-btn" :class="{ on: store.favoritesOnly }"
           @click="store.setFavoritesOnly(!store.favoritesOnly)"
-          :aria-pressed="store.favoritesOnly" title="仅看收藏"
+          :aria-pressed="store.favoritesOnly" :title="t('library.favoritesOnly')"
         >
           <AppIcon name="heart" :size="13" />
         </button>
@@ -144,17 +146,17 @@ async function deleteSingle(asset) {
            type="button"
            class="btn btn-sm btn-danger"
            @click="askDeleteSelected"
-           :aria-label="`删除选中的 ${selected.size} 张素材`"
-           title="删除选中的素材"
+           :aria-label="t('library.deleteSelectedAria', { count: selected.size })"
+           :title="t('library.deleteSelectedTitle')"
          >
           <AppIcon name="trash" :size="13" /> {{ selected.size }}
         </button>
-        <span v-else class="lib-count tnum">{{ filteredAssets.length }} 张</span>
+        <span v-else class="lib-count tnum">{{ t('library.count', { count: filteredAssets.length }) }}</span>
       </div>
     </div>
 
     <!-- 来源筛选:AI 生成 / 我的上传 / 导入,一眼区分 -->
-    <div class="lib-filters" role="group" aria-label="素材来源筛选">
+    <div class="lib-filters" role="group" :aria-label="t('library.sourceFilterAria')">
       <button
         v-for="f in SOURCE_FILTERS" :key="f.key"
         class="src-filter" :class="{ active: store.assetSourceFilter === f.key }"
@@ -178,16 +180,16 @@ async function deleteSingle(asset) {
       <div class="lib-empty-icon">
         <AppIcon :name="store.favoritesOnly ? 'heart' : 'image'" :size="18" />
       </div>
-      <p class="lib-empty-title">{{ store.favoritesOnly ? '还没有收藏' : '素材库是空的' }}</p>
+      <p class="lib-empty-title">{{ store.favoritesOnly ? t('library.emptyFavoritesTitle') : t('library.emptyTitle') }}</p>
       <p class="lib-empty-desc">
-        {{ store.favoritesOnly ? '给喜欢的结果点心，会出现在这里。' : '生成的图片会自动落在这里，可拖到输入区当参考图。' }}
+        {{ store.favoritesOnly ? t('library.emptyFavoritesDesc') : t('library.emptyDesc') }}
       </p>
     </div>
 
     <div v-else-if="!filteredAssets.length" class="lib-empty">
       <div class="lib-empty-icon"><AppIcon name="layers" :size="18" /></div>
-      <p class="lib-empty-title">该分类下暂无素材</p>
-      <p class="lib-empty-desc">切换其他来源分类看看。</p>
+      <p class="lib-empty-title">{{ t('library.filterEmptyTitle') }}</p>
+      <p class="lib-empty-desc">{{ t('library.filterEmptyDesc') }}</p>
     </div>
 
     <div v-else class="grid">
@@ -195,26 +197,26 @@ async function deleteSingle(asset) {
         draggable="true"
         @dragstart="(e) => { e.dataTransfer.setData('application/json', JSON.stringify({ assetId: a.id })) }"
       >
-         <button class="cell-img" @click="emit('preview', { asset: a, list: filteredAssets })" aria-label="预览大图">
+         <button class="cell-img" @click="emit('preview', { asset: a, list: filteredAssets })" :aria-label="t('library.previewAria')">
            <AssetImage :asset="a" />
          </button>
          <span v-if="a.favorite" class="fav-dot" aria-hidden="true"><AppIcon name="heart" :size="11" /></span>
          <span
            v-if="isReferenced(a.id)"
-           class="asset-reference-note"
-           title="该素材被生成记录引用，无法删除"
-         >已引用</span>
+            class="asset-reference-note"
+            :title="t('library.referencedHint')"
+          >{{ t('library.referenced') }}</span>
          <span class="src-badge" :class="normalizeSource(a.source)" :title="sourceFullLabel(a.source)">
            {{ sourceShortLabel(a.source) }}
          </span>
          <div class="cell-actions">
-           <button type="button" class="mini" @click="toggleFavorite(a.id)" :class="{ on: a.favorite }" :aria-label="a.favorite ? '取消收藏' : '收藏'">
-             <AppIcon name="heart" :size="12" />
-           </button>
-           <button type="button" class="mini" @click="toggleSelect(a.id)" :aria-label="selected.has(a.id) ? '取消选择' : '选择'">
-             <AppIcon :name="selected.has(a.id) ? 'check' : 'plus'" :size="12" />
-           </button>
-           <button type="button" class="mini" @click="emit('use-as-reference', a.id)" :title="'设为参考图（用这张图继续创作）'" aria-label="设为参考图">
+            <button type="button" class="mini" @click="toggleFavorite(a.id)" :class="{ on: a.favorite }" :aria-label="a.favorite ? t('library.favoriteRemoveAria') : t('library.favoriteAddAria')">
+              <AppIcon name="heart" :size="12" />
+            </button>
+            <button type="button" class="mini" @click="toggleSelect(a.id)" :aria-label="selected.has(a.id) ? t('library.deselectAria') : t('library.selectAria')">
+              <AppIcon :name="selected.has(a.id) ? 'check' : 'plus'" :size="12" />
+            </button>
+            <button type="button" class="mini" @click="emit('use-as-reference', a.id)" :title="t('library.useAsReferenceTitle')" :aria-label="t('library.useAsReferenceAria')">
              <AppIcon name="layers" :size="12" />
            </button>
            <button
@@ -222,24 +224,24 @@ async function deleteSingle(asset) {
              class="mini mini-danger"
              :disabled="isReferenced(a.id)"
              @click="deleteSingle(a)"
-             :title="isReferenced(a.id) ? '该素材被生成记录引用，无法删除' : '删除素材（可撤销）'"
-             :aria-label="isReferenced(a.id) ? '该素材被生成记录引用，无法删除' : '删除素材（可撤销）'"
+              :title="isReferenced(a.id) ? t('library.referencedHint') : t('library.deleteAssetUndoTitle')"
+              :aria-label="isReferenced(a.id) ? t('library.referencedHint') : t('library.deleteAssetUndoTitle')"
            >
              <AppIcon name="trash" :size="12" />
            </button>
          </div>
       </div>
       <button v-if="renderedAssets.length < filteredAssets.length" ref="sentinel" class="load-more" type="button" @click="loadMore">
-        加载更多素材（{{ filteredAssets.length - renderedAssets.length }}）
+        {{ t('library.loadMore', { count: filteredAssets.length - renderedAssets.length }) }}
       </button>
     </div>
 
 
     <ConfirmDialog
       v-if="confirmDelAssets"
-      title="删除素材"
-      :message="`将删除选中的 ${selected.size} 张素材。仍被生成记录引用的素材会保留，其余删除后不可恢复。`"
-      confirm-text="删除" danger
+      :title="t('library.confirmDeleteTitle')"
+      :message="t('library.confirmDeleteMessage', { count: selected.size })"
+      :confirm-text="t('common.delete')" danger
       @confirm="doDeleteSelected" @cancel="confirmDelAssets = false"
     />
   </div>

@@ -1,6 +1,7 @@
 <script setup>
 // 接口预设:居中弹窗。列表为主,新建/编辑在同一弹窗内切换(不叠第二层)。
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AppIcon from './AppIcon.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -15,6 +16,7 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const store = useWorkbenchStore()
+const { t } = useI18n()
 
 const mode = ref('list') // 'list' | 'edit'
 const form = reactive({ id: null, name: '', baseURL: '', apiKey: '', model: '', protocol: 'images', requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS })
@@ -41,8 +43,8 @@ let modelRequestId = 0
 useDialogA11y(modal, close)
 
 const title = computed(() => {
-  if (mode.value === 'list') return '接口设置'
-  return form.id ? '编辑接口' : '添加接口'
+  if (mode.value === 'list') return t('sidebar.apiSettings')
+  return form.id ? t('presets.editTitle') : t('presets.addTitle')
 })
 
 function blankForm() {
@@ -191,14 +193,14 @@ async function fetchAvailableModels() {
     models.value = result.models
     modelFilter.value = ''
     if (!result.models.length) {
-      modelsError.value = '接口返回了模型列表,但没有可选择的模型;仍可手动填写。'
+      modelsError.value = t('presets.modelsEmptyList')
     } else {
       modelsOpen.value = true
       revealModelPicker()
     }
   } catch (error) {
     if (requestId !== modelRequestId) return
-    modelsError.value = error?.message || '获取模型列表失败,仍可手动填写模型。'
+    modelsError.value = error?.message || t('presets.modelsFetchFailed')
   } finally {
     if (requestId === modelRequestId) modelsLoading.value = false
   }
@@ -301,13 +303,13 @@ watch(() => [form.baseURL, form.apiKey], () => {
             v-if="mode === 'edit' && store.presets.length"
             class="icon-btn"
             @click="cancelEdit"
-            aria-label="返回列表"
+            :aria-label="t('presets.backToList')"
           >
             <AppIcon name="chevron-right" :size="15" class="back-icon" />
           </button>
           <strong>{{ title }}</strong>
         </div>
-        <button class="icon-btn" @click="close" aria-label="关闭">
+        <button class="icon-btn" @click="close" :aria-label="t('common.close')">
           <AppIcon name="x" :size="15" />
         </button>
       </header>
@@ -316,9 +318,9 @@ watch(() => [form.baseURL, form.apiKey], () => {
         <!-- 列表 -->
         <template v-if="mode === 'list'">
           <div class="list-toolbar">
-            <p class="list-hint">选择当前使用的接口,或新建一个 OpenAI / NewAPI 兼容端点。</p>
+            <p class="list-hint">{{ t('presets.listHint') }}</p>
             <button class="btn btn-sm btn-primary" @click="startNew">
-              <AppIcon name="plus" :size="14" /> 新建
+              <AppIcon name="plus" :size="14" /> {{ t('presets.new') }}
             </button>
           </div>
 
@@ -333,62 +335,62 @@ watch(() => [form.baseURL, form.apiKey], () => {
               </div>
               <div class="preset-main">
                 <div class="preset-name-row">
-                  <span class="preset-name">{{ p.name || '未命名' }}</span>
-                  <span v-if="!p.apiKey" class="badge badge-warn">缺 Key</span>
+                  <span class="preset-name">{{ p.name || t('presets.unnamed') }}</span>
+                  <span v-if="!p.apiKey" class="badge badge-warn">{{ t('presets.missingKey') }}</span>
                 </div>
-                <span class="preset-meta">{{ p.model || '未设模型' }} · {{ p.baseURL || '未设 URL' }}</span>
+                <span class="preset-meta">{{ p.model || t('presets.noModel') }} · {{ p.baseURL || t('presets.noUrl') }}</span>
               </div>
-              <button class="btn btn-sm btn-ghost edit-btn" @click.stop="startEdit(p)" aria-label="编辑">
-                编辑
+              <button class="btn btn-sm btn-ghost edit-btn" @click.stop="startEdit(p)" :aria-label="t('presets.edit')">
+                {{ t('presets.edit') }}
               </button>
             </div>
           </div>
           <div v-else class="empty">
             <div class="empty-icon"><AppIcon name="settings" :size="18" /></div>
-            <p>还没有接口</p>
+            <p>{{ t('presets.noPresets') }}</p>
             <button class="btn btn-primary" @click="startNew">
-              <AppIcon name="plus" :size="14" /> 添加第一个接口
+              <AppIcon name="plus" :size="14" /> {{ t('presets.addFirst') }}
             </button>
           </div>
 
           <div class="key-notice">
-            <span class="helper">API Key 仅存本机浏览器,不会上传;请勿在公共设备保存。</span>
+            <span class="helper">{{ t('presets.keyNotice') }}</span>
             <button class="btn btn-sm" @click="askClearKeys" v-if="store.presets.some(p => p.apiKey)">
-              一键清除凭据
+              {{ t('presets.clearKeys') }}
             </button>
           </div>
         </template>
 
         <!-- 新建 / 编辑 -->
         <template v-else>
-          <p class="intro">填好 Base URL 后可自动获取模型,也可以手动填写。兼容标准 images 接口。</p>
+          <p class="intro">{{ t('presets.intro') }}</p>
 
           <div class="field">
-            <label>名称 <span class="opt">可选</span></label>
-            <input v-model="form.name" placeholder="如:我的中转 / OpenAI 官方" />
+            <label>{{ t('presets.nameLabel') }} <span class="opt">{{ t('presets.optional') }}</span></label>
+            <input v-model="form.name" :placeholder="t('presets.namePlaceholder')" />
           </div>
           <div class="field">
-            <label>Base URL <span class="req">必填</span></label>
+            <label>Base URL <span class="req">{{ t('presets.required') }}</span></label>
             <input v-model="form.baseURL" placeholder="https://api.example.com" autocomplete="off" />
-            <p class="helper">不含 /v1;程序会自动拼 /v1/images/generations 或 /v1/images/edits。</p>
+            <p class="helper">{{ t('presets.baseUrlHelper') }}</p>
           </div>
           <div class="field">
             <label>API Key</label>
             <div class="key-input">
               <input :type="showKey ? 'text' : 'password'" v-model="form.apiKey" placeholder="sk-..." autocomplete="off" />
               <button class="btn btn-sm btn-ghost" @click="showKey = !showKey" type="button">
-                {{ showKey ? '隐藏' : '显示' }}
+                {{ showKey ? t('presets.hide') : t('presets.show') }}
               </button>
             </div>
           </div>
           <div class="field">
-            <label>模型 <span class="req">必填</span></label>
+            <label>{{ t('presets.modelLabel') }} <span class="req">{{ t('presets.required') }}</span></label>
             <div ref="modelField" class="model-field" @click.stop>
               <div class="model-input-row">
                 <input
                   ref="modelInput"
                   v-model="form.model"
-                  placeholder="如:gpt-image-1 / dall-e-3"
+                  :placeholder="t('presets.modelPlaceholder')"
                   autocomplete="off"
                   role="combobox"
                   aria-controls="model-picker"
@@ -401,16 +403,16 @@ watch(() => [form.baseURL, form.apiKey], () => {
                   class="btn btn-sm model-fetch"
                   :disabled="modelsLoading || !form.baseURL"
                   @click="fetchAvailableModels"
-                  :title="models.length ? '重新获取模型列表' : '从接口获取模型列表'"
+                  :title="models.length ? t('presets.refetchModels') : t('presets.fetchModels')"
                 >
                   <AppIcon name="refresh" :size="13" :class="{ spin: modelsLoading }" />
-                  {{ modelsLoading ? '获取中' : (models.length ? '刷新模型' : '获取模型') }}
+                  {{ modelsLoading ? t('presets.fetching') : (models.length ? t('presets.refreshModels') : t('presets.getModels')) }}
                 </button>
               </div>
               <div v-if="models.length" class="model-picker-toggle">
-                <span class="helper">已获取 {{ models.length }} 个模型</span>
+                <span class="helper">{{ t('presets.fetchedCount', { count: models.length }) }}</span>
                 <button type="button" class="model-list-link" @click="modelsOpen ? closeModelList() : openModelList()">
-                  {{ modelsOpen ? '收起列表' : '选择模型' }}
+                  {{ modelsOpen ? t('presets.collapseList') : t('presets.chooseModel') }}
                 </button>
               </div>
               <div v-if="modelsError" class="model-fetch-error" role="alert">
@@ -422,11 +424,11 @@ watch(() => [form.baseURL, form.apiKey], () => {
                 id="model-picker"
                 class="model-picker"
                 role="listbox"
-                aria-label="可用模型"
+                :aria-label="t('presets.availableModels')"
                 @keydown="onModelPickerKeydown"
               >
                 <div class="model-picker-head">
-                  <span>可用模型</span>
+                  <span>{{ t('presets.availableModels') }}</span>
                   <span class="helper">{{ filteredModels.length }} / {{ models.length }}</span>
                 </div>
                 <input
@@ -434,8 +436,8 @@ watch(() => [form.baseURL, form.apiKey], () => {
                   v-model="modelFilter"
                   class="model-filter"
                   type="search"
-                  placeholder="筛选模型"
-                  aria-label="筛选模型"
+                  :placeholder="t('presets.filterModels')"
+                  :aria-label="t('presets.filterModels')"
                   @keydown.esc.stop="closeModelList"
                 />
                 <div class="model-options">
@@ -451,20 +453,20 @@ watch(() => [form.baseURL, form.apiKey], () => {
                     <span>{{ model }}</span>
                     <AppIcon v-if="form.model === model" name="check" :size="13" />
                   </button>
-                  <p v-if="!filteredModels.length" class="model-empty">没有匹配的模型,仍可手动填写。</p>
+                  <p v-if="!filteredModels.length" class="model-empty">{{ t('presets.noMatchingModels') }}</p>
                 </div>
               </div>
             </div>
           </div>
           <div class="field">
-            <label>请求超时 <span class="opt">30–1800 秒</span></label>
+            <label>{{ t('presets.timeoutLabel') }} <span class="opt">{{ t('presets.timeoutRange') }}</span></label>
             <input
               type="number" min="30" max="1800" step="1"
               :value="Math.round(form.requestTimeoutMs / 1000)"
               @input="setTimeoutSeconds($event.target.value)"
               inputmode="numeric"
             />
-            <p class="helper">超时会标记为失败；用户主动取消会单独显示为已取消。</p>
+            <p class="helper">{{ t('presets.timeoutHelper') }}</p>
           </div>
 
           <div v-if="testResult" class="note" :class="{
@@ -482,35 +484,35 @@ watch(() => [form.baseURL, form.apiKey], () => {
       <footer v-if="mode === 'edit'" class="modal-foot">
         <button class="btn" @click="test" :disabled="testing || !form.baseURL">
           <AppIcon name="refresh" :size="14" :class="{ spin: testing }" />
-          {{ testing ? '检测中…' : '测试连接' }}
+          {{ testing ? t('presets.testing') : t('presets.testConnection') }}
         </button>
         <div class="spacer" />
-        <button v-if="form.id" class="btn btn-sm btn-danger" @click="askRemoveCurrent">删除</button>
-        <button class="btn" @click="cancelEdit">取消</button>
+        <button v-if="form.id" class="btn btn-sm btn-danger" @click="askRemoveCurrent">{{ t('common.delete') }}</button>
+        <button class="btn" @click="cancelEdit">{{ t('common.cancel') }}</button>
         <button class="btn btn-primary" @click="save" :disabled="!form.baseURL || !form.model">
-          保存并使用
+          {{ t('presets.saveAndUse') }}
         </button>
       </footer>
 
       <ConfirmDialog
         v-if="confirmRemove"
-        title="删除接口"
-        :message="`将删除接口「${form.name || '未命名'}」,此操作不可撤销。`"
-        confirm-text="删除" danger
+        :title="t('presets.removeTitle')"
+        :message="t('presets.removeMessage', { name: form.name || t('presets.unnamed') })"
+        :confirm-text="t('common.delete')" danger
         @confirm="doRemoveCurrent" @cancel="confirmRemove = false"
       />
       <ConfirmDialog
         v-if="confirmClear"
-        title="清除凭据"
-        message="将清除所有接口预设中的 API Key(其余配置保留)。用于离开公共设备时快速抹除。"
-        confirm-text="清除" danger
+        :title="t('presets.clearTitle')"
+        :message="t('presets.clearMessage')"
+        :confirm-text="t('presets.clear')" danger
         @confirm="doClearKeys" @cancel="confirmClear = false"
       />
       <ConfirmDialog
         v-if="confirmDiscard"
-        title="放弃编辑"
-        message="表单有未保存的修改，关闭后将丢失。确定放弃吗？"
-        confirm-text="放弃" danger
+        :title="t('presets.discardTitle')"
+        :message="t('presets.discardMessage')"
+        :confirm-text="t('presets.discard')" danger
         @confirm="doDiscard" @cancel="confirmDiscard = false"
       />
     </div>

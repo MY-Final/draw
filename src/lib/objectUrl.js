@@ -27,10 +27,3 @@ export function releaseUrl(id) {
     cache.delete(id)
   }
 }
-
-export function releaseAll() {
-  for (const { url } of cache.values()) {
-    URL.revokeObjectURL(url)
-  }
-  cache.clear()
-}

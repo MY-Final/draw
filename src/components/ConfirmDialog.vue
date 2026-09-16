@@ -1,14 +1,15 @@
 <script setup>
 // 确认弹窗(破坏性操作用)。危险操作用告警色。走设计系统 token,SVG 图标。
 import { ref } from 'vue'
+import { i18n } from '../i18n/index.js'
 import AppIcon from './AppIcon.vue'
 import { useDialogA11y } from '../composables/useDialogA11y.js'
 
-const props = defineProps({
-  title: { type: String, default: '确认操作' },
+defineProps({
+  title: { type: String, default: () => i18n.global.t('dialogs.confirm.title') },
   message: { type: String, default: '' },
-  confirmText: { type: String, default: '确认' },
-  cancelText: { type: String, default: '取消' },
+  confirmText: { type: String, default: () => i18n.global.t('dialogs.confirm.confirmText') },
+  cancelText: { type: String, default: () => i18n.global.t('dialogs.confirm.cancelText') },
   danger: { type: Boolean, default: false },
 })
 const emit = defineEmits(['confirm', 'cancel'])

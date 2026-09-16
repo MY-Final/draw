@@ -1,4 +1,5 @@
-import { getDB, newId, STORE_WORKSPACES } from './db.js'
+import { getDB, STORE_WORKSPACES } from './db.js'
+import { tl } from '../i18n/translate.js'
 
 export async function listWorkspaces() {
   const db = await getDB()
@@ -14,7 +15,7 @@ export async function getWorkspace(id) {
 export async function createWorkspace({ name, settings = {} }) {
   const db = await getDB()
   const now = Date.now()
-  const record = { id: `ws_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`, name: name || '未命名工作区', createdAt: now, updatedAt: now, settings }
+  const record = { id: `ws_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`, name: name || tl('lib.defaults.workspaceName'), createdAt: now, updatedAt: now, settings }
   await db.put(STORE_WORKSPACES, record)
   return record
 }
@@ -25,7 +26,7 @@ export async function putWorkspace(record) {
   const now = Date.now()
   const full = {
     id: record.id,
-    name: record.name || '未命名工作区',
+    name: record.name || tl('lib.defaults.workspaceName'),
     createdAt: record.createdAt || now,
     updatedAt: record.updatedAt || now,
     settings: record.settings || {},

@@ -20,7 +20,7 @@ export function useDialogA11y(panel, close, onExtraKey) {
     ;(first || panel.value)?.focus?.()
   }
 
-  function onPanelChange(next, previous) {
+  function onPanelChange(next, _previous) {
     if (next && !registeredPanel) {
       previousFocus = document.activeElement
       registeredPanel = next

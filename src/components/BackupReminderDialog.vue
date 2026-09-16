@@ -1,11 +1,13 @@
 <script setup>
 // 备份提醒弹窗:容量触发,三个按钮。
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { dismissReminder, snoozeReminder } from '../lib/backupReminder.js'
-import { getStorageUsage, formatBytes } from '../lib/storageUsage.js'
+import { formatBytes } from '../lib/storageUsage.js'
 import AppIcon from './AppIcon.vue'
 import { useDialogA11y } from '../composables/useDialogA11y.js'
 
+const { t } = useI18n()
 const emit = defineEmits(['close'])
 const props = defineProps({ businessBytes: Number })
 const modal = ref(null)
@@ -31,18 +33,18 @@ useDialogA11y(modal, () => emit('close'))
 <template>
   <div class="reminder-overlay" @click.self="emit('close')" @keydown.esc="emit('close')">
     <div ref="modal" class="reminder-modal" role="dialog" aria-modal="true" aria-labelledby="reminder-title" tabindex="-1">
-      <h2 id="reminder-title" class="reminder-title">建议备份你的创作数据</h2>
+      <h2 id="reminder-title" class="reminder-title">{{ t('dialogs.backupReminder.title') }}</h2>
       <p class="reminder-body">
-        你的所有图片、Prompt、接口配置均保存在当前浏览器。<br>
-        如果清除浏览器数据、更换浏览器或更换电脑,数据可能无法恢复。<br><br>
-        已使用存储：{{ formatBytes(businessBytes) }}，建议定期导出备份。
+        {{ t('dialogs.backupReminder.bodyLocal') }}<br>
+        {{ t('dialogs.backupReminder.bodyRisk') }}<br><br>
+        {{ t('dialogs.backupReminder.bodyUsage', { size: formatBytes(businessBytes) }) }}
       </p>
       <div class="reminder-actions">
         <button class="btn btn-primary" @click="onBackup">
-          <AppIcon name="download" :size="14" /> 立即备份
+          <AppIcon name="download" :size="14" /> {{ t('dialogs.backupReminder.backupNow') }}
         </button>
-        <button class="btn" @click="onSnooze">稍后提醒</button>
-        <button class="btn btn-ghost" @click="onDismiss">30天不提醒</button>
+        <button class="btn" @click="onSnooze">{{ t('dialogs.backupReminder.snooze') }}</button>
+        <button class="btn btn-ghost" @click="onDismiss">{{ t('dialogs.backupReminder.dismiss30') }}</button>
       </div>
     </div>
   </div>
