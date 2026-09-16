@@ -7,6 +7,7 @@
 [中文](./README.md) · **English**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![CI](https://github.com/MY-Final/draw/actions/workflows/ci.yml/badge.svg)](https://github.com/MY-Final/draw/actions/workflows/ci.yml)
 [![Stars](https://img.shields.io/github/stars/MY-Final/draw?style=social)](https://github.com/MY-Final/draw/stargazers)
 [![Vue 3](https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![Vite](https://img.shields.io/badge/Vite-646cff?logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -39,6 +40,7 @@ A **front-end-only, zero-backend** AI drawing workbench. Plug in your own OpenAI
 - **Saved prompt library**: keep frequently used prompts per workspace, with search and in-place editing (duplicates are rejected).
 - **Keyboard shortcuts**: `/` focuses the prompt box, `Alt + N` starts a new conversation, `Ctrl/⌘ + K` opens search, `Ctrl/⌘ + Enter` generates (or queues while busy). The empty state offers clickable inspiration chips that prefill the prompt.
 - **Storage management**: view usage and delete assets; full-library zip import reports progress and merges instead of wiping (same IDs overwrite, existing API keys kept), plus backup reminders.
+- **Bilingual UI**: ships with Simplified Chinese and English copy, switchable from the sidebar with the choice remembered locally; the first visit picks a language from the browser. Switching also updates `<html lang>` and the page title.
 - **Backup & sharing** (all **exclude the API key**):
   - Full-library zip export / import (migrate across machines or browsers).
   - Endpoint preset sharing (the recipient fills in their own key after importing).
@@ -55,12 +57,17 @@ A **front-end-only, zero-backend** AI drawing workbench. Plug in your own OpenAI
 
 ## Quick Start
 
+Requires **Node.js >= 20** (see `.nvmrc`).
+
 ```bash
 npm install
 npm run dev      # local development
 npm run build    # build static output to dist/
 npm run preview  # preview the build
-npm test         # run tests
+npm run lint     # merge-marker/syntax check + ESLint
+npm test         # run tests (Vitest)
+npm run check    # lint + tests + production build (run this before committing)
+npm run format   # format with Prettier
 ```
 
 First run: click **Add endpoint** → fill in Base URL / API Key / Model → **Test Connection** → Save → enter a prompt → Generate. If you are out of ideas, click an inspiration chip in the empty state to prefill a prompt first.
@@ -85,6 +92,17 @@ First run: click **Add endpoint** → fill in Base URL / API Key / Model → **T
 ## Deployment
 
 `npm run build` produces a `dist/` of pure static assets that can be hosted on any static server, object storage, GitHub Pages, etc. The build uses relative paths (`base: './'`), so it supports deployment under a sub-path.
+
+`index.html` ships with Open Graph / Twitter share cards, canonical, and robots metadata, and `public/` contains `og.png`, `robots.txt`, and `sitemap.xml`. If you deploy to your own domain, remember to update the site URL in those files.
+
+### CI & quality gates
+
+`.github/workflows/ci.yml` runs on every PR and on pushes to `main`:
+
+- `verify`: `npm run check` (lint + unit tests + production build).
+- `e2e`: installs Chromium and runs the Playwright end-to-end suite, uploading the report on failure.
+
+Both must pass before merging.
 
 ### GitHub Pages (automatic)
 
@@ -126,11 +144,11 @@ Every platform offers a free tier; after deploying you get your own public URL. 
 
 ## Tech Stack
 
-**Frontend**: Vue 3 (Composition API + `<script setup>`) with Pinia state management · Vite build · standard OpenAI images adapter layer (`generations` / `edits` auto-routing).
+**Frontend**: Vue 3 (Composition API + `<script setup>`) with Pinia state management · Vite build · standard OpenAI images adapter layer (`generations` / `edits` auto-routing) · vue-i18n (Chinese/English, browser-language detection plus local persistence).
 
-**Storage**: idb (IndexedDB) stores image Blobs and generation records with metadata kept separate from image bytes, so one image can be reused without duplication; localStorage holds lightweight preferences (presets, theme, conversation titles).
+**Storage**: idb (IndexedDB) stores image Blobs and generation records with metadata kept separate from image bytes, so one image can be reused without duplication; localStorage holds lightweight preferences (presets, theme, language, conversation titles).
 
-**Testing**: Vitest unit tests (with fake-indexeddb) cover the generation pipeline, queue scheduling, undoable deletion, reference-aware deletion, share sanitization, the prompt library, and workspaces; Playwright smoke tests run on desktop (1440×900) and mobile (390×844), covering initialization, workspace switching, the queue and cancelling, keyboard reordering of reference images, import feedback, dialog focus handling, and mobile layout.
+**Testing**: Vitest unit tests (with fake-indexeddb) cover the generation pipeline, queue scheduling, undoable deletion, reference-aware deletion, share sanitization, the prompt library, and workspaces; Playwright smoke tests run on desktop (1440×900) and mobile (390×844), covering initialization, workspace switching, the queue and cancelling, keyboard reordering of reference images, import feedback, dialog focus handling, language switching, and mobile layout.
 
 ```bash
 npm test                          # unit tests
@@ -138,6 +156,8 @@ npm run test:e2e -- --workers=1   # end-to-end tests (starts the dev server)
 ```
 
 **Styling**: a pure-CSS design system (design tokens, dark/light dual themes) with no UI framework; icons are inline SVGs (Lucide-style).
+
+**Code quality**: ESLint (flat config + eslint-plugin-vue) and Prettier; `npm run lint` additionally checks for merge markers and syntax.
 
 **Utilities**: JSZip for full-library zip backup / restore.
 
@@ -156,6 +176,9 @@ Deletion   : generations, assets, conversations and workspaces share one
 Storage    : Blobs persisted to DB; display via URL.createObjectURL, released centrally; reference-aware deletion protects history.
 Sharing    : all share-level exports are forced through stripKey() to strip the key
              (locked down by tests).
+i18n       : all UI copy goes through vue-i18n; components use useI18n, the lib layer
+             uses tl(); whether an error is settings-related is decided by category,
+             not by matching Chinese text.
 ```
 
 See `openspec/changes/archive/2026-07-11-bootstrap-drawing-workbench/` (proposal / design / specs / tasks) for details.

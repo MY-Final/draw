@@ -7,6 +7,7 @@
 **简体中文** · [English](./README.en.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![CI](https://github.com/MY-Final/draw/actions/workflows/ci.yml/badge.svg)](https://github.com/MY-Final/draw/actions/workflows/ci.yml)
 [![Stars](https://img.shields.io/github/stars/MY-Final/draw?style=social)](https://github.com/MY-Final/draw/stargazers)
 [![Vue 3](https://img.shields.io/badge/Vue-3-42b883?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![Vite](https://img.shields.io/badge/Vite-646cff?logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -39,6 +40,7 @@
 - **收藏 Prompt 库**:把常用提示词存进当前工作区,支持搜索与就地编辑(重名会被拦截)。
 - **快捷操作**:`/` 聚焦输入框、`Alt + N` 新建创作、`Ctrl/⌘ + K` 搜索、`Ctrl/⌘ + Enter` 生成(生成中则入队);空状态提供可点击的灵感标签,点一下直接填入。
 - **存储管理**:查看用量、删除素材;整库 zip 导入带进度反馈,采用合并策略(同 ID 覆盖,不清空本机数据,已有 API Key 保留),并可开启备份提醒。
+- **中英双语界面**:内置简体中文 / English 两套文案,侧栏一键切换,选择记在本机;首次进入按浏览器语言自动选择。切换后 `<html lang>` 与页面标题同步更新。
 - **备份与分享**(均**不含 API Key**):
   - 整库 zip 导出 / 导入(换机、换浏览器迁移)。
   - 接口预设分享(对方导入后自填 Key)。
@@ -55,13 +57,17 @@
 
 ## 快速开始
 
+需要 **Node.js >= 20**(见 `.nvmrc`)。
+
 ```bash
 npm install
 npm run dev      # 本地开发
 npm run build    # 构建静态产物到 dist/
 npm run preview  # 预览构建产物
-npm test         # 运行测试
-npm run check    # lint + 测试 + 生产构建
+npm run lint     # 合并标记/语法检查 + ESLint
+npm test         # 运行测试(Vitest)
+npm run check    # lint + 测试 + 生产构建(提交前跑这个)
+npm run format   # Prettier 格式化
 ```
 
 首次使用:点击「添加接口」→ 填 Base URL / API Key / 模型 → 「测试连接」→ 保存 → 输入描述 → 生成。没思路时直接点空状态里的灵感标签,即可填入示例提示词再改。
@@ -86,6 +92,17 @@ npm run check    # lint + 测试 + 生产构建
 ## 部署
 
 `npm run build` 产出的 `dist/` 是纯静态资源,可托管到任意静态服务器、对象存储、GitHub Pages 等。构建已用相对路径(`base: './'`),支持部署到子路径。
+
+`index.html` 自带 Open Graph / Twitter 分享卡片、canonical 与 robots 元信息,`public/` 内含 `og.png`、`robots.txt`、`sitemap.xml`;若你部署到自己的域名,记得把这几处以及 `sitemap.xml`/`robots.txt` 里的站点地址改成你的。
+
+### CI 与质量门
+
+`.github/workflows/ci.yml` 会在每个 PR 与 push 到 `main` 时运行:
+
+- `verify`: `npm run check`(lint + 单元测试 + 生产构建)。
+- `e2e`: 安装 Chromium 后跑 Playwright 端到端测试,失败时上传报告。
+
+两项都通过才建议合入。
 
 ### GitHub Pages（自动）
 
@@ -127,11 +144,11 @@ npm run check    # lint + 测试 + 生产构建
 
 ## 技术栈
 
-**前端**:Vue 3(Composition API + `<script setup>`)+ Pinia 状态管理 · Vite 构建 · 标准 OpenAI images 协议适配层(`generations` / `edits` 自动路由)。
+**前端**:Vue 3(Composition API + `<script setup>`)+ Pinia 状态管理 · Vite 构建 · 标准 OpenAI images 协议适配层(`generations` / `edits` 自动路由)· vue-i18n(中/英双语,按浏览器语言探测 + 本机持久化)。
 
-**存储**:idb(IndexedDB)存图 Blob 与生成记录,元数据与图字节分离、一图可多处复用;localStorage 存接口预设、主题、会话标题等轻量偏好。
+**存储**:idb(IndexedDB)存图 Blob 与生成记录,元数据与图字节分离、一图可多处复用;localStorage 存接口预设、主题、语言、会话标题等轻量偏好。
 
-**测试**:Vitest 单元测试(+ fake-indexeddb)覆盖生成管线、队列调度、删除撤销、引用感知、分享脱敏、Prompt 库与工作区回归;Playwright 跑桌面端(1440×900)与移动端(390×844)冒烟测试,覆盖初始化、工作区切换、队列与取消、参考图键盘排序、导入反馈、弹窗焦点与移动端布局。
+**测试**:Vitest 单元测试(+ fake-indexeddb)覆盖生成管线、队列调度、删除撤销、引用感知、分享脱敏、Prompt 库与工作区回归;Playwright 跑桌面端(1440×900)与移动端(390×844)冒烟测试,覆盖初始化、工作区切换、队列与取消、参考图键盘排序、导入反馈、弹窗焦点、语言切换与移动端布局。
 
 ```bash
 npm test                          # 单元测试
@@ -139,6 +156,8 @@ npm run test:e2e -- --workers=1   # 端到端测试(自动启动 dev server)
 ```
 
 **样式**:纯 CSS 设计系统(design tokens,深/浅双主题),不依赖 UI 框架;图标为内联 SVG(Lucide 风格)。
+
+**代码质量**:ESLint(flat config + eslint-plugin-vue)+ Prettier;`npm run lint` 额外检查合并标记与语法。
 
 **工具**:JSZip(整库 zip 备份 / 恢复)。
 
@@ -152,6 +171,7 @@ npm run test:e2e -- --workers=1   # 端到端测试(自动启动 dev server)
 删除    :生成/素材/会话/工作区统一「延迟落库 + 5 秒撤销」,窗口内只在内存隐藏,刷新后以库中数据为准。
 存储    :Blob 落库,显示走 URL.createObjectURL 并集中释放;引用感知删除避免历史记录裂图。
 分享    :所有分享级导出强制经 stripKey() 剥离 Key(有测试锁定)。
+i18n    :界面文案统一走 vue-i18n;组件用 useI18n,lib 层用 tl();错误是否可去设置按分类判断,不匹配中文文案。
 ```
 
 详见 `openspec/changes/archive/2026-07-11-bootstrap-drawing-workbench/` (proposal / design / specs / tasks)。
