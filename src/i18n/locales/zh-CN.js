@@ -70,6 +70,7 @@ export default {
     lightMode: '浅色模式',
     darkMode: '深色模式',
     github: '在 GitHub 打开',
+    guide: '使用指南',
   },
   dates: {
     today: '今天',

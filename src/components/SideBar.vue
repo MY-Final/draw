@@ -252,6 +252,16 @@ const vFocus = { mounted: (el) => el.focus() }
         <LocaleToggle />
         <a
           class="nav-icon"
+          href="./guide/"
+          target="_blank"
+          rel="noopener noreferrer"
+          :title="t('sidebar.guide')"
+          :aria-label="t('sidebar.guide')"
+        >
+          <AppIcon name="help" :size="15" />
+        </a>
+        <a
+          class="nav-icon"
           href="https://github.com/MY-Final/draw"
           target="_blank"
           rel="noopener noreferrer"

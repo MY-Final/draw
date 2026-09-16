@@ -1,0 +1,35 @@
+# AI 绘画工作台 (AI Drawing Workbench)
+
+> 纯前端、零后端的 AI 绘画工作台：填入自己的 OpenAI / NewAPI 兼容接口即可生成图片，接口 Key、图片与历史全部留在本机浏览器，部署即静态托管。
+
+- 在线体验：https://120403.xyz/draw/
+- 使用指南与常见问题：https://120403.xyz/draw/guide/
+- 源码仓库：https://github.com/MY-Final/draw
+- 许可：MIT
+
+## 关键事实
+
+- 形态：单页 Web 应用，纯静态托管；无服务器、无账号、无云同步。
+- 接口：标准 OpenAI images 协议——文生图走 `images/generations`，带参考图自动走 `images/edits`。任何允许跨域（CORS）的 OpenAI / NewAPI 兼容接口均可使用。
+- 数据：API Key、图片与生成历史都存本机浏览器（IndexedDB / localStorage），不上传到第三方服务器。
+- 语言：简体中文 / English 双语界面，可切换。
+- 计费：应用本身免费；使用成本取决于你自己填入的接口。
+
+## 功能
+
+- 文生图与参考图改图（单次最多 16 张参考图）
+- 生成队列（单通道，最多排队 5 单）与可撤销删除（5 秒撤销窗口）
+- 本地素材库：Blob 存 IndexedDB，元数据与图字节分离、一图多处复用
+- 大图预览：缩放、平移、复制提示词与图片
+- 工作区、会话历史与统一搜索（Ctrl/⌘ K）
+- 备份与分享（整库 zip、接口预设、单次生成配方）——导出一律剥离 API Key
+
+## 已知约束
+
+- 浏览器直连第三方接口受同源策略限制，接口必须允许跨域（CORS）。
+- API Key 以明文存于 localStorage，请勿在公共设备保存。
+- IndexedDB 可能在存储压力下被浏览器清理，重要素材请导出备份。
+
+## 部署
+
+构建产物为纯静态资源，可托管到 GitHub Pages、Vercel、Netlify、Cloudflare Pages 等。构建命令 `npm run build`，输出目录 `dist`。

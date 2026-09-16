@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b0f14" />
+    <title>AI 绘画工作台使用指南 · 纯前端零后端文生图工具</title>
+    <meta
+      name="description"
+      content="AI 绘画工作台的完整使用指南：如何填入 OpenAI / NewAPI 兼容接口、用参考图改图、生成队列与撤销、本地素材库与备份，以及常见问题（CORS、API Key、数据存储）。"
+    />
+    <link rel="canonical" href="https://120403.xyz/draw/guide/" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <meta name="robots" content="index, follow" />
+
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="AI 绘画工作台" />
+    <meta property="og:title" content="AI 绘画工作台使用指南" />
+    <meta property="og:description" content="如何填入 OpenAI / NewAPI 兼容接口、用参考图改图、备份素材，以及常见问题解答。" />
+    <meta property="og:url" content="https://120403.xyz/draw/guide/" />
+    <meta property="og:image" content="https://120403.xyz/draw/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:locale:alternate" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AI 绘画工作台使用指南" />
+    <meta name="twitter:description" content="如何填入 OpenAI / NewAPI 兼容接口、用参考图改图、备份素材，以及常见问题解答。" />
+    <meta name="twitter:image" content="https://120403.xyz/draw/og.png" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebApplication",
+            "name": "AI 绘画工作台",
+            "alternateName": "AI Drawing Workbench",
+            "url": "https://120403.xyz/draw/",
+            "applicationCategory": "MultimediaApplication",
+            "operatingSystem": "Any (Web browser)",
+            "inLanguage": ["zh-CN", "en"],
+            "isAccessibleForFree": true,
+            "license": "https://opensource.org/licenses/MIT",
+            "screenshot": "https://120403.xyz/draw/screenshot.png",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "author": { "@type": "Organization", "name": "MY-Final", "url": "https://github.com/MY-Final" },
+            "sameAs": ["https://github.com/MY-Final/draw"]
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": "AI 绘画工作台", "item": "https://120403.xyz/draw/" },
+              { "@type": "ListItem", "position": 2, "name": "使用指南", "item": "https://120403.xyz/draw/guide/" }
+            ]
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "AI 绘画工作台是免费的吗？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "应用本身完全免费且开源（MIT 许可）。它不提供模型，你需要填入自己的 OpenAI / NewAPI 兼容接口，因此实际生图费用取决于你所使用的接口服务商。"
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "需要自己的 API Key 吗？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "需要。首次使用需在「接口设置」中填写 Base URL、API Key 与模型名，然后点「测试连接」确认可用。Key 只保存在你自己的浏览器里。"
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "我的图片和 API Key 会被上传吗？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "不会上传到本应用。这是一个纯前端应用，没有后端服务器。图片与生成历史存在本机浏览器的 IndexedDB，API Key 存在 localStorage。只有你主动发起的生成请求会直接发送到你填写的接口。"
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "支持哪些接口？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "任何兼容标准 OpenAI images 协议的接口，包括 OpenAI 官方以及 NewAPI 等中转服务。文生图走 images/generations，带参考图时自动走 images/edits。前提是该接口允许浏览器跨域访问（CORS）。"
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "为什么提示无法连接接口（CORS）？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "浏览器出于同源策略，禁止网页直接请求未开放跨域的第三方接口。这是纯前端架构的固有限制：请确认接口允许跨域，且 Base URL 使用 https（在 https 页面上请求 http 接口会被浏览器拦截）。"
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "生成很慢或超时怎么办？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "图片生成通常需要 30–120 秒。每个接口可单独配置 30–1800 秒的请求超时（默认 180 秒），可在接口设置中调大。超时会标记为失败，你主动取消会标记为已取消，两者都会记录在结果卡中。"
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "数据会丢失吗？如何备份？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "图片与历史存在浏览器 IndexedDB 中，浏览器在存储紧张时可能清理数据。建议在「数据保护」中开启备份提醒，并定期导出整库 zip；导出内容不包含 API Key，可在新设备导入。"
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "可以在手机上使用吗？",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "可以。界面适配桌面与移动端，移动端提供导航抽屉与素材库入口，参考图为单行横向滚动。不过生图仍受第三方接口是否允许跨域的限制。"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+
+    <style>
+      :root {
+        --bg: #0b0f14;
+        --surface: #121821;
+        --surface-2: #182130;
+        --fg: #e6eaf2;
+        --fg-muted: #9aa4b2;
+        --fg-subtle: #6b7688;
+        --border: #232c3a;
+        --border-strong: #333f52;
+        --accent: #7aa2ff;
+        --accent-soft: rgba(122, 162, 255, 0.12);
+        --radius: 14px;
+        --max: 820px;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f7f8fa;
+          --surface: #ffffff;
+          --surface-2: #f0f2f6;
+          --fg: #16202e;
+          --fg-muted: #4d5866;
+          --fg-subtle: #6b7688;
+          --border: #e2e6ee;
+          --border-strong: #cfd6e2;
+          --accent: #2f5fe0;
+          --accent-soft: rgba(47, 95, 224, 0.1);
+        }
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        line-height: 1.75;
+        font-size: 16px;
+      }
+      a { color: var(--accent); }
+      .wrap { max-width: var(--max); margin: 0 auto; padding: 0 20px; }
+      header.top {
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+        position: sticky; top: 0; z-index: 10;
+        backdrop-filter: saturate(140%) blur(8px);
+      }
+      header.top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 12px; padding-bottom: 12px; }
+      .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; text-decoration: none; color: var(--fg); }
+      .brand .dot { width: 26px; height: 26px; border-radius: 8px; background: var(--accent); display: inline-flex; align-items: center; justify-content: center; color: #06121f; font-size: 14px; }
+      .btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: var(--accent); color: #06121f; text-decoration: none;
+        font-weight: 650; font-size: 14px; padding: 8px 16px; border-radius: 999px;
+        white-space: nowrap;
+      }
+      main { padding: 40px 0 8px; }
+      h1 { font-size: 30px; line-height: 1.3; margin: 0 0 12px; letter-spacing: -0.01em; }
+      h2 { font-size: 21px; margin: 44px 0 12px; letter-spacing: -0.01em; }
+      h3 { font-size: 16px; margin: 24px 0 6px; }
+      p, li { color: var(--fg-muted); }
+      .lead { font-size: 17px; color: var(--fg); }
+      .crumbs { font-size: 13px; color: var(--fg-subtle); margin: 0 0 18px; }
+      .crumbs a { color: var(--fg-subtle); text-decoration: none; }
+      .crumbs a:hover { color: var(--accent); }
+      figure { margin: 24px 0; }
+      figure img { width: 100%; height: auto; border-radius: var(--radius); border: 1px solid var(--border); display: block; }
+      figcaption { font-size: 13px; color: var(--fg-subtle); margin-top: 8px; text-align: center; }
+      .card {
+        background: var(--surface); border: 1px solid var(--border);
+        border-radius: var(--radius); padding: 18px 20px; margin: 18px 0;
+      }
+      .card h3 { margin-top: 0; }
+      ul, ol { padding-left: 22px; }
+      li { margin: 6px 0; }
+      code { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 0.92em; }
+      details { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 14px 18px; margin: 10px 0; }
+      details summary { cursor: pointer; font-weight: 600; color: var(--fg); }
+      details p { margin: 10px 0 0; }
+      .en { border-top: 1px solid var(--border); margin-top: 52px; padding-top: 8px; }
+      .en h2 { margin-top: 28px; }
+      footer { border-top: 1px solid var(--border); margin-top: 56px; padding: 24px 0 40px; font-size: 14px; color: var(--fg-subtle); }
+      footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; justify-content: space-between; }
+      footer a { color: var(--fg-muted); }
+      @media (max-width: 560px) {
+        h1 { font-size: 24px; }
+        h2 { font-size: 19px; }
+        main { padding-top: 28px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <a class="brand" href="../"><span class="dot">✦</span> AI 绘画工作台</a>
+        <a class="btn" href="../">打开工作台</a>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <p class="crumbs"><a href="../">首页</a> / 使用指南</p>
+      <h1>AI 绘画工作台使用指南</h1>
+      <p class="lead">
+        AI 绘画工作台是一个<strong>纯前端、零后端</strong>的 AI 图片生成工具：填入你自己的
+        OpenAI / NewAPI 兼容接口，就能在浏览器里文生图、用参考图改图、管理素材与历史。
+        接口 Key、图片与生成记录全部留在本机浏览器，项目可部署为任意静态站点。
+      </p>
+      <p>
+        它没有账号，也不需要注册；打开 <a href="../">在线工作台</a> 即可开始。下面说明完整用法与常见问题。
+      </p>
+
+      <figure>
+        <img
+          src="../screenshot.png"
+          width="1440" height="1120" loading="lazy" decoding="async"
+          alt="AI 绘画工作台界面：左侧工作区与会话，中间生成结果卡，右侧素材库，底部为提示词输入区与生成参数"
+        />
+        <figcaption>工作台界面：左侧工作区与会话，中间生成结果，右侧本地素材库，底部为输入区。</figcaption>
+      </figure>
+
+      <h2>它能做什么</h2>
+      <ul>
+        <li><strong>文生图</strong>：输入描述即可生成，支持宽高比、分辨率、画质与批量张数等参数。</li>
+        <li><strong>参考图改图</strong>：把一张或多张素材（包括以往生成结果）设为参考图再生成，单次最多 16 张，全部随请求发送。</li>
+        <li><strong>生成队列</strong>：图片接口一次只跑一个请求，生成中再提交会进入队列（最多 5 单），并按顺序自动续跑。</li>
+        <li><strong>删除可撤销</strong>：删单条生成、批量删素材、删会话、删工作区都有 5 秒撤销窗口。</li>
+        <li><strong>本地素材库</strong>：图片以 Blob 存在 IndexedDB，元数据与图字节分离，一图可多处复用；可按「AI 生成 / 我的上传 / 导入」筛选。</li>
+        <li><strong>大图预览</strong>：滚轮缩放、双击缩放还原、拖拽平移，并可复制提示词或图片。</li>
+        <li><strong>工作区与搜索</strong>：多工作区、会话历史，以及 <code>Ctrl/⌘ K</code> 统一搜索（带缩略图）。</li>
+        <li><strong>备份与分享</strong>：整库 zip 导出/导入、接口预设分享、单次生成「配方」分享——<strong>导出一律不包含 API Key</strong>。</li>
+        <li><strong>中英双语</strong>：界面支持简体中文与 English 切换。</li>
+      </ul>
+
+      <h2>如何开始</h2>
+      <ol>
+        <li>打开 <a href="../">工作台</a>，点击「添加接口」。</li>
+        <li>填写 <strong>Base URL</strong>、<strong>API Key</strong> 和<strong>模型名</strong>，点「测试连接」确认可用后保存。</li>
+        <li>在底部输入框描述你想要的画面，按 <code>Ctrl/⌘ + Enter</code> 生成。</li>
+        <li>没有思路时，点击空状态里的灵感标签可一键填入示例提示词。</li>
+      </ol>
+      <div class="card">
+        <h3>常用快捷键</h3>
+        <ul>
+          <li><code>Ctrl/⌘ + Enter</code>：生成；生成中则加入队列</li>
+          <li><code>Ctrl/⌘ + K</code>：打开统一搜索</li>
+          <li><code>/</code>：聚焦输入框；<code>Alt + N</code>：新建创作</li>
+          <li><code>←</code> <code>→</code> <code>Home</code> <code>End</code>：聚焦参考图缩略图时调整顺序</li>
+        </ul>
+      </div>
+
+      <h2>支持的接口</h2>
+      <p>
+        任何兼容<strong>标准 OpenAI images 协议</strong>的接口都可以使用，包括 OpenAI 官方与 NewAPI 等中转服务：
+        文生图走 <code>images/generations</code>，带参考图时自动走 <code>images/edits</code>。
+        旧版的 <code>chat</code> / <code>auto</code> 预设会自动迁移为 <code>images</code>。
+      </p>
+      <p>
+        前提是接口<strong>允许浏览器跨域访问（CORS）</strong>——这是纯前端架构的固有限制。若接口不允许跨域，
+        浏览器会直接拦截请求，任何纯前端应用都无法绕过。
+      </p>
+
+      <h2>数据与隐私</h2>
+      <ul>
+        <li>没有后端服务器，图片与生成历史存本机 IndexedDB，接口预设与偏好存 localStorage。</li>
+        <li>只有你主动发起的生成请求会发送到你填写的接口，应用本身不收集数据。</li>
+        <li>API Key 以明文存于 localStorage，请勿在公共设备保存；界面提供「一键清除凭据」。</li>
+        <li>浏览器在存储紧张时可能清理 IndexedDB，重要素材请导出整库 zip 备份。</li>
+      </ul>
+
+      <h2>常见问题</h2>
+      <details open>
+        <summary>AI 绘画工作台是免费的吗？</summary>
+        <p>应用本身完全免费且开源（MIT 许可）。它不提供模型，你需要填入自己的 OpenAI / NewAPI 兼容接口，因此实际生图费用取决于你使用的接口服务商。</p>
+      </details>
+      <details>
+        <summary>需要自己的 API Key 吗？</summary>
+        <p>需要。首次使用需在「接口设置」中填写 Base URL、API Key 与模型名，然后点「测试连接」确认可用。Key 只保存在你自己的浏览器里。</p>
+      </details>
+      <details>
+        <summary>我的图片和 API Key 会被上传吗？</summary>
+        <p>不会上传到本应用。这是一个纯前端应用，没有后端服务器。图片与生成历史存在本机浏览器的 IndexedDB，API Key 存在 localStorage。只有你主动发起的生成请求会直接发送到你填写的接口。</p>
+      </details>
+      <details>
+        <summary>支持哪些接口？</summary>
+        <p>任何兼容标准 OpenAI images 协议的接口，包括 OpenAI 官方以及 NewAPI 等中转服务。文生图走 <code>images/generations</code>，带参考图时自动走 <code>images/edits</code>。前提是该接口允许浏览器跨域访问（CORS）。</p>
+      </details>
+      <details>
+        <summary>为什么提示无法连接接口（CORS）？</summary>
+        <p>浏览器出于同源策略，禁止网页直接请求未开放跨域的第三方接口。请确认接口允许跨域，且 Base URL 使用 <strong>https</strong>（在 https 页面上请求 http 接口会被浏览器拦截）。</p>
+      </details>
+      <details>
+        <summary>生成很慢或超时怎么办？</summary>
+        <p>图片生成通常需要 30–120 秒。每个接口可单独配置 30–1800 秒的请求超时（默认 180 秒），可在接口设置中调大。超时会被标记为失败，你主动取消会被标记为已取消，两者都会记录在结果卡中。</p>
+      </details>
+      <details>
+        <summary>数据会丢失吗？如何备份？</summary>
+        <p>图片与历史存在浏览器 IndexedDB 中，浏览器在存储紧张时可能清理数据。建议在「数据保护」中开启备份提醒，并定期导出整库 zip；导出内容不包含 API Key，可在新设备导入。</p>
+      </details>
+      <details>
+        <summary>可以在手机上使用吗？</summary>
+        <p>可以。界面适配桌面与移动端，移动端提供导航抽屉与素材库入口，参考图为单行横向滚动。不过生图仍受第三方接口是否允许跨域的限制。</p>
+      </details>
+
+      <section class="en" lang="en">
+        <h2>About (English)</h2>
+        <p>
+          <strong>AI Drawing Workbench</strong> is a front-end-only, zero-backend tool for AI image
+          generation. Plug in your own OpenAI / NewAPI-compatible endpoint and generate images directly
+          from the browser. Text-to-image uses <code>images/generations</code>; when reference images are
+          attached it automatically uses <code>images/edits</code>.
+        </p>
+        <p>
+          There is no account and no server: your API key, images and history stay in your own browser
+          (localStorage and IndexedDB). The app itself is free and MIT-licensed; generation costs depend on
+          the endpoint you provide. The endpoint must allow cross-origin (CORS) requests, which is the
+          inherent limitation of a pure front-end app. The UI is available in Simplified Chinese and English.
+        </p>
+        <p><a class="btn" href="../">Open the workbench</a></p>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <span>© MY-Final · MIT License</span>
+        <span>
+          <a href="../">工作台</a> ·
+          <a href="https://github.com/MY-Final/draw" rel="noopener">GitHub</a> ·
+          <a href="https://github.com/MY-Final/draw/blob/main/README.md" rel="noopener">README</a> ·
+          <a href="../llms.txt">llms.txt</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>

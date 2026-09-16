@@ -70,6 +70,7 @@ export default {
     lightMode: 'Light mode',
     darkMode: 'Dark mode',
     github: 'Open on GitHub',
+    guide: 'Guide',
   },
   dates: {
     today: 'Today',

@@ -17,8 +17,8 @@
     <meta property="og:description" content="填入你自己的 OpenAI / NewAPI 兼容接口即可画图，所有数据与 Key 全留本机，部署即静态托管。" />
     <meta property="og:url" content="https://120403.xyz/draw/" />
     <meta property="og:image" content="https://120403.xyz/draw/og.png" />
-    <meta property="og:image:width" content="1440" />
-    <meta property="og:image:height" content="1120" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="AI 绘画工作台界面：工作区、生成结果、参数区与素材库" />
     <meta property="og:locale" content="zh_CN" />
     <meta property="og:locale:alternate" content="en_US" />
@@ -30,9 +30,54 @@
     <meta name="twitter:image:alt" content="AI 绘画工作台界面截图" />
 
     <title>AI 绘画工作台</title>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "AI 绘画工作台",
+        "alternateName": "AI Drawing Workbench",
+        "url": "https://120403.xyz/draw/",
+        "description": "纯前端、零后端的 AI 绘画工作台：填入自己的 OpenAI / NewAPI 兼容接口即可生成图片，接口 Key、图片与历史全部留在本机浏览器，部署即静态托管。",
+        "applicationCategory": "MultimediaApplication",
+        "applicationSubCategory": "AI 图像生成",
+        "operatingSystem": "Any (Web browser)",
+        "browserRequirements": "Requires a modern browser with IndexedDB and Fetch; JavaScript required.",
+        "inLanguage": ["zh-CN", "en"],
+        "isAccessibleForFree": true,
+        "license": "https://opensource.org/licenses/MIT",
+        "screenshot": "https://120403.xyz/draw/og.png",
+        "image": "https://120403.xyz/draw/og.png",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "featureList": [
+          "文生图与参考图改图（标准 OpenAI images 协议）",
+          "生成队列与可撤销删除",
+          "本地素材库（IndexedDB，图片与历史留本机）",
+          "中英双语界面",
+          "备份导出与分享（不含 API Key）"
+        ],
+        "author": {
+          "@type": "Organization",
+          "name": "MY-Final",
+          "url": "https://github.com/MY-Final"
+        },
+        "sameAs": ["https://github.com/MY-Final/draw"]
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>
+    <noscript>
+      <div style="max-width:680px;margin:0 auto;padding:48px 20px;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;line-height:1.7;color:#e6eaf2;background:#0b0f14">
+        <h1 style="font-size:24px;margin:0 0 12px">AI 绘画工作台</h1>
+        <p>一个纯前端、零后端的 AI 绘画工作台。填入你自己的 OpenAI / NewAPI 兼容接口即可生成图片，接口 Key、图片与历史全部留在本机浏览器，部署即静态托管。</p>
+        <p>本应用需要启用 JavaScript 才能运行。你也可以先阅读<a href="./guide/" style="color:#7aa2ff">使用指南与常见问题</a>。</p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
