@@ -54,27 +54,29 @@ useDialogA11y(modal, () => emit('close'))
 .reminder-overlay {
   position: fixed; inset: 0; z-index: 900;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.35);
+  padding: var(--space-4);
+  background: var(--color-scrim);
 }
 .reminder-modal {
-  width: min(420px, 88vw);
-  padding: var(--space-5);
+  width: min(440px, 92vw);
+  padding: 22px;
   background: var(--color-elevated);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-ink);
+  border-top: 3px solid var(--color-warning);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
   display: flex; flex-direction: column; gap: var(--space-4);
 }
 .reminder-title {
-  margin: 0; font-size: 16px; font-weight: 600; color: var(--color-fg); line-height: 1.4;
+  margin: 0; font-size: 19px; font-weight: 750; color: var(--color-fg);
+  line-height: 1.3; letter-spacing: -0.03em;
 }
 .reminder-body {
-  margin: 0; font-size: 13px; line-height: 1.6; color: var(--color-fg-muted);
+  margin: 0; font-size: 12.5px; line-height: 1.75; color: var(--color-fg-muted);
 }
-.reminder-actions {
-  display: flex; flex-direction: column; gap: var(--space-2);
-}
+.reminder-actions { display: flex; flex-direction: column; gap: var(--space-2); }
 .btn-ghost {
-  background: transparent; border: none; color: var(--color-fg-subtle); font-size: 12px;
+  background: transparent; border: none; color: var(--color-fg-subtle); font-size: 11.5px;
 }
-.btn-ghost:hover { color: var(--color-fg-muted); text-decoration: underline; }
+.btn-ghost:hover { color: var(--color-fg-muted); background: transparent; text-decoration: underline; }
 </style>

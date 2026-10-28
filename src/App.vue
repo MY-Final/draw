@@ -1,5 +1,6 @@
 <script setup>
-// 对话式布局:左安静栏 · 中(结果流 + 底部固定输入)· 右素材库。低频操作进抽屉。
+// 画室布局:左「项目账簿」· 中「工作台(作品 + 底部创作稿纸)」· 右「素材」。
+// 低频操作进抽屉;结构靠细线与编号,图片占据版面主体。
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useWorkbenchStore } from './stores/workbench.js'
@@ -35,7 +36,7 @@ const mobileNavOpen = ref(false)
 const mobileMenuButton = ref(null)
 const mobileNavPanel = ref(null)
 const mobileAssetsSheet = ref(null)
-const theme = ref('dark')
+const theme = ref('light')
 const searchOpen = ref(false)
 const showBackupReminder = ref(false)
 const reminderBytes = ref(0)
@@ -49,6 +50,18 @@ const isApple = computed(() => {
 })
 const searchModKey = computed(() => (isApple.value ? '⌘' : 'Ctrl'))
 
+// 工作台抬头:当前工作区 / 会话 / 作品数
+const activeWorkspace = computed(
+  () => store.workspaces.find((w) => w.id === store.activeWorkspaceId) || null,
+)
+const currentConversationTitle = computed(() => {
+  if (!store.conversationId) return ''
+  const conv = (store.conversations || []).find((c) => c.id === store.conversationId)
+  return store.titleOverrides?.[store.conversationId] || conv?.title || t('sidebar.newConversation')
+})
+const plateCount = computed(() => store.canvasGenerations?.length || 0)
+const plateIndex = computed(() => String(plateCount.value).padStart(2, '0'))
+
 useDialogA11y(mobileNavPanel, () => { mobileNavOpen.value = false })
 useDialogA11y(mobileAssetsSheet, () => { mobileAssetsOpen.value = false })
 
@@ -58,7 +71,7 @@ async function initialize() {
   try {
     await store.init()
     const saved = localStorage.getItem('workbench.theme')
-    setTheme(saved || 'dark')
+    setTheme(saved || 'light')
     const r = await store.checkBackupReminder()
     if (r) { showBackupReminder.value = true; reminderBytes.value = store.usage?.businessBytes || 0 }
   } catch (error) {
@@ -149,6 +162,8 @@ async function onSearchJump(item) {
 function setTheme(t) {
   theme.value = t
   document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark')
+  document.querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', t === 'light' ? '#f2f0ea' : '#15140f')
   try { localStorage.setItem('workbench.theme', t) } catch { /* 主题只影响当前页面 */ }
 }
 function toggleTheme() { setTheme(theme.value === 'dark' ? 'light' : 'dark') }
@@ -250,11 +265,11 @@ function openStorage() {
 
 <template>
   <div class="app">
-    <!-- 左侧安静栏(桌面) -->
+    <!-- 左侧项目账簿(桌面) -->
     <aside class="rail">
       <div class="logo" :title="t('app.title')">
         <span class="logo-mark" aria-hidden="true">
-          <AppIcon name="sparkles" :size="15" />
+          <i class="sw sw-blue" /><i class="sw sw-red" /><i class="sw sw-ochre" /><i class="sw sw-ink" />
         </span>
         <div class="logo-copy">
           <span class="logo-text">{{ t('app.brand') }}</span>
@@ -264,7 +279,7 @@ function openStorage() {
       <button class="search-chip" @click="searchOpen = true" :title="`${t('app.search')} (${searchModKey} K)`">
         <AppIcon name="search" :size="14" />
         <span>{{ t('app.search') }}</span>
-        <kbd>{{ searchModKey }}K</kbd>
+        <kbd>{{ searchModKey }} K</kbd>
       </button>
       <div class="rail-side">
         <SideBar
@@ -284,17 +299,32 @@ function openStorage() {
       </button>
       <div class="mobile-brand">
         <span class="logo-mark mobile-logo" aria-hidden="true">
-          <AppIcon name="sparkles" :size="13" />
+          <i class="sw sw-blue" /><i class="sw sw-red" /><i class="sw sw-ochre" /><i class="sw sw-ink" />
         </span>
         <span class="mobile-title">{{ t('app.brand') }}</span>
       </div>
+      <button class="mobile-icon-btn mobile-assets-btn" @click="mobileAssetsOpen = true" :aria-label="t('app.openAssets')" :title="t('app.openAssets')">
+        <AppIcon name="layers" :size="16" />
+        <span class="mobile-assets-count tnum">{{ store.workspaceAssets.length }}</span>
+      </button>
       <button class="mobile-icon-btn" @click="searchOpen = true" :aria-label="`${t('app.search')} (${searchModKey}+K)`">
         <AppIcon name="search" :size="16" />
       </button>
     </header>
 
-    <!-- 中间:结果流 + 底部输入 -->
+    <!-- 中间工作台 -->
     <main class="center">
+      <header class="studio-top">
+        <div class="studio-id">
+          <span class="studio-ws">{{ activeWorkspace?.name || t('app.brand') }}</span>
+          <span class="studio-slash" aria-hidden="true">/</span>
+          <span class="studio-conv">{{ currentConversationTitle }}</span>
+        </div>
+        <div class="studio-meta" :title="t('library.count', { count: plateCount })">
+          <span class="studio-plate-index tnum">{{ plateIndex }}</span>
+          <span class="mono-label">{{ t('app.plates') }}</span>
+        </div>
+      </header>
       <div class="stream">
         <ResultsView
           @use-as-reference="useAsReference"
@@ -313,10 +343,11 @@ function openStorage() {
       </div>
     </main>
 
-    <!-- 右侧素材库(可收起) -->
+    <!-- 右侧素材(可收起) -->
     <aside class="assets" :class="{ collapsed: !rightOpen }">
       <button class="collapse-tab" @click="rightOpen = !rightOpen" :aria-label="rightOpen ? t('app.collapseAssets') : t('app.expandAssets')">
-        <AppIcon :name="rightOpen ? 'chevron-right' : 'layers'" :size="14" />
+        <AppIcon :name="rightOpen ? 'chevron-right' : 'chevron-left'" :size="13" />
+        <span v-if="!rightOpen" class="collapse-tab-label">{{ t('app.assetsShort') }}</span>
       </button>
       <div v-if="rightOpen" class="assets-body">
         <LibraryPanel @use-as-reference="useAsReference" @preview="openPreview" />
@@ -330,7 +361,7 @@ function openStorage() {
           <div class="mobile-nav-head">
             <div class="logo" :title="t('app.title')">
               <span class="logo-mark" aria-hidden="true">
-                <AppIcon name="sparkles" :size="15" />
+                <i class="sw sw-blue" /><i class="sw sw-red" /><i class="sw sw-ochre" /><i class="sw sw-ink" />
               </span>
               <div class="logo-copy">
                 <span class="logo-text">{{ t('app.brand') }}</span>
@@ -344,7 +375,7 @@ function openStorage() {
           <button class="search-chip mobile-search" @click="searchOpen = true; mobileNavOpen = false">
             <AppIcon name="search" :size="14" />
             <span>{{ t('app.search') }}</span>
-            <kbd>{{ searchModKey }}K</kbd>
+            <kbd>{{ searchModKey }} K</kbd>
           </button>
           <div class="mobile-nav-body">
             <SideBar
@@ -359,11 +390,11 @@ function openStorage() {
       </div>
     </Transition>
 
-    <!-- 移动端素材库抽屉(桌面右侧栏在 ≤1024 隐藏) -->
+    <!-- 移动端素材抽屉(桌面右侧栏在 ≤1024 隐藏) -->
     <Transition name="sheet">
       <div v-if="mobileAssetsOpen" class="mobile-assets-scrim" @click.self="mobileAssetsOpen = false">
         <div ref="mobileAssetsSheet" class="mobile-assets-sheet" role="dialog" aria-modal="true" :aria-label="t('app.assetsLibrary')" tabindex="-1">
-          <div class="mobile-assets-handle" aria-hidden="true" />
+          <div class="mobile-assets-grip" aria-hidden="true"><span /></div>
           <div class="mobile-assets-head">
             <strong>{{ t('app.assetsLibrary') }}</strong>
             <button class="btn btn-sm btn-ghost" @click="mobileAssetsOpen = false" :aria-label="t('common.close')">
@@ -376,10 +407,6 @@ function openStorage() {
         </div>
       </div>
     </Transition>
-    <button class="mobile-assets-fab" @click="mobileAssetsOpen = true" :aria-label="t('app.openAssets')">
-      <AppIcon name="layers" :size="18" />
-    </button>
-
     <!-- 抽屉 -->
     <PresetManager
       v-if="settingsOpen"
@@ -432,7 +459,10 @@ function openStorage() {
   </div>
   <div v-if="booting || bootError" class="boot-screen" role="status" aria-live="polite">
     <div class="boot-panel">
-      <AppIcon :name="bootError ? 'alert' : 'sparkles'" :size="20" />
+      <span class="logo-mark boot-mark" aria-hidden="true">
+        <i class="sw sw-blue" /><i class="sw sw-red" /><i class="sw sw-ochre" /><i class="sw sw-ink" />
+      </span>
+      <span class="mono-label">{{ bootError ? 'ERROR' : 'ATELIER' }}</span>
       <strong>{{ bootError ? t('app.loadFailed') : t('app.loading') }}</strong>
       <p v-if="bootError">{{ bootError }}</p>
       <button v-if="bootError" class="btn btn-primary" type="button" @click="initialize">{{ t('app.retry') }}</button>
@@ -443,7 +473,7 @@ function openStorage() {
 <style scoped>
 .app {
   display: grid;
-  grid-template-columns: 260px 1fr auto;
+  grid-template-columns: var(--ledger-w) minmax(0, 1fr) auto;
   grid-template-rows: 1fr;
   height: 100vh;
   height: 100dvh;
@@ -451,29 +481,31 @@ function openStorage() {
   background: var(--color-bg);
 }
 .undo-stack {
-  position: fixed; bottom: 128px; left: 50%; transform: translateX(-50%); z-index: 60;
+  position: fixed; bottom: calc(var(--composer-height, 240px) + 18px); left: 50%;
+  transform: translateX(-50%); z-index: 60;
   display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
 }
+
+/* ── 启动页 ── */
 .boot-screen {
   position: fixed; inset: 0; z-index: 1200;
   display: grid; place-items: center; padding: var(--space-4);
   background: var(--color-bg);
 }
 .boot-panel {
-  width: min(360px, 100%); display: flex; flex-direction: column; align-items: center;
-  gap: var(--space-3); text-align: center; color: var(--color-fg-muted);
+  width: min(340px, 100%); display: flex; flex-direction: column; align-items: center;
+  gap: var(--space-2); text-align: center; color: var(--color-fg-muted);
 }
-.boot-panel strong { color: var(--color-fg); font-size: 15px; }
-.boot-panel p { margin: 0; font-size: 13px; line-height: 1.6; }
-:root[data-theme='light'] .app {
-  background: var(--color-bg);
-}
+.boot-panel strong { color: var(--color-fg); font-size: 15px; margin-top: var(--space-2); }
+.boot-panel p { margin: 0; font-size: 12.5px; line-height: 1.6; font-family: var(--font-mono); }
+.boot-mark { width: 40px; height: 40px; margin-bottom: var(--space-2); }
 
+/* ── 项目账簿 ── */
 .rail {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-4);
+  padding: var(--space-4) var(--space-4) var(--space-3);
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
   overflow: hidden;
@@ -483,52 +515,59 @@ function openStorage() {
 .logo {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 10px;
   flex-shrink: 0;
   min-width: 0;
+  padding: 2px 0 4px;
 }
 .logo-mark {
-  position: relative;
-  width: 32px;
-  height: 32px;
-  border-radius: 11px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-on-primary);
-  background: var(--color-primary);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
-  overflow: hidden;
+  transform: rotate(-3deg);
 }
+.sw { display: block; }
+.sw-blue { background: var(--color-primary); }
+.sw-red { background: var(--color-destructive); }
+.sw-ochre { background: var(--color-accent); }
+.sw-ink { background: var(--color-ink); }
+:root[data-theme='dark'] .sw-ink { background: var(--color-fg); }
 .logo-copy {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  line-height: 1.15;
+  line-height: 1.1;
 }
 .logo-text {
-  font-size: 14px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
   color: var(--color-fg);
 }
 .logo-sub {
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: 9px;
   font-weight: 500;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--color-fg-subtle);
-  margin-top: 2px;
+  margin-top: 3px;
+  white-space: nowrap;
 }
 .search-chip {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  min-height: 36px;
-  padding: 0 var(--space-3);
-  border-radius: 999px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: var(--radius);
   border: 1px solid var(--color-border);
-  background: var(--color-surface-2);
+  background: transparent;
   color: var(--color-fg-muted);
   font-size: 12px;
   flex-shrink: 0;
@@ -539,23 +578,65 @@ function openStorage() {
   color: var(--color-fg);
   background: var(--color-elevated);
 }
+.search-chip span { flex: 1; text-align: left; }
 .search-chip kbd {
-  margin-left: auto;
-  font-family: var(--font-num);
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  border: 1px solid var(--color-border);
-  color: var(--color-fg-subtle);
-  background: var(--color-bg);
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
 }
 
+/* ── 中央工作台 ── */
 .center {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: transparent;
+  background: var(--color-bg);
+}
+.studio-top {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  height: 50px;
+  padding: 0 var(--space-6);
+  border-bottom: 1px solid var(--color-border);
+}
+.studio-id {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+.studio-ws {
+  font-weight: 700;
+  color: var(--color-fg);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.studio-slash { color: var(--color-border-strong); font-family: var(--font-mono); }
+.studio-conv {
+  color: var(--color-fg-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.studio-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.studio-plate-index {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-fg);
 }
 .stream {
   flex: 1;
@@ -564,46 +645,64 @@ function openStorage() {
 }
 .dock {
   flex-shrink: 0;
-  padding: var(--space-3) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  padding: var(--space-4) var(--space-6) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
   background: var(--color-bg);
   border-top: 1px solid var(--color-border);
 }
 
+/* ── 素材栏 ── */
 .assets {
   position: relative;
-  width: 300px;
+  width: var(--materials-w);
   border-left: 1px solid var(--color-border);
   background: var(--color-surface);
   transition: width var(--dur) var(--ease-out);
   min-height: 0;
 }
-.assets.collapsed { width: 0; border-left: none; }
+.assets.collapsed { width: 30px; }
 .assets-body { height: 100%; overflow-y: auto; padding: var(--space-4); }
-.assets-body :deep(.lib-head) { padding-left: var(--space-1); }
 .collapse-tab {
   position: absolute;
-  top: var(--space-4);
+  top: 14px;
   left: -14px;
+  z-index: 5;
   width: 28px;
-  height: 28px;
+  height: 56px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: var(--color-elevated);
+  gap: 4px;
+  border-radius: 0;
+  background: var(--color-surface);
   border: 1px solid var(--color-border-strong);
   color: var(--color-fg-muted);
-  z-index: 5;
-  transition: color var(--dur) var(--ease), transform var(--dur) var(--ease);
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.collapse-tab:hover { color: var(--color-fg); transform: scale(1.04); }
+.collapse-tab:hover { color: var(--color-fg); background: var(--color-elevated); }
+.assets.collapsed .collapse-tab {
+  left: 0;
+  top: 14px;
+  width: 30px;
+  height: 100%;
+  border: none;
+  border-left: none;
+  background: transparent;
+}
+.collapse-tab-label {
+  writing-mode: vertical-rl;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  writing-mode: vertical-rl;
+}
 
-/* 移动端顶栏:默认隐藏 */
+/* ── 移动端 ── */
 .mobile-top { display: none; }
 .mobile-icon-btn {
-  width: 40px; height: 40px;
+  width: 38px; height: 38px;
   display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 12px; color: var(--color-fg-muted);
+  border-radius: var(--radius); color: var(--color-fg-muted);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .mobile-icon-btn:hover { background: var(--color-surface-2); color: var(--color-fg); }
@@ -614,9 +713,9 @@ function openStorage() {
   display: flex; justify-content: flex-start;
 }
 .mobile-nav-panel {
-  width: min(86vw, 320px); height: 100%;
+  width: min(88vw, 320px); height: 100%;
   background: var(--color-surface);
-  border-right: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border-strong);
   display: flex; flex-direction: column;
   padding: var(--space-3);
   gap: var(--space-3);
@@ -625,63 +724,23 @@ function openStorage() {
 .mobile-nav-head {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
   flex-shrink: 0;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
 }
 .mobile-nav-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .mobile-search { flex-shrink: 0; }
 
-.nav-enter-active, .nav-leave-active { transition: opacity 180ms var(--ease); }
+.nav-enter-active, .nav-leave-active { transition: opacity 160ms var(--ease); }
 .nav-enter-active .mobile-nav-panel,
-.nav-leave-active .mobile-nav-panel { transition: transform 220ms var(--ease-out); }
+.nav-leave-active .mobile-nav-panel { transition: transform 200ms var(--ease-out); }
 .nav-enter-from, .nav-leave-to { opacity: 0; }
 .nav-enter-from .mobile-nav-panel,
-.nav-leave-to .mobile-nav-panel { transform: translateX(-16px); }
+.nav-leave-to .mobile-nav-panel { transform: translateX(-12px); }
 
-@media (max-width: 1024px) {
-  .app {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
-    overflow: hidden;
-  }
-  .rail { display: none; }
-  .mobile-top {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-surface);
-    min-height: 52px;
-  }
-  .mobile-brand {
-    flex: 1; min-width: 0;
-    display: flex; align-items: center; gap: var(--space-2);
-  }
-  .mobile-logo { width: 28px; height: 28px; border-radius: 9px; }
-  .mobile-title {
-    font-size: 14px; font-weight: 650; color: var(--color-fg);
-    letter-spacing: -0.01em;
-  }
-  .assets { display: none; }
-  .dock { padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); }
-}
-.mobile-assets-fab {
-  display: none;
-  position: fixed;
-  right: 16px;
-  /* 抬高,避开底部 Composer(参数区改版后更高),减少误触 */
-  bottom: calc(var(--composer-height, 248px) + 16px + env(safe-area-inset-bottom, 0px));
-  z-index: 40;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-surface-2);
-  color: var(--color-primary);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 42%, var(--color-border-strong));
-}
-@media (max-width: 1024px) {
-  .mobile-assets-fab { display: flex; }
+.mobile-assets-btn { width: auto; gap: 5px; padding: 0 8px; }
+.mobile-assets-count {
+  font-family: var(--font-mono); font-size: 10px; line-height: 1;
+  color: var(--color-fg-subtle);
 }
 .mobile-assets-scrim {
   position: fixed;
@@ -693,37 +752,72 @@ function openStorage() {
   justify-content: center;
 }
 .mobile-assets-sheet {
-  width: min(100%, 520px);
-  max-height: 82vh;
-  background: var(--color-surface);
-  border-radius: 20px 20px 0 0;
+  width: min(100%, 560px);
+  max-height: 84vh;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-strong);
+  border-bottom: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-shadow: 0 -12px 0 color-mix(in srgb, var(--color-ink) 8%, transparent);
 }
-.mobile-assets-handle {
-  width: 40px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--color-border-strong);
-  margin: 10px auto 0;
-  flex-shrink: 0;
+.mobile-assets-grip {
+  display: flex; justify-content: center; padding: 10px 0 2px; flex-shrink: 0;
+}
+.mobile-assets-grip span {
+  width: 34px; height: 3px; background: var(--color-border-strong);
 }
 .mobile-assets-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-2) var(--space-4) var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
+.mobile-assets-head strong { font-size: 14px; }
 .mobile-assets-body { overflow-y: auto; padding: var(--space-4); flex: 1; min-height: 0; }
 
 .sheet-enter-active,
-.sheet-leave-active { transition: opacity 180ms var(--ease); }
+.sheet-leave-active { transition: opacity 160ms var(--ease); }
 .sheet-enter-active .mobile-assets-sheet,
-.sheet-leave-active .mobile-assets-sheet { transition: transform 220ms var(--ease-out); }
+.sheet-leave-active .mobile-assets-sheet { transition: transform 200ms var(--ease-out); }
 .sheet-enter-from,
 .sheet-leave-to { opacity: 0; }
 .sheet-enter-from .mobile-assets-sheet,
-.sheet-leave-to .mobile-assets-sheet { transform: translateY(16px); }
+.sheet-leave-to .mobile-assets-sheet { transform: translateY(18px); }
+
+@media (max-width: 1280px) {
+  .app { --materials-w: 284px; --ledger-w: 260px; }
+}
+@media (max-width: 1024px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    overflow: hidden;
+  }
+  .rail { display: none; }
+  .studio-top { display: none; }
+  .mobile-top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+    min-height: 48px;
+  }
+  .mobile-brand {
+    flex: 1; min-width: 0;
+    display: flex; align-items: center; gap: var(--space-2);
+  }
+  .mobile-logo { width: 26px; height: 26px; }
+  .mobile-title {
+    font-size: 14px; font-weight: 800; color: var(--color-fg);
+    letter-spacing: -0.03em;
+  }
+  .assets { display: none; }
+  .dock { padding: var(--space-3) var(--space-3) calc(var(--space-2) + env(safe-area-inset-bottom, 0px)); }
+  .undo-stack { bottom: calc(var(--composer-height, 248px) + 12px); width: calc(100% - 28px); }
+}
 </style>

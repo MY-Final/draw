@@ -264,77 +264,80 @@ buildIndex()
 .search-overlay {
   position: fixed; inset: 0; z-index: 1000;
   display: flex; align-items: flex-start; justify-content: center;
-  padding-top: 12vh;
-  background: rgba(0,0,0,0.4);
+  padding: 12vh var(--space-4) var(--space-4);
+  background: var(--color-scrim);
+  animation: fade 140ms var(--ease);
 }
-
 .search-modal {
-  width: min(560px, 90vw);
+  width: min(600px, 94vw);
   background: var(--color-elevated);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
   overflow: hidden;
+  animation: pop 160ms var(--ease-out);
 }
-
 .search-input-wrap {
   display: flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border-strong);
 }
-
 .search-icon { flex-shrink: 0; color: var(--color-fg-subtle); }
-
 .search-input {
   flex: 1; border: none; outline: none; background: transparent;
-  font-size: 15px; color: var(--color-fg);
+  font-family: var(--font-sans); font-size: 17px; font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--color-fg); padding: 0; border-radius: 0;
 }
-.search-input::placeholder { color: var(--color-fg-subtle); }
-
+.search-input::placeholder { color: var(--color-fg-subtle); font-weight: 400; }
 .search-kbd {
   flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 28px; height: 22px;
-  padding: 0 6px;
-  border-radius: 4px;
-  font-size: 11px; font-family: inherit;
+  min-width: 30px; height: 20px;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.08em;
   color: var(--color-fg-subtle);
-  background: var(--color-surface-2);
   border: 1px solid var(--color-border);
 }
-
-.search-results { max-height: 360px; overflow-y: auto; padding: var(--space-1); }
-
+.search-results { max-height: 380px; overflow-y: auto; padding: 4px; }
 .result-group-label {
-  display: flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-2) var(--space-2) var(--space-1);
-  font-size: 11px; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.04em; color: var(--color-fg-subtle);
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 10px 4px;
+  font-family: var(--font-mono); font-size: 9px; font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--color-fg-subtle);
   position: sticky; top: 0;
   background: var(--color-elevated);
   z-index: 1;
 }
-
+.result-group-label::after { content: ''; flex: 1; height: 1px; background: var(--color-border); }
 .result-item {
-  display: flex; align-items: center; gap: var(--space-2);
+  display: flex; align-items: center; gap: 9px;
   width: 100%; text-align: left;
-  padding: var(--space-2) var(--space-2);
-  border-radius: var(--radius-sm);
-  font-size: 13px; color: var(--color-fg-muted);
+  padding: 7px 10px;
+  font-size: 12.5px; color: var(--color-fg-muted);
 }
-.result-item:hover, .result-item.focused { background: var(--color-surface-2); color: var(--color-fg); }
+.result-item:hover, .result-item.focused {
+  background: var(--color-surface-2); color: var(--color-fg);
+}
 .result-item :deep(svg) { flex-shrink: 0; }
 .result-thumb {
-  flex-shrink: 0; width: 32px; height: 32px; border-radius: 7px;
+  flex-shrink: 0; width: 32px; height: 32px;
   overflow: hidden; border: 1px solid var(--color-border);
   background: var(--color-surface-2);
 }
 .result-thumb :deep(.asset-img) { width: 100%; height: 100%; object-fit: cover; }
-
 .result-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.result-subtitle { font-size: 11px; color: var(--color-fg-subtle); flex-shrink: 0; margin-left: auto; }
-
-.search-empty, .search-hint {
-  padding: var(--space-6); text-align: center;
-  font-size: 13px; color: var(--color-fg-subtle);
+.result-subtitle {
+  font-family: var(--font-mono); font-size: 9px;
+  color: var(--color-fg-subtle); flex-shrink: 0; margin-left: auto;
 }
+.search-empty, .search-hint {
+  padding: var(--space-8) var(--space-6); text-align: center;
+  font-family: var(--font-mono); font-size: 10.5px; line-height: 1.7;
+  color: var(--color-fg-subtle);
+}
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 </style>

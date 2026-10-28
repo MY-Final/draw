@@ -30,11 +30,20 @@ function toggle() {
 
 <style scoped>
 .locale-toggle {
-  width: 34px; height: 34px; flex-shrink: 0;
+  width: 30px; height: 30px; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 600; letter-spacing: 0.01em;
-  border-radius: var(--radius-sm); color: var(--color-fg-subtle);
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 500;
+  letter-spacing: 0.02em;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-subtle);
+  background: transparent;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
 }
-.locale-toggle:hover { background: var(--color-surface-2); color: var(--color-fg); }
+.locale-toggle:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-2);
+  color: var(--color-fg);
+}
 </style>

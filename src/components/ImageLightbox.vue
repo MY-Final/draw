@@ -219,58 +219,77 @@ async function download() {
 
 <style scoped>
 .scrim {
-  position: fixed; inset: 0; z-index: 150; padding: var(--space-6);
-  background: rgba(0, 0, 0, 0.75);
+  position: fixed; inset: 0; z-index: 150; padding: var(--space-5);
+  background: rgba(10, 9, 7, 0.9);
   display: flex; align-items: center; justify-content: center;
-  animation: fade var(--dur) var(--ease);
+  animation: fade 140ms var(--ease);
 }
-.viewer { display: flex; flex-direction: column; gap: var(--space-2); max-width: 90vw; max-height: 90vh; }
+.viewer {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  max-width: 92vw; max-height: 92vh;
+}
 .viewer-img {
-  max-height: 80vh; display: flex; overflow: hidden;
-  border-radius: var(--radius);
+  max-height: 76vh; display: flex; overflow: hidden;
+  border: 1px solid #3a352a;
+  background: #0c0b08;
 }
 .viewer-stage {
   display: flex; transform-origin: center center;
   transition: transform 120ms var(--ease-out);
 }
 .viewer-img.panning .viewer-stage { transition: none; }
-/* 放大后可拖拽平移,光标同步成抓手 */
 .viewer-img.zoomed { cursor: grab; }
 .viewer-img.zoomed.panning { cursor: grabbing; }
 .viewer-prompt {
   display: flex; align-items: center; gap: var(--space-2);
-  margin: 0; padding: 8px 10px; border-radius: 12px;
-  background: var(--color-elevated); border: 1px solid var(--color-border);
-  font-size: 12px; color: var(--color-fg-muted);
+  margin: 0; padding: 8px 10px;
+  border: 1px solid #3a352a;
+  background: var(--color-ink); color: var(--color-on-ink);
+  font-size: 11.5px;
 }
 .viewer-prompt-text {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono); font-size: 10px;
 }
+.viewer-prompt .btn {
+  color: inherit; border-color: color-mix(in srgb, var(--color-on-ink) 24%, transparent);
+}
+.viewer-prompt .btn:hover { background: color-mix(in srgb, var(--color-on-ink) 10%, transparent); }
 .viewer-zoom { display: inline-flex; align-items: center; gap: 2px; }
-.viewer-zoom .btn { min-height: 28px; padding: 0 8px; }
+.viewer-zoom .btn { min-height: 26px; padding: 0 7px; }
 .zoom-value { min-width: 52px; justify-content: center; font-variant-numeric: tabular-nums; }
 .flash {
-  font-size: 11px; color: var(--color-primary);
-  padding: 3px 8px; border-radius: 999px; background: var(--color-primary-soft);
+  font-family: var(--font-mono); font-size: 9px;
+  color: var(--color-on-primary);
+  padding: 3px 7px;
+  background: var(--color-primary);
 }
-.viewer-img :deep(.asset-img) { object-fit: contain; max-height: 80vh; width: auto; max-width: 90vw; border-radius: var(--radius); }
+.viewer-img :deep(.asset-img) {
+  object-fit: contain; max-height: 76vh; width: auto; max-width: 90vw;
+}
 .viewer-bar {
   display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
-  font-size: 12px; color: var(--color-fg-muted);
-  padding: 8px 10px; border-radius: 14px;
-  background: var(--color-elevated);
-  border: 1px solid var(--color-border-strong);
+  font-family: var(--font-mono); font-size: 9.5px;
+  color: var(--color-on-ink);
+  padding: 8px 10px;
+  background: var(--color-ink);
+  border: 1px solid #3a352a;
 }
-.viewer-bar .btn.on { color: var(--color-heart); border-color: color-mix(in srgb, var(--color-heart) 40%, transparent); }
+.viewer-bar .btn {
+  min-height: 26px; font-family: var(--font-mono); font-size: 9.5px;
+  color: inherit; border-color: color-mix(in srgb, var(--color-on-ink) 24%, transparent);
+  background: transparent;
+}
+.viewer-bar .btn:hover { background: color-mix(in srgb, var(--color-on-ink) 10%, transparent); }
+.viewer-bar .btn.on { color: var(--color-heart); border-color: color-mix(in srgb, var(--color-heart) 50%, transparent); }
 .viewer-bar .btn.on :deep(svg) { fill: var(--color-heart); }
 .src-chip {
-  padding: 2px 8px; border-radius: 999px; font-size: 11px;
-  color: var(--color-fg-muted); background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
+  padding: 2px 6px; font-size: 8.5px; letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--color-on-ink) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-on-ink) 22%, transparent);
 }
 .viewer-nav { display: inline-flex; align-items: center; gap: 2px; }
-.viewer-nav .btn { min-height: 28px; padding: 0 8px; }
-.nav-count { font-size: 11px; color: var(--color-fg-muted); min-width: 40px; text-align: center; }
+.nav-count { font-size: 9px; min-width: 44px; text-align: center; opacity: 0.72; }
 .spacer { flex: 1; min-width: 8px; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 </style>

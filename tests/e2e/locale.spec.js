@@ -7,10 +7,10 @@ async function openSidebar(page) {
   if (await menu.isVisible()) await menu.click()
 }
 
-// 打开素材库(桌面端右栏常驻;移动端在底部抽屉里)。
+// 打开素材库(桌面端右栏常驻;移动端从顶栏打开底部抽屉)。
 async function openLibrary(page) {
-  const fab = page.locator('.mobile-assets-fab')
-  if (await fab.isVisible()) await fab.click()
+  const entry = page.locator('.mobile-assets-btn')
+  if (await entry.isVisible()) await entry.click()
 }
 
 // 直接往 IndexedDB 里塞一条素材(metadata + blob),用于验证 lib 层来源标签。

@@ -21,17 +21,24 @@ const emit = defineEmits(['undo'])
 <style scoped>
 .undo-toast {
   display: flex; align-items: center; gap: var(--space-3);
-  max-width: min(90vw, 420px); padding: 12px 16px; border-radius: 12px;
-  background: var(--color-elevated); border: 1px solid var(--color-border-strong);
-  font-size: 13px; color: var(--color-fg);
+  max-width: min(92vw, 440px); padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+  border: 1px solid var(--color-ink);
+  box-shadow: var(--shadow-pop);
+  font-size: 12.5px;
 }
 .undo-toast.fixed {
-  position: fixed; bottom: 128px; left: 50%; transform: translateX(-50%); z-index: 60;
+  position: fixed; bottom: calc(var(--composer-height, 240px) + 16px);
+  left: 50%; transform: translateX(-50%); z-index: 60;
 }
 .undo-toast span { min-width: 0; }
 .undo-btn {
-  flex-shrink: 0; font-size: 13px; font-weight: 650;
-  color: var(--color-primary); padding: 4px 8px; border-radius: 999px;
+  flex-shrink: 0; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
+  color: inherit; padding: 2px 0;
+  text-decoration: underline; text-underline-offset: 3px;
+  opacity: 0.82;
 }
-.undo-btn:hover { background: var(--color-primary-soft); }
+.undo-btn:hover { opacity: 1; }
 </style>

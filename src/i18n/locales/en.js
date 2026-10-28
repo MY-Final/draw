@@ -21,6 +21,8 @@ export default {
     openAssets: 'Open library',
     collapseAssets: 'Collapse library',
     expandAssets: 'Expand library',
+    assetsShort: 'ASSETS',
+    plates: 'WORKS',
     loading: 'Loading workbench',
     loadFailed: 'Failed to load local data',
     loadFailedDefault: 'Local data failed to initialize. Please retry.',
@@ -49,6 +51,8 @@ export default {
     conversationActions: 'Conversation actions',
   },
   sidebar: {
+    workspaces: 'Projects',
+    workspacesAria: 'Project list',
     newCanvas: 'New creation',
     newConversation: 'New chat',
     collapseWorkspace: 'Collapse workspace',

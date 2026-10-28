@@ -21,6 +21,8 @@ export default {
     openAssets: '打开素材库',
     collapseAssets: '收起素材库',
     expandAssets: '展开素材库',
+    assetsShort: '素材',
+    plates: '作品',
     loading: '正在加载工作台',
     loadFailed: '本地数据加载失败',
     loadFailedDefault: '本地数据初始化失败，请重试。',
@@ -49,6 +51,8 @@ export default {
     conversationActions: '会话操作',
   },
   sidebar: {
+    workspaces: '项目',
+    workspacesAria: '项目列表',
     newCanvas: '新建创作',
     newConversation: '新创作',
     collapseWorkspace: '折叠工作区',

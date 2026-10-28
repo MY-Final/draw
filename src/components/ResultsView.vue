@@ -19,11 +19,6 @@ const scroller = ref(null)
 // 用户主动上翻时不抢滚动;仅贴近底部才跟滚。
 const stickToBottom = ref(true)
 const NEAR_BOTTOM_PX = 120
-// 空状态快捷键文案按平台
-const searchModKey = (() => {
-  if (typeof navigator === 'undefined') return 'Ctrl'
-  return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '') ? '⌘' : 'Ctrl'
-})()
 
 // 冷启动灵感:点一下直接填进输入框,比只给一句操作说明更有用。
 const INSPIRATIONS = [
@@ -263,128 +258,173 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
   <div class="results">
     <div class="feed" ref="scroller" @scroll.passive="onFeedScroll">
       <div class="feed-inner">
-      <!-- 空状态 -->
+      <!-- 空状态:一张空白画纸 -->
       <div v-if="!feed.length && !store.generating" class="empty">
-        <div class="empty-icon"><AppIcon name="sparkles" :size="26" /></div>
         <h1>{{ t('results.empty.title') }}</h1>
         <p>{{ t('results.empty.description') }}</p>
         <div class="empty-inspire" role="group" :aria-label="t('results.empty.inspirationsAria')">
           <button
             v-for="idea in INSPIRATIONS" :key="idea.key"
-            type="button" class="empty-chip chip-action"
+            type="button" class="chip-action"
             @click="emit('fill-prompt', t(`results.inspirations.${idea.key}.prompt`))"
           >
-            <AppIcon :name="idea.icon" :size="12" /> {{ t(`results.inspirations.${idea.key}.label`) }}
+            <AppIcon :name="idea.icon" :size="14" />
+            <span class="insp-label">{{ t(`results.inspirations.${idea.key}.label`) }}</span>
           </button>
-        </div>
-        <div class="empty-hints">
-          <span class="empty-chip"><AppIcon name="image" :size="12" /> {{ t('results.empty.dropReference') }}</span>
-          <span class="empty-chip"><AppIcon name="keyboard" :size="12" /> {{ t('results.empty.generateHint') }}</span>
-          <span class="empty-chip"><AppIcon name="search" :size="12" /> {{ t('results.empty.searchHint', { mod: searchModKey }) }}</span>
-          <span class="empty-chip"><AppIcon name="plus" :size="12" /> {{ t('results.empty.newCreationHint') }}</span>
         </div>
       </div>
 
-      <!-- 每条生成:请求气泡 + 回复卡 -->
-      <div v-for="gen in feed" :key="gen.id" class="turn">
-        <!-- 用户请求气泡(右) -->
-        <div class="row row-user">
-          <div class="user-stack">
-            <div class="bubble" :class="{ editing: editingGenId === gen.id }">
-              <div v-if="editingGenId === gen.id" class="bubble-edit">
-                <textarea
-                  ref="editInput" v-model="editText" class="bubble-edit-input"
-                  @input="autogrowEdit"
-                  @keydown.enter="onEditEnter($event, gen)" @keydown.esc="cancelEdit"
-                />
-                <button
-                  type="button" class="bubble-edit-resize" :class="{ active: editResizing }"
-                  @pointerdown="onEditResizeStart" @pointermove="onEditResizeMove"
-                  @pointerup="onEditResizeEnd" @pointercancel="onEditResizeEnd"
-                  @keydown="onEditResizeKey"
-                  :title="t('results.edit.resizeTitle')" :aria-label="t('results.edit.resizeAria')"
-                >
-                  <span class="bubble-edit-grip" aria-hidden="true" />
-                </button>
-                <div class="bubble-edit-actions">
-                  <span class="bubble-edit-hint">{{ t('results.edit.hint') }}</span>
-                  <div class="bubble-edit-btns">
-                    <button class="bubble-edit-btn-cancel" @click="cancelEdit">{{ t('common.cancel') }}</button>
-                    <button class="bubble-edit-btn-save" @click="saveEdit(gen)" :disabled="!editText.trim()">{{ t('results.edit.regenerate') }}</button>
-                  </div>
+      <!-- 每一轮生成 = 一张作品版:左侧图注,右侧画面 -->
+      <article v-for="(gen, gi) in feed" :key="gen.id" class="turn">
+        <header class="plate-head">
+          <span class="plate-no tnum">PLATE {{ String(gi + 1).padStart(2, '0') }}</span>
+          <span class="plate-head-rule" aria-hidden="true" />
+          <span class="plate-model">{{ modelOf(gen) }}</span>
+          <span v-if="qualityOf(gen)" class="plate-chip tnum" :title="t('results.qualityTitle', { quality: qualityOf(gen) })">{{ qualityOf(gen) }}</span>
+          <span v-if="gen.status === 'success'" class="plate-status ok"><span class="status-dot" aria-hidden="true" />{{ t('results.status.success') }}</span>
+          <span v-else-if="gen.status === 'failed'" class="plate-status bad"><span class="status-dot" aria-hidden="true" />{{ t('results.status.failed') }}</span>
+          <span v-else-if="gen.status === 'empty'" class="plate-status warn"><span class="status-dot" aria-hidden="true" />{{ t('results.status.empty') }}</span>
+          <span v-else class="plate-status live"><AppIcon name="refresh" :size="11" class="spin" />{{ gen.statusMessage || t('results.status.generating') }}</span>
+          <PendingTimer v-if="gen.status === 'pending'" :created-at="gen.createdAt" />
+          <span v-else-if="elapsedText(gen)" class="plate-time tnum">{{ elapsedText(gen) }}</span>
+        </header>
+
+        <div v-if="gen.status === 'failed'" class="plate-notice note note-danger">
+          <AppIcon name="alert" :size="14" />
+          <span class="note-text">{{ gen.error }}</span>
+          <button
+            v-if="isSettingsError(gen)"
+            type="button"
+            class="note-action"
+            @click="emit('open-settings')"
+          >{{ t('results.settingsAction') }}</button>
+          <details v-if="gen.errorDetail" class="error-detail">
+            <summary>{{ t('results.errorDetail') }}</summary>
+            <pre>{{ gen.errorDetail }}</pre>
+          </details>
+        </div>
+        <div v-else-if="gen.status === 'empty'" class="plate-notice note note-warn">
+          <div>{{ t('results.emptyResponse') }}<code class="snippet">{{ gen.rawResponseSnippet }}</code></div>
+        </div>
+        <div v-else-if="hasMissingOutputs(gen)" class="plate-notice note note-warn">
+          <AppIcon name="alert" :size="14" />
+          <span class="note-text">{{ t('results.missingOutputs') }}</span>
+        </div>
+        <div v-else-if="gen.status === 'success' && gen.partialNote" class="plate-notice note note-warn">
+          <AppIcon name="alert" :size="14" />
+          <div class="note-text">
+            {{ t('results.partialNote', { note: gen.partialNote }) }}
+            <code v-if="gen.rawResponseSnippet" class="snippet">{{ gen.rawResponseSnippet }}</code>
+          </div>
+        </div>
+
+        <div class="plate-body" :class="{ 'has-images': outputsOf(gen).length }">
+          <!-- 图注:prompt、参考图、操作 -->
+          <aside class="caption">
+            <div v-if="editingGenId === gen.id" class="bubble-edit">
+              <textarea
+                ref="editInput" v-model="editText" class="bubble-edit-input"
+                @input="autogrowEdit"
+                @keydown.enter="onEditEnter($event, gen)" @keydown.esc="cancelEdit"
+              />
+              <button
+                type="button" class="bubble-edit-resize" :class="{ active: editResizing }"
+                @pointerdown="onEditResizeStart" @pointermove="onEditResizeMove"
+                @pointerup="onEditResizeEnd" @pointercancel="onEditResizeEnd"
+                @keydown="onEditResizeKey"
+                :title="t('results.edit.resizeTitle')" :aria-label="t('results.edit.resizeAria')"
+              >
+                <span class="bubble-edit-grip" aria-hidden="true" />
+              </button>
+              <div class="bubble-edit-actions">
+                <span class="bubble-edit-hint">{{ t('results.edit.hint') }}</span>
+                <div class="bubble-edit-btns">
+                  <button class="bubble-edit-btn-cancel" @click="cancelEdit">{{ t('common.cancel') }}</button>
+                  <button class="bubble-edit-btn-save" @click="saveEdit(gen)" :disabled="!editText.trim()">{{ t('results.edit.regenerate') }}</button>
                 </div>
               </div>
-              <template v-else>
-                <p class="bubble-text">{{ gen.prompt }}</p>
-              </template>
+            </div>
+            <template v-else>
+              <p class="bubble-text">{{ gen.prompt }}</p>
               <div v-if="refsOf(gen).length" class="bubble-refs">
                 <div v-for="a in refsOf(gen)" :key="a.id" class="bubble-ref">
                   <AssetImage :asset="a" :alt="t('results.referenceImage')" />
                 </div>
                 <span class="ref-hint">{{ t('results.referenceImage') }}</span>
               </div>
-            </div>
-            <!-- 编辑按钮:贴在用户消息气泡正下方 -->
-            <div v-if="gen.status !== 'pending'" class="user-actions">
+            </template>
+
+            <div v-if="gen.status !== 'pending'" class="caption-actions">
               <button
+                v-if="editingGenId !== gen.id"
                 class="user-edit-btn"
                 @click="startEdit(gen)"
                 :disabled="store.generating"
                 :title="t('results.edit.actionTitle')"
               >
-                <AppIcon name="edit" :size="13" /> {{ t('results.edit.button') }}
+                <AppIcon name="edit" :size="12" /> {{ t('results.edit.button') }}
               </button>
-            </div>
-          </div>
-          <div class="avatar avatar-user"><AppIcon name="user" :size="15" /></div>
-        </div>
 
-        <!-- AI 回复卡(左) -->
-        <div class="row row-ai">
-          <div class="avatar avatar-ai"><AppIcon name="sparkles" :size="15" /></div>
-          <div class="card">
-            <div class="card-head">
-              <span class="model">{{ modelOf(gen) }}</span>
-              <span v-if="qualityOf(gen)" class="badge-soft tnum" :title="t('results.qualityTitle', { quality: qualityOf(gen) })">{{ qualityOf(gen) }}</span>
-              <span v-if="gen.status === 'success'" class="badge badge-ok"><AppIcon name="check" :size="11" /> {{ t('results.status.success') }}</span>
-              <span v-else-if="gen.status === 'failed'" class="badge badge-danger">{{ t('results.status.failed') }}</span>
-              <span v-else-if="gen.status === 'empty'" class="badge badge-warn">{{ t('results.status.empty') }}</span>
-              <span v-else class="badge"><AppIcon name="refresh" :size="11" class="spin" /> {{ gen.statusMessage || t('results.status.generating') }}</span>
-               <PendingTimer v-if="gen.status === 'pending'" :created-at="gen.createdAt" />
-               <span v-else-if="elapsedText(gen)" class="elapsed tnum">{{ elapsedText(gen) }}</span>
-            </div>
-
-            <div v-if="gen.status === 'failed'" class="note note-danger">
-              <AppIcon name="alert" :size="14" />
-              <span class="note-text">{{ gen.error }}</span>
-              <button
-                v-if="isSettingsError(gen)"
-                type="button"
-                class="note-action"
-                @click="emit('open-settings')"
-              >{{ t('results.settingsAction') }}</button>
-              <details v-if="gen.errorDetail" class="error-detail">
-                <summary>{{ t('results.errorDetail') }}</summary>
-                <pre>{{ gen.errorDetail }}</pre>
-              </details>
-            </div>
-            <div v-else-if="gen.status === 'empty'" class="note note-warn">
-              <div>{{ t('results.emptyResponse') }}<code class="snippet">{{ gen.rawResponseSnippet }}</code></div>
-            </div>
-            <div v-else-if="hasMissingOutputs(gen)" class="note note-warn">
-              <AppIcon name="alert" :size="14" />
-              <span class="note-text">{{ t('results.missingOutputs') }}</span>
-            </div>
-            <div v-else-if="gen.status === 'success' && gen.partialNote" class="note note-warn">
-              <AppIcon name="alert" :size="14" />
-              <div class="note-text">
-                {{ t('results.partialNote', { note: gen.partialNote }) }}
-                <code v-if="gen.rawResponseSnippet" class="snippet">{{ gen.rawResponseSnippet }}</code>
+              <div class="actions">
+                <button
+                  class="act"
+                  @click="emit('use-as-reference', activeOutput(gen)?.id)"
+                  :disabled="!activeOutput(gen)"
+                  :title="outputsOf(gen).length > 1 ? t('results.continueWithSelected') : t('results.continueWithThis')"
+                >
+                  <AppIcon name="layers" :size="14" /> {{ t('results.setAsReference') }}
+                </button>
+                <button class="act" @click="store.regenerate(gen.id)" :disabled="store.generating" :title="t('results.regenerateTitle')">
+                  <AppIcon name="refresh" :size="14" /> {{ t('results.regenerate') }}
+                </button>
+                <button class="act" @click="reuseInComposer(gen)" :title="t('results.refillTitle')">
+                  <AppIcon name="message" :size="14" /> {{ t('results.refill') }}
+                </button>
+                <button
+                  class="act"
+                  @click="downloadImage(activeOutput(gen), gen)"
+                  :disabled="!activeOutput(gen)"
+                  :title="outputsOf(gen).length > 1 ? t('results.downloadSelected') : t('results.download')"
+                >
+                  <AppIcon name="download" :size="14" /> {{ t('results.download') }}
+                </button>
+                <button class="act" @click="shareRecipe(gen)" :title="t('results.shareTitle')">
+                  <AppIcon name="share" :size="14" /> {{ t('results.share') }}
+                </button>
+                <button class="act act-danger" @click="deleteGen(gen)" :title="t('results.deleteTitle')">
+                  <AppIcon name="trash" :size="14" /> {{ t('common.delete') }}
+                </button>
               </div>
             </div>
-            <!-- 生成中:本轮自身的骨架占位 + 取消 -->
+          </aside>
+
+          <!-- 画面:像裱在纸板上的作品 -->
+          <div class="plate-field">
+            <div v-if="outputsOf(gen).length" class="imgs" :class="{ single: outputsOf(gen).length === 1 }">
+              <figure
+                v-for="(a, ai) in outputsOf(gen)" :key="a.id"
+                class="fig" :class="{ focused: activeOutput(gen)?.id === a.id && outputsOf(gen).length > 1 }"
+                @mouseenter="focusAsset(gen.id, a.id)"
+                @focusin="focusAsset(gen.id, a.id)"
+              >
+                <button class="fig-img" @click="focusAsset(gen.id, a.id); emit('preview', { asset: a, list: outputsOf(gen) })" :aria-label="t('results.zoomPreview')">
+                  <AssetImage :asset="a" :alt="gen.prompt" />
+                </button>
+                <span v-if="outputsOf(gen).length > 1" class="fig-counter tnum">{{ ai + 1 }}/{{ outputsOf(gen).length }}</span>
+                <button
+                  class="fav" :class="{ on: a.favorite }"
+                  @click.stop="store.toggleAssetFavorite(a.id)"
+                  :aria-label="a.favorite ? t('results.unfavorite') : t('results.favorite')"
+                >
+                  <AppIcon name="heart" :size="14" />
+                </button>
+              </figure>
+            </div>
+            <!-- 生成中:等待画面显影 -->
             <div v-else-if="gen.status === 'pending'" class="pending-block">
-              <div class="skeleton" />
+              <div class="skeleton">
+                <span class="mono-label">EXPOSING</span>
+              </div>
               <div class="pending-actions">
                 <button
                   v-if="store.activeGeneration?.genId === gen.id"
@@ -399,71 +439,23 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
                 </button>
               </div>
             </div>
-
-            <div v-if="outputsOf(gen).length" class="imgs" :class="{ single: outputsOf(gen).length === 1 }">
-              <figure
-                v-for="a in outputsOf(gen)" :key="a.id"
-                class="fig" :class="{ focused: activeOutput(gen)?.id === a.id && outputsOf(gen).length > 1 }"
-                @mouseenter="focusAsset(gen.id, a.id)"
-                @focusin="focusAsset(gen.id, a.id)"
-              >
-                <button class="fig-img" @click="focusAsset(gen.id, a.id); emit('preview', { asset: a, list: outputsOf(gen) })" :aria-label="t('results.zoomPreview')">
-                  <AssetImage :asset="a" :alt="gen.prompt" />
-                </button>
-                <button
-                  class="fav" :class="{ on: a.favorite }"
-                  @click.stop="store.toggleAssetFavorite(a.id)"
-                  :aria-label="a.favorite ? t('results.unfavorite') : t('results.favorite')"
-                >
-                  <AppIcon name="heart" :size="14" />
-                </button>
-              </figure>
-            </div>
-
-            <!-- 操作区(生成中不显示);多图时作用在当前聚焦图 -->
-            <div v-if="gen.status !== 'pending'" class="actions">
-              <button
-                class="act"
-                @click="emit('use-as-reference', activeOutput(gen)?.id)"
-                :disabled="!activeOutput(gen)"
-                :title="outputsOf(gen).length > 1 ? t('results.continueWithSelected') : t('results.continueWithThis')"
-              >
-                <AppIcon name="layers" :size="14" /> {{ t('results.setAsReference') }}
-              </button>
-              <button class="act" @click="store.regenerate(gen.id)" :disabled="store.generating" :title="t('results.regenerateTitle')">
-                <AppIcon name="refresh" :size="14" /> {{ t('results.regenerate') }}
-              </button>
-              <button class="act" @click="reuseInComposer(gen)" :title="t('results.refillTitle')">
-                <AppIcon name="message" :size="14" /> {{ t('results.refill') }}
-              </button>
-              <button
-                class="act"
-                @click="downloadImage(activeOutput(gen), gen)"
-                :disabled="!activeOutput(gen)"
-                :title="outputsOf(gen).length > 1 ? t('results.downloadSelected') : t('results.download')"
-              >
-                <AppIcon name="download" :size="14" /> {{ t('results.download') }}
-              </button>
-              <button class="act" @click="shareRecipe(gen)" :title="t('results.shareTitle')">
-                <AppIcon name="share" :size="14" /> {{ t('results.share') }}
-              </button>
-              <button class="act act-danger" @click="deleteGen(gen)" :title="t('results.deleteTitle')">
-                <AppIcon name="trash" :size="14" /> {{ t('common.delete') }}
-              </button>
+            <div v-else class="field-blank" :class="{ failed: gen.status === 'failed' }" aria-hidden="true">
+              <span class="blank-mark"><AppIcon name="image" :size="18" /></span>
+              <span class="mono-label">{{ gen.status === 'failed' ? t('results.noPlate') : t('results.status.empty') }}</span>
             </div>
           </div>
         </div>
-      </div>
+      </article>
 
-      <!-- 排队中的请求:生成是单通道的,这里让用户看见「还排着几单」并能调整 -->
+      <!-- 排队中:一张排期单 -->
       <div v-if="queuedHere.length" class="queue" role="list" :aria-label="t('results.queue.aria')">
         <div class="queue-head">
           <AppIcon name="layers" :size="13" />
-          <span>{{ t('results.queue.count', { count: queuedHere.length }) }}</span>
+          <span class="queue-title">{{ t('results.queue.count', { count: queuedHere.length }) }}</span>
           <span class="queue-hint">{{ t('results.queue.hint') }}</span>
         </div>
         <div v-for="(q, qi) in queuedHere" :key="q.id" class="queue-item" role="listitem">
-          <span class="queue-pos tnum">{{ qi + 1 }}</span>
+          <span class="queue-pos tnum">{{ String(qi + 1).padStart(2, '0') }}</span>
           <span class="queue-text" :title="q.prompt">{{ q.prompt }}</span>
           <button
             v-if="qi > 0" class="queue-act" type="button"
@@ -478,7 +470,7 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
       </div>
     </div>
 
-    <!-- 有新结果:固定在结果区底部,不随内容滚动 -->
+    <!-- 有新结果:固定在结果区底部 -->
     <button
       v-if="missedResults"
       type="button" class="new-results" @click="scrollToLatest"
@@ -497,325 +489,389 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
     />
   </div>
 </template>
-
 <style scoped>
 .results { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .feed { flex: 1; min-height: 0; overflow-y: auto; scroll-behavior: smooth; }
-/* 「有新结果」浮标:不抢滚动,但也不让用户错过生成完成 */
-.new-results {
-  position: absolute; bottom: var(--space-4); left: 50%; transform: translateX(-50%);
-  z-index: 20; display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 14px; border-radius: 999px; font-size: 12px; font-weight: 600;
-  color: var(--color-on-primary); background: var(--color-primary);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 70%, #000);
-  animation: turn-in 200ms var(--ease-out);
-}
-.new-results:hover { background: var(--color-primary-hover); }
 .feed-inner {
-  max-width: 860px; margin: 0 auto;
-  padding: var(--space-6) var(--space-4) var(--space-8);
-  display: flex; flex-direction: column; gap: var(--space-8);
+  max-width: 1060px; min-height: 100%; margin: 0 auto;
+  padding: var(--space-6) var(--space-6) var(--space-12);
+  display: flex; flex-direction: column; gap: var(--space-10);
 }
 
+/* ── 空白画纸 ── */
 .empty {
-  text-align: center; padding: 8vh 0 4vh; color: var(--color-fg-muted);
-  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
-}
-.empty-icon {
-  width: 48px; height: 48px; border-radius: 14px;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--color-on-primary);
-  background: var(--color-primary);
+  flex: 1;
+  margin: 0 auto;
+  padding: 24px 0;
+  max-width: 620px;
+  color: var(--color-fg-muted);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center;
 }
 .empty h1 {
-  margin: var(--space-3) 0 0; font-size: 22px; font-weight: 650;
-  color: var(--color-fg); letter-spacing: -0.02em;
+  margin: 0;
+  font-size: clamp(30px, 4vw, 42px);
+  line-height: 1.05;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--color-fg);
 }
-.empty p { max-width: 360px; font-size: 13px; margin: 0; line-height: 1.6; }
-.empty-hints { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: var(--space-2); }
-.empty-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 8px; border-radius: 8px; font-size: 11px;
-  color: var(--color-fg-subtle); border: 1px solid transparent;
-  background: transparent;
+.empty p {
+  max-width: 40ch; margin: 14px 0 0;
+  font-size: 13.5px; line-height: 1.7;
 }
-/* 灵感标签是可以点的:给可见边框和 hover,和下面的快捷键说明区分开 */
-.empty-inspire { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: var(--space-4); }
+.empty-inspire {
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: 8px; margin-top: 28px;
+}
 .chip-action {
-  cursor: pointer; color: var(--color-fg-muted);
-  border-color: var(--color-border); background: var(--color-surface-2);
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
-    background var(--dur) var(--ease), transform var(--dur) var(--ease);
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 13px; border-radius: var(--radius);
+  border: 1px solid var(--color-border-strong);
+  background: transparent;
+  color: var(--color-fg-muted);
+  font-family: var(--font-sans); font-size: 12.5px; letter-spacing: -0.01em;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 .chip-action:hover {
-  color: var(--color-fg); border-color: var(--color-border-strong);
-  background: var(--color-elevated); transform: translateY(-1px);
+  background: var(--color-surface-2);
+  border-color: var(--color-fg-subtle);
+  color: var(--color-fg);
 }
-.chip-action:active { transform: none; }
+.insp-label { font-weight: 500; }
+.chip-action :deep(svg) { color: var(--color-fg-subtle); flex-shrink: 0; }
+.chip-action:hover :deep(svg) { color: var(--color-fg-muted); }
 
+/* ── 作品版 ── */
 .turn {
-  display: flex; flex-direction: column; gap: var(--space-4);
-  animation: turn-in 280ms var(--ease-out);
+  display: flex; flex-direction: column; gap: var(--space-3);
+  border-top: 1px solid var(--color-border-strong);
+  padding-top: 10px;
+  animation: turn-in 220ms var(--ease-out);
 }
 @keyframes turn-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
-
-/* 行:头像 + 内容。用户靠右,AI 靠左,明显错开 */
-.row { display: flex; gap: var(--space-3); align-items: flex-start; }
-.row-user { flex-direction: row; justify-content: flex-end; padding-left: 15%; }
-.row-ai { justify-content: flex-start; padding-right: 12%; }
-.user-stack {
-  display: flex; flex-direction: column; align-items: flex-end;
-  gap: 6px; max-width: 100%; min-width: 0;
-  /* 编辑态要让气泡占满可用宽度,否则 textarea 的固有宽度会把气泡拽成小框 */
-  width: min(100%, 680px);
+.plate-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  min-height: 22px;
 }
-.user-actions { display: flex; }
-.user-edit-btn {
+.plate-no {
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
+  letter-spacing: 0.14em; color: var(--color-fg);
+  white-space: nowrap;
+}
+.plate-head-rule { flex: 1; min-width: 24px; height: 1px; background: var(--color-border); }
+.plate-model { font-family: var(--font-mono); font-size: 10px; color: var(--color-fg-muted); }
+.plate-chip {
+  font-family: var(--font-mono); font-size: 9px; color: var(--color-fg-subtle);
+  padding: 1px 5px; border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.plate-status {
   display: inline-flex; align-items: center; gap: 5px;
-  padding: 5px 12px; border-radius: 999px;
-  font-size: 12px; color: var(--color-fg-muted);
-  background: var(--color-surface-2); border: 1px solid var(--color-border);
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease),
-    background var(--dur) var(--ease);
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.02em;
+  color: var(--color-fg-muted);
+  white-space: nowrap;
 }
-.user-edit-btn:hover {
-  color: var(--color-fg); border-color: var(--color-border-strong);
-  background: var(--color-elevated);
-}
-
-.avatar {
-  width: 32px; height: 32px; border-radius: 10px;
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.avatar-user {
-  background: var(--color-surface-2); color: var(--color-fg-muted);
-  border: 1px solid var(--color-border);
-}
-.avatar-ai {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.plate-status.ok { color: var(--color-success); }
+.plate-status.bad { color: var(--color-destructive); }
+.plate-status.warn { color: var(--color-warning); }
+.plate-status.live { color: var(--color-primary); }
+.plate-time, .elapsed {
+  margin-left: auto;
+  font-family: var(--font-mono) !important; font-size: 9.5px;
+  color: var(--color-fg-subtle); font-variant-numeric: tabular-nums;
 }
 
-/* 用户气泡 */
-.bubble {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  padding: var(--space-3) var(--space-4);
-  border-radius: 18px 18px 6px 18px;
-  max-width: 100%;
-}
-.bubble-text { margin: 0; font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
-.bubble.editing { width: 100%; }
-.bubble-edit { display: flex; flex-direction: column; gap: 10px; }
-.bubble-edit-input {
-  /* 保底高度:即使测量异常也保证有足够编辑空间(200px ~ 360px,随视口) */
-  width: 100%; min-height: clamp(200px, 35vh, 360px); resize: none; overflow-y: auto;
-  padding: 12px 14px; border-radius: 12px;
-  background: rgba(255,255,255,0.14);
-  border: 1px solid rgba(255,255,255,0.42);
-  color: var(--color-on-primary); font-size: 13.5px; line-height: 1.55;
-}
-.bubble-edit-input::placeholder { color: rgba(255,255,255,0.65); }
-.bubble-edit-input:focus {
-  outline: 2px solid rgba(255,255,255,0.85); outline-offset: 1px; border-color: rgba(255,255,255,0.85);
-}
-/* 编辑框高度把手:指针拖动 / 键盘 ↑↓ 均可调整 */
-.bubble-edit-resize {
-  align-self: center; display: flex; align-items: center; justify-content: center;
-  padding: 4px 14px; border-radius: 999px; cursor: ns-resize;
-  color: rgba(255,255,255,0.7); touch-action: none;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.bubble-edit-resize:hover,
-.bubble-edit-resize:focus-visible,
-.bubble-edit-resize.active { background: rgba(255,255,255,0.16); color: #fff; }
-.bubble-edit-resize:focus-visible { outline: 2px solid rgba(255,255,255,0.85); outline-offset: 1px; }
-.bubble-edit-grip {
-  display: block; position: relative; width: 22px; height: 3px;
-  background: currentColor; border-radius: 999px;
-}
-.bubble-edit-grip::before, .bubble-edit-grip::after {
-  content: ''; position: absolute; left: 0; right: 0; height: 3px;
-  background: currentColor; border-radius: 999px;
-}
-.bubble-edit-grip::before { top: -5px; }
-.bubble-edit-grip::after { top: 5px; }
-.bubble-edit-actions {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 8px; flex-wrap: wrap;
-}
-.bubble-edit-hint { font-size: 11px; color: rgba(255,255,255,0.8); }
-.bubble-edit-btns { display: flex; gap: 8px; }
-.bubble-edit-btn-cancel {
-  padding: 7px 14px; border-radius: 999px; font-size: 12.5px;
-  color: rgba(255,255,255,0.92); border: 1px solid rgba(255,255,255,0.45);
-  transition: background var(--dur) var(--ease);
-}
-.bubble-edit-btn-cancel:hover { background: rgba(255,255,255,0.16); }
-.bubble-edit-btn-save {
-  padding: 7px 16px; border-radius: 999px; font-size: 12.5px; font-weight: 650;
-  color: var(--color-primary); background: #fff;
-  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
-}
-.bubble-edit-btn-save:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-.bubble-edit-btn-save:disabled { opacity: 0.55; cursor: not-allowed; }
-.bubble-refs { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
-.bubble-ref { width: 42px; height: 42px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.35); }
-.ref-hint { font-size: 11px; opacity: 0.85; }
-
-/* AI 回复卡 */
-.card {
-  flex: 1; min-width: 0;
-  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
-  border: 1px solid var(--color-border);
-  border-radius: 8px 18px 18px 18px;
-  padding: var(--space-4);
-  display: flex; flex-direction: column; gap: var(--space-3);
-}
-.card-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.model { font-size: 13px; font-weight: 600; color: var(--color-fg); }
-.badge-soft {
-  font-size: 11px; font-weight: 550; color: var(--color-fg-muted);
-  padding: 2px 8px; border-radius: 999px;
-  background: var(--color-surface-2); border: 1px solid var(--color-border);
-}
-.elapsed { margin-left: auto; font-size: 11px; color: var(--color-fg-subtle); }
-.note-danger, .note-warn {
-  display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap;
-}
+.plate-notice { width: 100%; }
 .note-text { flex: 1; min-width: 0; line-height: 1.45; }
 .note-action {
-  flex-shrink: 0; font-size: 12px; font-weight: 650;
-  color: var(--color-destructive); padding: 4px 10px; border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--color-destructive) 30%, transparent);
-  background: color-mix(in srgb, var(--color-destructive) 8%, transparent);
+  flex-shrink: 0; font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  color: var(--color-destructive); padding: 3px 8px; border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-destructive) 35%, transparent);
 }
-.note-action:hover { background: color-mix(in srgb, var(--color-destructive) 14%, transparent); }
+.note-action:hover { background: color-mix(in srgb, var(--color-destructive) 10%, transparent); }
 
-.imgs { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); align-items: start; }
-.imgs.single { grid-template-columns: minmax(0, 420px); }
+.plate-body {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+/* 图注 */
+.caption {
+  display: flex; flex-direction: column; gap: var(--space-3);
+  min-width: 0; padding-top: 2px;
+}
+.bubble-text {
+  margin: 0; font-size: 13.5px; line-height: 1.65; font-weight: 500;
+  color: var(--color-fg);
+  white-space: pre-wrap; word-break: break-word;
+  letter-spacing: -0.01em;
+}
+.bubble-refs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bubble-ref {
+  width: 40px; height: 40px; border-radius: var(--radius-sm); overflow: hidden;
+  border: 1px solid var(--color-border-strong); background: var(--color-surface-2);
+}
+.ref-hint {
+  font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.04em;
+  color: var(--color-fg-subtle);
+}
+.caption-actions {
+  display: flex; flex-direction: column; gap: 8px;
+  padding-top: 10px; border-top: 1px solid var(--color-border);
+}
+.user-edit-btn {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 0;
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.03em;
+  color: var(--color-fg-muted);
+}
+.user-edit-btn:hover:not(:disabled) { color: var(--color-primary); }
+.user-edit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; }
+.act {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 4px; border-radius: var(--radius-sm);
+  font-size: 11px; color: var(--color-fg-muted); text-align: left;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.act :deep(svg) { flex-shrink: 0; color: var(--color-fg-subtle); }
+.act:hover:not(:disabled) { background: var(--color-surface-2); color: var(--color-fg); }
+.act:hover:not(:disabled) :deep(svg) { color: var(--color-fg); }
+.act:disabled { opacity: 0.35; cursor: not-allowed; }
+.act-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--color-destructive) 9%, transparent); color: var(--color-destructive); }
+.act-danger:hover:not(:disabled) :deep(svg) { color: var(--color-destructive); }
+
+/* 画面:纸板 + 作品 */
+.plate-field {
+  min-width: 0;
+  padding: 10px;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius);
+}
+.imgs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.imgs.single { grid-template-columns: minmax(0, 1fr); }
 .fig {
-  margin: 0; border-radius: 14px; overflow: hidden;
-  border: 1px solid var(--color-border); background: var(--color-surface-2);
-  position: relative; transition: transform var(--dur) var(--ease);
+  position: relative; margin: 0; overflow: hidden;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  transition: border-color var(--dur) var(--ease);
 }
-.fig:hover {
-  transform: translateY(-1px);
-}
-.fig.focused {
-  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
-  outline-offset: 2px;
-}
-/* 结果图按真实宽高比显示;过高时封顶 */
+.fig:hover { border-color: var(--color-fg-subtle); }
+.fig.focused { border-color: var(--color-primary); box-shadow: inset 0 0 0 1px var(--color-primary); }
 .fig-img { display: block; width: 100%; padding: 0; }
-.fig-img :deep(.asset-img) { height: auto; max-height: 70vh; object-fit: contain; }
+.fig-img :deep(.asset-img) {
+  display: block; width: 100%; height: auto;
+  max-height: 64vh; object-fit: contain;
+}
+.fig-counter {
+  position: absolute; left: 8px; bottom: 8px;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.05em;
+  color: #fff; background: rgba(15, 14, 10, 0.62);
+  padding: 2px 5px; pointer-events: none;
+}
 .fav {
-  position: absolute; top: 10px; right: 10px; width: 32px; height: 32px;
-  display: flex; align-items: center; justify-content: center; border-radius: 50%;
-  background: rgba(0,0,0,0.48); color: #fff;
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease), transform var(--dur) var(--ease);
+  position: absolute; top: 8px; right: 8px;
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm);
+  background: rgba(15, 14, 10, 0.58); color: #fff;
   opacity: 0;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease), opacity var(--dur) var(--ease);
 }
-.fig:hover .fav, .fig.focused .fav, .fav.on { opacity: 1; }
-/* 触屏无 hover:常显收藏按钮,避免摸不到 */
-@media (hover: none) {
-  .fav { opacity: 0.92; }
-}
-.fav:hover { background: rgba(0,0,0,0.7); transform: scale(1.05); }
+.fig:hover .fav, .fig:focus-within .fav, .fav.on { opacity: 1; }
+@media (hover: none) { .fav { opacity: 0.92; } }
+.fav:hover { background: rgba(15, 14, 10, 0.8); }
 .fav.on { color: var(--color-heart); }
 .fav.on :deep(svg) { fill: var(--color-heart); }
 
-.actions {
-  display: flex; flex-wrap: wrap; gap: 4px;
-  border-top: 1px solid var(--color-border); padding-top: var(--space-2);
-}
-.act {
-  display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
-  color: var(--color-fg-muted); padding: 7px 11px; border-radius: 8px;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.act:hover:not(:disabled) { background: var(--color-surface-2); color: var(--color-fg); }
-.act:disabled { opacity: 0.4; cursor: not-allowed; }
-.act-danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-destructive) 12%, transparent);
-  color: var(--color-destructive);
-}
-
-/* 生成队列:单通道下的「还在等什么」一眼可见 */
-.queue {
-  display: flex; flex-direction: column; gap: 4px;
-  padding: var(--space-3); border-radius: 14px;
+.field-blank {
+  min-height: 180px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  color: var(--color-fg-subtle);
   border: 1px dashed var(--color-border-strong);
-  background: var(--color-surface-2);
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 12px,
+    color-mix(in srgb, var(--color-border) 40%, transparent) 12px 13px
+  );
 }
-.queue-head {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 11px; font-weight: 600; color: var(--color-fg-muted);
-  margin-bottom: 2px;
+.blank-mark {
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-fg-subtle);
 }
-.queue-head svg { color: var(--color-primary); }
-.queue-hint { font-weight: 500; color: var(--color-fg-subtle); }
-.queue-item {
-  display: flex; align-items: center; gap: var(--space-2);
-  padding: 6px 8px; border-radius: 9px; background: var(--color-bg);
+.field-blank .mono-label {
+  padding: 2px 6px;
+  letter-spacing: 0.2em;
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
 }
-.queue-pos {
-  flex-shrink: 0; width: 20px; height: 20px; border-radius: 6px;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 10px; font-weight: 650;
-  color: var(--color-fg-muted); background: var(--color-surface-2);
+.field-blank.failed { border-color: color-mix(in srgb, var(--color-destructive) 42%, var(--color-border-strong)); }
+.field-blank.failed .blank-mark { color: var(--color-destructive); border-color: color-mix(in srgb, var(--color-destructive) 40%, transparent); }
+.field-blank.failed .mono-label { color: var(--color-destructive); }
+
+/* 生成中 */
+.pending-block { display: flex; flex-direction: column; gap: var(--space-2); }
+.skeleton {
+  width: 100%; aspect-ratio: 1 / 1; max-height: 60vh;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--color-border-strong);
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-surface-2) 0,
+    var(--color-surface-2) 10px,
+    transparent 10px,
+    transparent 22px
+  );
+  animation: pulse 1.6s ease-in-out infinite;
 }
+.skeleton .mono-label { letter-spacing: 0.24em; background: var(--color-elevated); padding: 3px 8px; }
+.pending-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.pending-del { align-self: flex-start; }
+.snippet {
+  display: block; margin-top: 6px; font-size: 10.5px; max-height: 80px; overflow: auto;
+  opacity: 0.8; white-space: pre-wrap; word-break: break-all;
+  font-family: var(--font-mono);
+}
+.error-detail { flex: 1; min-width: 100%; margin-top: var(--space-1); }
+.error-detail summary { cursor: pointer; color: var(--color-fg-muted); font-family: var(--font-mono); font-size: 10.5px; }
+.error-detail pre {
+  max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  margin: var(--space-2) 0 0; padding: var(--space-2);
+  border-radius: var(--radius-sm); background: color-mix(in srgb, #000 10%, transparent);
+  color: var(--color-fg-muted); font: 10.5px/1.5 var(--font-mono);
+}
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%, 100% { opacity: 0.62; } 50% { opacity: 1; } }
+
+/* 编辑图注 */
+.bubble-edit { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.bubble-edit-input {
+  width: 100%; min-height: clamp(150px, 30vh, 300px);
+  padding: 10px; border-radius: var(--radius);
+  border: 1px solid var(--color-primary);
+  background: var(--color-elevated);
+  color: var(--color-fg); font-size: 12.5px; line-height: 1.6;
+  resize: none; overflow-y: auto;
+}
+.bubble-edit-resize {
+  align-self: center; display: flex; align-items: center; justify-content: center;
+  padding: 4px 14px; border-radius: var(--radius-sm); cursor: ns-resize;
+  color: var(--color-fg-subtle); touch-action: none;
+}
+.bubble-edit-resize:hover, .bubble-edit-resize:focus-visible, .bubble-edit-resize.active {
+  background: var(--color-surface-2); color: var(--color-fg);
+}
+.bubble-edit-grip { display: block; position: relative; width: 20px; height: 2px; background: currentColor; }
+.bubble-edit-grip::before, .bubble-edit-grip::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 2px; background: currentColor;
+}
+.bubble-edit-grip::before { top: -5px; }
+.bubble-edit-grip::after { top: 5px; }
+.bubble-edit-actions { display: flex; flex-direction: column; gap: 6px; }
+.bubble-edit-hint {
+  font-family: var(--font-mono); font-size: 8.5px; line-height: 1.5;
+  color: var(--color-fg-subtle);
+}
+.bubble-edit-btns { display: flex; gap: 6px; }
+.bubble-edit-btn-cancel {
+  padding: 4px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong); font-size: 11px;
+  color: var(--color-fg-muted);
+}
+.bubble-edit-btn-cancel:hover { background: var(--color-surface-2); color: var(--color-fg); }
+.bubble-edit-btn-save {
+  padding: 4px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary); color: var(--color-on-primary);
+  font-size: 11px; font-weight: 600;
+}
+.bubble-edit-btn-save:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* 排队单 */
+.queue {
+  display: flex; flex-direction: column;
+  border: 1px dashed var(--color-border-strong);
+  background: var(--color-surface);
+  padding: 12px;
+}
+.queue-head {
+  display: flex; align-items: center; gap: 8px;
+  padding-bottom: 8px; margin-bottom: 2px;
+  border-bottom: 1px solid var(--color-border);
+}
+.queue-head :deep(svg) { color: var(--color-primary); }
+.queue-title { font-family: var(--font-mono); font-size: 10px; font-weight: 500; color: var(--color-fg); }
+.queue-hint { margin-left: auto; font-family: var(--font-mono); font-size: 9px; color: var(--color-fg-subtle); }
+.queue-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--color-border);
+}
+.queue-item:last-child { border-bottom: none; }
+.queue-pos { flex-shrink: 0; font-family: var(--font-mono); font-size: 9px; color: var(--color-fg-subtle); }
 .queue-text {
   flex: 1; min-width: 0; font-size: 12px; color: var(--color-fg-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .queue-act {
-  flex-shrink: 0; font-size: 11px; color: var(--color-fg-subtle);
-  padding: 3px 8px; border-radius: 999px;
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+  flex-shrink: 0; font-family: var(--font-mono); font-size: 9.5px;
+  color: var(--color-fg-subtle); padding: 2px 6px; border-radius: var(--radius-sm);
+  border: 1px solid transparent;
 }
-.queue-act:hover { color: var(--color-fg); background: var(--color-surface-2); }
-.queue-act-danger:hover { color: var(--color-destructive); background: color-mix(in srgb, var(--color-destructive) 12%, transparent); }
+.queue-act:hover { color: var(--color-fg); border-color: var(--color-border-strong); }
+.queue-act-danger:hover {
+  color: var(--color-destructive);
+  border-color: color-mix(in srgb, var(--color-destructive) 40%, transparent);
+}
 
-.snippet { display: block; margin-top: 6px; font-size: 11px; max-height: 80px; overflow: auto; opacity: 0.8; white-space: pre-wrap; word-break: break-all; }
-.skeleton {
-  aspect-ratio: 1; max-width: 380px; border-radius: 14px;
-  background: var(--color-surface-2); animation: pulse 1.4s infinite;
-  border: 1px solid var(--color-border);
+/* 新结果浮标 */
+.new-results {
+  position: absolute; bottom: var(--space-4); left: 50%; transform: translateX(-50%);
+  z-index: 20; display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 12px; border-radius: var(--radius);
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.03em;
+  color: var(--color-on-ink); background: var(--color-ink);
+  border: 1px solid var(--color-ink);
+  box-shadow: var(--shadow-pop);
+  animation: turn-in 180ms var(--ease-out);
 }
-.pending-block { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
-.pending-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-.pending-del { align-self: flex-start; }
-.error-detail { flex: 1; min-width: 100%; margin-top: var(--space-1); }
-.error-detail summary { cursor: pointer; color: var(--color-fg-muted); }
-.error-detail pre {
-  max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word;
-  margin: var(--space-2) 0 0; padding: var(--space-2);
-  border-radius: var(--radius-sm); background: color-mix(in srgb, #000 12%, transparent);
-  color: var(--color-fg-muted); font: 11px/1.5 var(--font-num);
-}
-.spin { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-@keyframes pulse { 0%, 100% { opacity: 0.65; } 50% { opacity: 1; } }
+.new-results:hover { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
 
-@media (max-width: 1024px) {
-  .row-user { padding-left: 4%; }
-  .row-ai { padding-right: 2%; }
-  /* 移动端素材库悬浮按钮浮在结果区上方,留出底部空间,避免盖住队列的「移除」等操作 */
-  .feed-inner { padding-left: var(--space-3); padding-right: var(--space-3); padding-bottom: calc(var(--space-8) + 56px); }
-  .avatar { display: none; }
-  .empty { padding-top: 3vh; padding-bottom: 1vh; gap: 6px; }
-  .empty-icon { width: 44px; height: 44px; border-radius: 12px; }
-  .empty h1 { margin-top: 6px; font-size: 20px; }
-  .empty p { max-width: 320px; font-size: 12px; line-height: 1.5; }
-  .empty-hints { gap: 4px; margin-top: 6px; }
-  .empty-chip { padding: 4px 6px; font-size: 10px; }
+@media (max-width: 1180px) {
+  .plate-body { grid-template-columns: 200px minmax(0, 1fr); gap: var(--space-4); }
+}
+@media (max-width: 900px) {
+  .feed-inner { padding: var(--space-5) var(--space-4) var(--space-10); gap: var(--space-8); }
+  .plate-body { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+  .plate-field { order: 1; }
+  .caption { order: 2; }
+  .plate-body:not(.has-images) .plate-field { order: 2; }
+  .plate-body:not(.has-images) .caption { order: 1; }
+  .actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .caption-actions { padding-top: 8px; }
+}
+@media (max-width: 640px) {
+  .feed-inner { padding: var(--space-4) var(--space-3) calc(var(--space-10) + 64px); gap: var(--space-8); }
+  .empty h1 { font-size: 30px; }
+  .actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .plate-field { padding: 6px; }
+  .imgs { grid-template-columns: minmax(0, 1fr); }
+  .plate-head { gap: 8px; }
+  .plate-time, .elapsed { margin-left: 0; }
 }
 </style>

@@ -1,5 +1,6 @@
 export default {
   zh: {
+    brief: '创作稿',
     hint: {
       noPreset: '还没有可用接口 —— 点此添加,填好即可开始。',
       missingKey: '当前接口缺少 API Key —— 点此填写后即可生成。',
@@ -123,6 +124,7 @@ export default {
     },
   },
   en: {
+    brief: 'BRIEF',
     hint: {
       noPreset: 'No endpoint available yet — click to add one and start drawing.',
       missingKey: 'This endpoint is missing an API Key — click to fill it in before generating.',
