@@ -395,14 +395,13 @@ function openStorage() {
       <div v-if="mobileAssetsOpen" class="mobile-assets-scrim" @click.self="mobileAssetsOpen = false">
         <div ref="mobileAssetsSheet" class="mobile-assets-sheet" role="dialog" aria-modal="true" :aria-label="t('app.assetsLibrary')" tabindex="-1">
           <div class="mobile-assets-grip" aria-hidden="true"><span /></div>
-          <div class="mobile-assets-head">
-            <strong>{{ t('app.assetsLibrary') }}</strong>
-            <button class="btn btn-sm btn-ghost" @click="mobileAssetsOpen = false" :aria-label="t('common.close')">
-              <AppIcon name="x" :size="14" />
-            </button>
-          </div>
           <div class="mobile-assets-body">
-            <LibraryPanel @use-as-reference="(id) => { useAsReference(id); mobileAssetsOpen = false }" @preview="openPreview" />
+            <LibraryPanel
+              closable
+              @close="mobileAssetsOpen = false"
+              @use-as-reference="(id) => { useAsReference(id); mobileAssetsOpen = false }"
+              @preview="openPreview"
+            />
           </div>
         </div>
       </div>
@@ -768,14 +767,6 @@ function openStorage() {
 .mobile-assets-grip span {
   width: 34px; height: 3px; background: var(--color-border-strong);
 }
-.mobile-assets-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-2) var(--space-4) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-}
-.mobile-assets-head strong { font-size: 14px; }
 .mobile-assets-body { overflow-y: auto; padding: var(--space-4); flex: 1; min-height: 0; }
 
 .sheet-enter-active,

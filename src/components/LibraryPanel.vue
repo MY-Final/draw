@@ -11,7 +11,8 @@ import { collectReferencedAssetIds } from '../lib/deletion.js'
 
 const store = useWorkbenchStore()
 const { t } = useI18n()
-const emit = defineEmits(['use-as-reference', 'preview'])
+defineProps({ closable: Boolean })
+const emit = defineEmits(['use-as-reference', 'preview', 'close'])
 const SOURCE_FILTERS = computed(() => [
   { key: 'all', label: t('library.sourceAll') },
   { key: 'generated', label: t('library.sourceGenerated') },
@@ -131,40 +132,52 @@ async function deleteSingle(asset) {
 
 <template>
   <div class="library">
-    <div class="lib-head">
-      <span class="lib-title">{{ t('library.title') }}</span>
-      <div class="lib-head-actions">
-        <button
-          class="filter-btn" :class="{ on: store.favoritesOnly }"
-          @click="store.setFavoritesOnly(!store.favoritesOnly)"
-          :aria-pressed="store.favoritesOnly" :title="t('library.favoritesOnly')"
-        >
-          <AppIcon name="heart" :size="13" />
-        </button>
-         <button
-           v-if="selected.size"
-           type="button"
-           class="btn btn-sm btn-danger"
-           @click="askDeleteSelected"
-           :aria-label="t('library.deleteSelectedAria', { count: selected.size })"
-           :title="t('library.deleteSelectedTitle')"
-         >
-          <AppIcon name="trash" :size="13" /> {{ selected.size }}
-        </button>
-        <span v-else class="lib-count tnum">{{ t('library.count', { count: filteredAssets.length }) }}</span>
+    <div class="lib-top">
+      <div class="lib-head">
+        <div class="lib-head-main">
+          <span class="lib-title">{{ t('library.title') }}</span>
+          <span class="lib-count tnum">{{ t('library.count', { count: filteredAssets.length }) }}</span>
+        </div>
+        <div class="lib-head-actions">
+          <button
+            class="filter-btn" :class="{ on: store.favoritesOnly }"
+            @click="store.setFavoritesOnly(!store.favoritesOnly)"
+            :aria-pressed="store.favoritesOnly" :title="t('library.favoritesOnly')"
+          >
+            <AppIcon name="heart" :size="13" />
+          </button>
+           <button
+             v-if="selected.size"
+             type="button"
+             class="btn btn-sm btn-danger"
+             @click="askDeleteSelected"
+             :aria-label="t('library.deleteSelectedAria', { count: selected.size })"
+             :title="t('library.deleteSelectedTitle')"
+           >
+            <AppIcon name="trash" :size="13" /> {{ selected.size }}
+          </button>
+          <button
+            v-if="closable"
+            class="filter-btn"
+            @click="emit('close')"
+            :aria-label="t('common.close')"
+          >
+            <AppIcon name="x" :size="14" />
+          </button>
+        </div>
       </div>
-    </div>
 
-    <!-- 来源筛选:AI 生成 / 我的上传 / 导入,一眼区分 -->
-    <div class="lib-filters" role="group" :aria-label="t('library.sourceFilterAria')">
-      <button
-        v-for="f in SOURCE_FILTERS" :key="f.key"
-        class="src-filter" :class="{ active: store.assetSourceFilter === f.key }"
-        @click="store.setAssetSourceFilter(f.key)"
-        :aria-pressed="store.assetSourceFilter === f.key"
-      >
-        <span class="swatch" :class="f.key" aria-hidden="true" />{{ f.label }}
-      </button>
+      <!-- 来源筛选:纯文字行,选中用中性底色,不叠色块 -->
+      <div class="lib-filters" role="group" :aria-label="t('library.sourceFilterAria')">
+        <button
+          v-for="f in SOURCE_FILTERS" :key="f.key"
+          class="src-filter" :class="{ active: store.assetSourceFilter === f.key }"
+          @click="store.setAssetSourceFilter(f.key)"
+          :aria-pressed="store.assetSourceFilter === f.key"
+        >
+          {{ f.label }}
+        </button>
+      </div>
     </div>
 
     <div v-if="deleteNotice" class="delete-notice" role="status" aria-live="polite">
@@ -245,63 +258,45 @@ async function deleteSingle(asset) {
 
 <style scoped>
 .library { display: flex; flex-direction: column; gap: var(--space-3); height: 100%; }
-.lib-head {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
-  padding-bottom: 9px;
+.lib-top {
+  display: flex; flex-direction: column; gap: 8px;
+  padding-bottom: 11px;
   border-bottom: 1px solid var(--color-border-strong);
 }
+.lib-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.lib-head-main { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
 .lib-head-actions { display: flex; align-items: center; gap: 6px; }
 .lib-title {
   font-size: 13px; font-weight: 700; letter-spacing: -0.015em;
   color: var(--color-fg);
 }
 .filter-btn {
-  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border); color: var(--color-fg-subtle);
-  background: transparent;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--color-fg-subtle);
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.filter-btn:hover { color: var(--color-fg-muted); border-color: var(--color-border-strong); }
-.filter-btn.on {
-  color: var(--color-heart);
-  border-color: color-mix(in srgb, var(--color-heart) 45%, transparent);
-  background: color-mix(in srgb, var(--color-heart) 8%, transparent);
-}
+.filter-btn:hover { color: var(--color-fg-muted); background: var(--color-surface-2); }
+.filter-btn.on { color: var(--color-heart); }
 .filter-btn.on :deep(svg) { fill: var(--color-heart); }
 .lib-count {
-  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.04em;
-  color: var(--color-fg-subtle);
-  min-height: 20px; padding: 0 6px; border-radius: var(--radius-sm);
-  display: inline-flex; align-items: center;
-  border: 1px solid var(--color-border);
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.03em;
+  color: var(--color-fg-muted);
 }
 
-.lib-filters { display: flex; gap: 4px; flex-wrap: wrap; }
+.lib-filters { display: flex; gap: 2px; flex-wrap: wrap; margin-left: -8px; }
 .src-filter {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 5px 8px; border-radius: var(--radius-sm);
-  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em;
+  display: inline-flex; align-items: center;
+  padding: 4px 8px; border-radius: var(--radius-sm);
+  font-family: var(--font-sans); font-size: 11px;
   color: var(--color-fg-muted);
-  border: 1px solid var(--color-border);
-  background: transparent;
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  border: 0; background: transparent;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.src-filter:hover { color: var(--color-fg); border-color: var(--color-border-strong); }
+.src-filter:hover { color: var(--color-fg); background: var(--color-surface-2); }
 .src-filter.active {
-  color: var(--color-on-ink); background: var(--color-ink); border-color: var(--color-ink);
+  color: var(--color-fg); background: var(--color-surface-2); font-weight: 600;
 }
-.swatch { width: 7px; height: 7px; flex-shrink: 0; background: var(--color-ink); }
-.swatch.generated { background: var(--color-primary); }
-.swatch.reference-uploaded { background: var(--color-destructive); }
-.swatch.imported { background: var(--color-accent); }
-.src-filter.active .swatch { background: var(--color-on-ink); }
-:root[data-theme='dark'] .src-filter.active {
-  color: var(--color-on-primary);
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-}
-:root[data-theme='dark'] .src-filter.active .swatch { background: var(--color-on-primary); }
 
 .delete-notice {
   display: flex; align-items: flex-start; gap: 7px;
