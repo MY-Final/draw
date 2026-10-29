@@ -130,12 +130,32 @@ test('fetches and selects models from the configured endpoint', async ({ page })
   await expect(picker.locator('.model-option').first()).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(picker).toBeHidden()
-  await expect(dialog.locator('input[placeholder="如:gpt-image-1 / dall-e-3"]')).toBeFocused()
+  await expect(dialog.locator('.model-input-row input')).toBeFocused()
   await dialog.getByRole('button', { name: '选择模型', exact: true }).click()
   await picker.locator('.model-filter').fill('beta')
   await expect(picker.locator('.model-option')).toHaveCount(1)
   await picker.locator('.model-option').click()
-  await expect(dialog.locator('input[placeholder="如:gpt-image-1 / dall-e-3"]')).toHaveValue('image-beta')
+  // 多选:点选第二个模型后列表不关闭,两个模型都保存下来。
+  await expect(picker).toBeVisible()
+  await expect(dialog.locator('.model-chip')).toHaveCount(2)
+  await expect(dialog.locator('.model-chip .chip-text')).toHaveText(['image-alpha', 'image-beta'])
+  await page.keyboard.press('Escape')
+  await expect(picker).toBeHidden()
+
+  await dialog.getByRole('button', { name: '保存并使用' }).click()
+  await expect(dialog).toBeHidden()
+
+  // 输入区出现模型切换器,默认用第一个;切换后写回预设。
+  const modelPick = page.locator('.model-pick')
+  await expect(modelPick).toBeVisible()
+  await expect(modelPick).toContainText('image-alpha')
+  await modelPick.click()
+  await page.locator('.model-pop-item[data-model="image-beta"]').click()
+  await expect(modelPick).toContainText('image-beta')
+
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('workbench.presets.v1')))
+  expect(saved[0].models).toEqual(['image-alpha', 'image-beta'])
+  expect(saved[0].model).toBe('image-beta')
 })
 
 test('mobile drawers close with Escape and restore focus', async ({ page }, testInfo) => {

@@ -1,5 +1,7 @@
 // 接口预设(design D7)—— 存 localStorage 明文(design D6:纯前端无处可藏)。
-// 预设字段:{ id, name, baseURL, apiKey, model, protocol }
+// 预设字段:{ id, name, baseURL, apiKey, models, model, protocol, requestTimeoutMs }
+//   models: 该接口可用的模型列表;model: 当前默认模型(必须在 models 中)。
+//   旧数据只有 model,读取时自动补成 models: [model]。
 //   protocol 恒为 'images'(标准 OpenAI images 接口:generations / edits)。
 //   字段保留仅为兼容已有数据与分享配方格式。
 //
@@ -26,6 +28,19 @@ function uid() {
   return `preset_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+// 模型列表去重/去空白;列表为空时退回单个旧字段 model。
+export function normalizeModels(models, fallback = '') {
+  const cleaned = (Array.isArray(models) ? models : [])
+    .map((model) => String(model || '').trim())
+    .filter(Boolean)
+  const all = cleaned.length ? cleaned : [String(fallback || '').trim()].filter(Boolean)
+  return [...new Set(all)]
+}
+
+function sameModels(a, b) {
+  return Array.isArray(a) && a.length === b.length && a.every((m, i) => m === b[i])
+}
+
 export function loadPresets() {
   try {
     const raw = localStorage.getItem(PRESETS_STORAGE_KEY)
@@ -43,8 +58,15 @@ export function loadPresets() {
         continue
       }
       const requestTimeoutMs = normalizeRequestTimeoutMs(preset.requestTimeoutMs)
-      if (preset.protocol !== PROTOCOL_IMAGES || preset.requestTimeoutMs !== requestTimeoutMs) changed = true
-      normalized.push({ ...preset, protocol: PROTOCOL_IMAGES, requestTimeoutMs })
+      const models = normalizeModels(preset.models, preset.model)
+      const model = models.includes(preset.model) ? preset.model : (models[0] || '')
+      if (
+        preset.protocol !== PROTOCOL_IMAGES
+        || preset.requestTimeoutMs !== requestTimeoutMs
+        || model !== preset.model
+        || !sameModels(preset.models, models)
+      ) changed = true
+      normalized.push({ ...preset, models, model, protocol: PROTOCOL_IMAGES, requestTimeoutMs })
     }
     if (changed) persist(normalized)
     return normalized
@@ -66,12 +88,14 @@ export function savePreset(preset, options = {}) {
   if (options.preserveExistingKey && existing?.apiKey && !apiKey) {
     apiKey = existing.apiKey
   }
+  const models = normalizeModels(preset.models, preset.model)
   const record = {
     id,
     name: preset.name || tl('lib.defaults.presetName'),
     baseURL: (preset.baseURL || '').trim().replace(/\/+$/, ''),
     apiKey,
-    model: preset.model || '',
+    models,
+    model: models.includes(preset.model) ? preset.model : (models[0] || ''),
     // 恒为 images(标准 OpenAI 图像接口);不再有 chat/auto。
     protocol: PROTOCOL_IMAGES,
     requestTimeoutMs: normalizeRequestTimeoutMs(preset.requestTimeoutMs),

@@ -87,6 +87,30 @@ const visiblePrompts = computed(() => {
 const promptLibToast = ref(null)
 // 接口切换(跟随生成上下文,放输入区而非侧栏导航树)
 const presetMenuOpen = ref(false)
+// 同一接口下的模型切换:仅在保存了多个模型时出现。
+const modelMenuOpen = ref(false)
+const modelButton = ref(null)
+const modelWrap = ref(null)
+const modelOptions = computed(() => {
+  const preset = store.activePreset
+  if (!preset) return []
+  const list = Array.isArray(preset.models) ? preset.models : []
+  if (list.length) return list
+  return preset.model ? [preset.model] : []
+})
+const currentModel = computed(() => {
+  const preset = store.activePreset
+  if (preset?.model && modelOptions.value.includes(preset.model)) return preset.model
+  return modelOptions.value[0] || ''
+})
+function presetMeta(p) {
+  const models = Array.isArray(p.models) && p.models.length
+    ? p.models
+    : (p.model ? [p.model] : [])
+  if (!models.length) return t('composer.preset.noModel')
+  const current = models.includes(p.model) ? p.model : models[0]
+  return models.length > 1 ? `${current} +${models.length - 1}` : current
+}
 // 次要参数(画质/数量)默认收起,给输入区更多呼吸感;非默认值时自动展开提示。
 const moreParamsOpen = ref(false)
 // 与默认「标准(1K+中)」不一致即视为已自定义
@@ -167,6 +191,7 @@ function focusPresetOption(id) {
 function togglePresetMenu() {
   presetMenuOpen.value = !presetMenuOpen.value
   if (presetMenuOpen.value) {
+    modelMenuOpen.value = false
     focusPresetOption(store.activePresetId || store.presets[0]?.id)
   } else {
     nextTick(() => presetButton.value?.focus())
@@ -181,6 +206,7 @@ function onPresetButtonKeydown(e) {
 function selectPresetUi(id) {
   store.selectPreset(id)
   presetMenuOpen.value = false
+  modelMenuOpen.value = false
   nextTick(() => presetButton.value?.focus())
 }
 function onPresetMenuKeydown(e) {
@@ -201,6 +227,47 @@ function onPresetMenuKeydown(e) {
   else return
   e.preventDefault()
   focusPresetOption(ids[next])
+}
+
+function toggleModelMenu() {
+  modelMenuOpen.value = !modelMenuOpen.value
+  if (modelMenuOpen.value) {
+    presetMenuOpen.value = false
+    nextTick(() => modelWrap.value?.querySelector('.model-pop-item')?.focus())
+  } else {
+    nextTick(() => modelButton.value?.focus())
+  }
+}
+function onModelButtonKeydown(e) {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+  e.preventDefault()
+  if (!modelMenuOpen.value) toggleModelMenu()
+  else onModelMenuKeydown(e)
+}
+function onModelMenuKeydown(e) {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    modelMenuOpen.value = false
+    nextTick(() => modelButton.value?.focus())
+    return
+  }
+  const options = [...(modelWrap.value?.querySelectorAll('.model-pop-item') || [])]
+  if (!options.length) return
+  const current = options.indexOf(document.activeElement)
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    const offset = e.key === 'ArrowDown' ? 1 : -1
+    const next = current < 0 ? 0 : (current + offset + options.length) % options.length
+    options[next]?.focus()
+  } else if (e.key === 'Home' || e.key === 'End') {
+    e.preventDefault()
+    options[e.key === 'Home' ? 0 : options.length - 1]?.focus()
+  }
+}
+function selectModelUi(model) {
+  store.setActiveModel(model)
+  modelMenuOpen.value = false
+  nextTick(() => modelButton.value?.focus())
 }
 
 function saveCurrentPrompt() {
@@ -256,6 +323,7 @@ function onDocClick(e) {
   const el = e.target
   if (showPromptLib.value && !el.closest('.prompt-lib-wrap')) showPromptLib.value = false
   if (presetMenuOpen.value && !el.closest('.preset-pick-wrap')) presetMenuOpen.value = false
+  if (modelMenuOpen.value && !el.closest('.model-pick-wrap')) modelMenuOpen.value = false
   if (moreParamsOpen.value && !el.closest('.params-section')) moreParamsOpen.value = false
 }
 
@@ -265,6 +333,10 @@ function onComposerKeydown(e) {
     e.preventDefault()
     showPromptLib.value = false
     nextTick(() => promptLibButton.value?.focus())
+  } else if (modelMenuOpen.value) {
+    e.preventDefault()
+    modelMenuOpen.value = false
+    nextTick(() => modelButton.value?.focus())
   } else if (presetMenuOpen.value) {
     e.preventDefault()
     presetMenuOpen.value = false
@@ -898,48 +970,83 @@ function onErrorAction() {
       </div>
 
       <div class="composer-bar">
-        <!-- 当前接口:跟随生成上下文,紧挨输入区切换 -->
-        <div class="preset-pick-wrap">
-          <button
-            ref="presetButton"
-            class="preset-pick" :class="{ open: presetMenuOpen }"
-            @click="togglePresetMenu"
-            @keydown="onPresetButtonKeydown"
-            :aria-expanded="presetMenuOpen" aria-haspopup="listbox"
-            :title="store.activePreset ? store.activePreset.name || t('composer.preset.unnamed') : ''"
-          >
-            <AppIcon name="settings" :size="12" />
-            <span class="preset-pick-name">{{ store.activePreset?.name || t('composer.preset.unnamed') }}</span>
-            <span
-              v-if="store.activePreset && !store.activePreset.apiKey"
-              class="badge badge-warn preset-key-badge"
-              @click.stop="presetMenuOpen = false; emit('open-settings')"
-              :title="t('composer.preset.keyTitle')"
-            >{{ t('composer.preset.keyBadge') }}</span>
-            <AppIcon name="chevron-down" :size="11" class="preset-pick-chev" />
-          </button>
-          <div v-if="presetMenuOpen" class="preset-pop" role="listbox" :aria-label="t('composer.preset.selectAria')" @keydown="onPresetMenuKeydown">
-            <div class="preset-pop-head">{{ t('composer.preset.switch') }}</div>
+        <!-- 当前接口与模型:跟随生成上下文,紧挨输入区切换 -->
+        <div class="provider-picks">
+          <div class="preset-pick-wrap">
             <button
-              v-for="p in store.presets" :key="p.id"
-              :ref="(el) => setPresetOptionRef(el, p.id)"
-              :data-preset-id="p.id"
-              :id="`preset-option-${p.id}`"
-              class="preset-pop-item" :class="{ active: p.id === store.activePresetId }"
-              role="option" :aria-selected="p.id === store.activePresetId"
-              @click="selectPresetUi(p.id)"
+              ref="presetButton"
+              class="preset-pick" :class="{ open: presetMenuOpen }"
+              @click="togglePresetMenu"
+              @keydown="onPresetButtonKeydown"
+              :aria-expanded="presetMenuOpen" aria-haspopup="listbox"
+              :title="store.activePreset ? store.activePreset.name || t('composer.preset.unnamed') : ''"
             >
-              <span class="preset-pop-main">
-                <span class="preset-pop-name">{{ p.name || t('composer.preset.unnamed') }}</span>
-                <span class="preset-pop-meta">{{ p.model || t('composer.preset.noModel') }} · {{ p.baseURL || '' }}</span>
-              </span>
-              <span v-if="!p.apiKey" class="badge badge-warn preset-key-badge">{{ t('composer.preset.keyBadge') }}</span>
-              <AppIcon v-if="p.id === store.activePresetId" name="check" :size="12" />
+              <AppIcon name="settings" :size="12" />
+              <span class="preset-pick-name">{{ store.activePreset?.name || t('composer.preset.unnamed') }}</span>
+              <span
+                v-if="store.activePreset && !store.activePreset.apiKey"
+                class="badge badge-warn preset-key-badge"
+                @click.stop="presetMenuOpen = false; emit('open-settings')"
+                :title="t('composer.preset.keyTitle')"
+              >{{ t('composer.preset.keyBadge') }}</span>
+              <AppIcon name="chevron-down" :size="11" class="preset-pick-chev" />
             </button>
-            <div class="preset-pop-divider" />
-            <button class="preset-pop-item" @click="presetMenuOpen = false; emit('open-settings')">
-              <AppIcon name="settings" :size="13" /> {{ t('composer.preset.manage') }}
+            <div v-if="presetMenuOpen" class="preset-pop" role="listbox" :aria-label="t('composer.preset.selectAria')" @keydown="onPresetMenuKeydown">
+              <div class="preset-pop-head">{{ t('composer.preset.switch') }}</div>
+              <button
+                v-for="p in store.presets" :key="p.id"
+                :ref="(el) => setPresetOptionRef(el, p.id)"
+                :data-preset-id="p.id"
+                :id="`preset-option-${p.id}`"
+                class="preset-pop-item" :class="{ active: p.id === store.activePresetId }"
+                role="option" :aria-selected="p.id === store.activePresetId"
+                @click="selectPresetUi(p.id)"
+              >
+                <span class="preset-pop-main">
+                  <span class="preset-pop-name">{{ p.name || t('composer.preset.unnamed') }}</span>
+                  <span class="preset-pop-meta">{{ presetMeta(p) }} · {{ p.baseURL || '' }}</span>
+                </span>
+                <span v-if="!p.apiKey" class="badge badge-warn preset-key-badge">{{ t('composer.preset.keyBadge') }}</span>
+                <AppIcon v-if="p.id === store.activePresetId" name="check" :size="12" />
+              </button>
+              <div class="preset-pop-divider" />
+              <button class="preset-pop-item" @click="presetMenuOpen = false; emit('open-settings')">
+                <AppIcon name="settings" :size="13" /> {{ t('composer.preset.manage') }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="modelOptions.length > 1" ref="modelWrap" class="preset-pick-wrap model-pick-wrap">
+            <button
+              ref="modelButton"
+              class="preset-pick model-pick" :class="{ open: modelMenuOpen }"
+              @click="toggleModelMenu"
+              @keydown="onModelButtonKeydown"
+              :aria-expanded="modelMenuOpen" aria-haspopup="listbox"
+              :title="currentModel"
+            >
+              <span class="preset-pick-name">{{ currentModel }}</span>
+              <AppIcon name="chevron-down" :size="11" class="preset-pick-chev" />
             </button>
+            <div
+              v-if="modelMenuOpen"
+              class="preset-pop model-pop"
+              role="listbox"
+              :aria-label="t('composer.model.selectAria')"
+              @keydown="onModelMenuKeydown"
+            >
+              <div class="preset-pop-head">{{ t('composer.model.switch') }}</div>
+              <button
+                v-for="m in modelOptions" :key="m"
+                :data-model="m"
+                class="preset-pop-item model-pop-item" :class="{ active: m === currentModel }"
+                role="option" :aria-selected="m === currentModel"
+                @click="selectModelUi(m)"
+              >
+                <span class="preset-pop-name model-pop-name">{{ m }}</span>
+                <AppIcon v-if="m === currentModel" name="check" :size="12" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1316,6 +1423,8 @@ function onErrorAction() {
   border-top: 1px solid var(--color-border);
   position: relative; flex-wrap: wrap;
 }
+.provider-picks { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.provider-picks .preset-pick-wrap { min-width: 0; }
 .preset-pick-wrap { position: relative; min-width: 0; }
 .preset-pick {
   display: inline-flex; align-items: center; gap: 6px;
@@ -1335,6 +1444,8 @@ function onErrorAction() {
   background: var(--color-surface-2);
 }
 .preset-pick-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-pick { max-width: 190px; }
+.model-pick::before { display: none; }
 .preset-key-badge { flex-shrink: 0; padding: 1px 5px; font-size: 8.5px; }
 .preset-pick-chev { flex-shrink: 0; color: var(--color-fg-subtle); transition: transform var(--dur) var(--ease); }
 .preset-pick.open .preset-pick-chev { transform: rotate(180deg); }
@@ -1371,6 +1482,8 @@ function onErrorAction() {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .preset-pop-divider { height: 1px; background: var(--color-border); margin: 4px 6px; }
+.model-pop { width: min(280px, 82vw); }
+.model-pop-name { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; }
 .spacer { flex: 1; }
 
 /* 收藏 prompt */
@@ -1522,6 +1635,8 @@ function onErrorAction() {
     gap: 6px; align-items: center;
   }
   .composer-bar .spacer { display: none; }
+  .provider-picks { flex-wrap: wrap; width: 100%; min-width: 0; }
+  .provider-picks .preset-pick-wrap { flex: 1 1 100%; }
   .preset-pick { width: 100%; max-width: none; }
   .preset-pick-name { max-width: none; }
   .star-btn { width: 34px; height: 34px; }

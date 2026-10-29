@@ -392,6 +392,17 @@ export const useWorkbenchStore = defineStore('workbench', {
       setActivePresetId(id)
       this.activePresetId = id
     },
+    // 同一接口下切换模型:写回该预设,下次生成默认用它。
+    setActiveModel(model) {
+      const preset = this.activePreset
+      if (!preset) return
+      const models = Array.isArray(preset.models) && preset.models.length
+        ? preset.models
+        : (preset.model ? [preset.model] : [])
+      if (!models.includes(model) || preset.model === model) return
+      savePreset({ ...preset, model })
+      this.presets = loadPresets()
+    },
     clearKeys() {
       clearAllKeys()
       this.presets = loadPresets()

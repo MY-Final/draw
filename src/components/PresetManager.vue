@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AppIcon from './AppIcon.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
-import { DEFAULT_REQUEST_TIMEOUT_MS, MIN_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS } from '../lib/presets.js'
+import { DEFAULT_REQUEST_TIMEOUT_MS, MIN_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS, normalizeModels } from '../lib/presets.js'
 import { fetchModels as fetchModelList, MODEL_LIST_TIMEOUT_MS } from '../lib/models.js'
 import { useDialogA11y } from '../composables/useDialogA11y.js'
 
@@ -19,7 +19,11 @@ const store = useWorkbenchStore()
 const { t } = useI18n()
 
 const mode = ref('list') // 'list' | 'edit'
-const form = reactive({ id: null, name: '', baseURL: '', apiKey: '', model: '', protocol: 'images', requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS })
+const form = reactive({
+  id: null, name: '', baseURL: '', apiKey: '',
+  models: [], model: '',
+  protocol: 'images', requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+})
 const testing = ref(false)
 const testResult = ref(null)
 const showKey = ref(false)
@@ -33,6 +37,7 @@ const dirty = computed(() => JSON.stringify({ ...form }) !== originalJson.value)
 const modal = ref(null)
 const modelField = ref(null)
 const modelInput = ref(null)
+const customModel = ref('')
 const modelFilter = ref('')
 const models = ref([])
 const modelsOpen = ref(false)
@@ -48,7 +53,12 @@ const title = computed(() => {
 })
 
 function blankForm() {
-  Object.assign(form, { id: null, name: '', baseURL: '', apiKey: '', model: '', protocol: 'images', requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS })
+  Object.assign(form, {
+    id: null, name: '', baseURL: '', apiKey: '',
+    models: [], model: '',
+    protocol: 'images', requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+  })
+  customModel.value = ''
   originalJson.value = JSON.stringify({ ...form })
   testResult.value = null
   showKey.value = false
@@ -61,7 +71,14 @@ function startNew() {
 }
 
 function startEdit(p) {
-  Object.assign(form, { ...p, requestTimeoutMs: p.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS })
+  const models = normalizeModels(p.models, p.model)
+  Object.assign(form, {
+    ...p,
+    models,
+    model: models.includes(p.model) ? p.model : (models[0] || ''),
+    requestTimeoutMs: p.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS,
+  })
+  customModel.value = ''
   originalJson.value = JSON.stringify({ ...form })
   testResult.value = null
   showKey.value = false
@@ -88,8 +105,9 @@ function leaveEdit() {
 }
 
 function save() {
-  if (!form.baseURL || !form.model) return
-  const saved = store.upsertPreset({ ...form })
+  if (!form.baseURL || !form.models.length) return
+  if (!form.models.includes(form.model)) form.model = form.models[0]
+  const saved = store.upsertPreset({ ...form, models: [...form.models] })
   store.selectPreset(saved.id)
   // 首次添加成功后关掉弹窗,回到主界面开画
   if (store.presets.length === 1) {
@@ -153,6 +171,14 @@ function usePreset(p) {
   store.selectPreset(p.id)
 }
 
+// 列表里压缩展示:默认模型 +N,不铺开整串模型名。
+function modelSummary(p) {
+  const models = normalizeModels(p.models, p.model)
+  if (!models.length) return t('presets.noModel')
+  const current = p.model && models.includes(p.model) ? p.model : models[0]
+  return models.length > 1 ? `${current} +${models.length - 1}` : current
+}
+
 function setTimeoutSeconds(value) {
   const seconds = Math.min(MAX_REQUEST_TIMEOUT_MS / 1000, Math.max(MIN_REQUEST_TIMEOUT_MS / 1000, Number(value) || DEFAULT_REQUEST_TIMEOUT_MS / 1000))
   form.requestTimeoutMs = Math.round(seconds) * 1000
@@ -195,6 +221,11 @@ async function fetchAvailableModels() {
     if (!result.models.length) {
       modelsError.value = t('presets.modelsEmptyList')
     } else {
+      // 新接口:先默认选第一个,打开列表后可继续勾选其它模型。
+      if (!form.models.length) {
+        form.models = [result.models[0]]
+        form.model = result.models[0]
+      }
       modelsOpen.value = true
       revealModelPicker()
     }
@@ -225,14 +256,43 @@ function closeModelList() {
   nextTick(() => modelInput.value?.focus())
 }
 
-function selectModel(model) {
-  form.model = model
-  modelsOpen.value = false
+function addModel(raw) {
+  const name = String(raw || '').trim()
+  if (!name || form.models.includes(name)) return false
+  form.models.push(name)
+  if (!form.model) form.model = name
+  return true
+}
+
+function addCustomModel() {
+  if (!addModel(customModel.value)) return
+  customModel.value = ''
   nextTick(() => modelInput.value?.focus())
 }
 
+function removeModel(name) {
+  const index = form.models.indexOf(name)
+  if (index < 0) return
+  form.models.splice(index, 1)
+  if (form.model === name) form.model = form.models[0] || ''
+}
+
+// 列表里多选:点一次加入,再点取消;不关闭列表,方便一次勾选多个。
+function toggleFetchedModel(name) {
+  if (form.models.includes(name)) removeModel(name)
+  else addModel(name)
+}
+
+function setDefaultModel(name) {
+  if (form.models.includes(name)) form.model = name
+}
+
 function onModelInputKeydown(event) {
-  if (event.key === 'ArrowDown' && models.value.length) {
+  if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    addCustomModel()
+  } else if (event.key === 'ArrowDown' && models.value.length) {
     event.preventDefault()
     modelsOpen.value = true
     nextTick(() => modelField.value?.querySelector('.model-option')?.focus())
@@ -338,7 +398,7 @@ watch(() => [form.baseURL, form.apiKey], () => {
                   <span class="preset-name">{{ p.name || t('presets.unnamed') }}</span>
                   <span v-if="!p.apiKey" class="badge badge-warn">{{ t('presets.missingKey') }}</span>
                 </div>
-                <span class="preset-meta">{{ p.model || t('presets.noModel') }} · {{ p.baseURL || t('presets.noUrl') }}</span>
+                <span class="preset-meta">{{ modelSummary(p) }} · {{ p.baseURL || t('presets.noUrl') }}</span>
               </div>
               <button class="btn btn-sm btn-ghost edit-btn" @click.stop="startEdit(p)" :aria-label="t('presets.edit')">
                 {{ t('presets.edit') }}
@@ -386,16 +446,39 @@ watch(() => [form.baseURL, form.apiKey], () => {
           <div class="field">
             <label>{{ t('presets.modelLabel') }} <span class="req">{{ t('presets.required') }}</span></label>
             <div ref="modelField" class="model-field" @click.stop>
+              <div v-if="form.models.length" class="model-chips" role="group" :aria-label="t('presets.selectedModels')">
+                <span
+                  v-for="m in form.models" :key="m"
+                  class="model-chip" :class="{ default: form.model === m }"
+                >
+                  <button
+                    type="button"
+                    class="chip-name"
+                    :aria-pressed="form.model === m"
+                    :title="t('presets.setDefaultModel', { model: m })"
+                    @click="setDefaultModel(m)"
+                  >
+                    <span v-if="form.model === m" class="chip-dot" aria-hidden="true" />
+                    <span class="chip-text">{{ m }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="chip-remove"
+                    :aria-label="t('presets.removeModel', { model: m })"
+                    :title="t('presets.removeModel', { model: m })"
+                    @click="removeModel(m)"
+                  >
+                    <AppIcon name="x" :size="10" />
+                  </button>
+                </span>
+              </div>
               <div class="model-input-row">
                 <input
                   ref="modelInput"
-                  v-model="form.model"
+                  v-model="customModel"
                   :placeholder="t('presets.modelPlaceholder')"
+                  :aria-label="t('presets.addModelAria')"
                   autocomplete="off"
-                  role="combobox"
-                  aria-controls="model-picker"
-                  :aria-expanded="modelsOpen"
-                  aria-autocomplete="list"
                   @keydown="onModelInputKeydown"
                 />
                 <button
@@ -409,9 +492,16 @@ watch(() => [form.baseURL, form.apiKey], () => {
                   {{ modelsLoading ? t('presets.fetching') : (models.length ? t('presets.refreshModels') : t('presets.getModels')) }}
                 </button>
               </div>
+              <p class="helper model-helper">{{ t('presets.modelHelper') }}</p>
               <div v-if="models.length" class="model-picker-toggle">
                 <span class="helper">{{ t('presets.fetchedCount', { count: models.length }) }}</span>
-                <button type="button" class="model-list-link" @click="modelsOpen ? closeModelList() : openModelList()">
+                <button
+                  type="button"
+                  class="model-list-link"
+                  aria-controls="model-picker"
+                  :aria-expanded="modelsOpen"
+                  @click="modelsOpen ? closeModelList() : openModelList()"
+                >
                   {{ modelsOpen ? t('presets.collapseList') : t('presets.chooseModel') }}
                 </button>
               </div>
@@ -424,6 +514,7 @@ watch(() => [form.baseURL, form.apiKey], () => {
                 id="model-picker"
                 class="model-picker"
                 role="listbox"
+                aria-multiselectable="true"
                 :aria-label="t('presets.availableModels')"
                 @keydown="onModelPickerKeydown"
               >
@@ -447,11 +538,11 @@ watch(() => [form.baseURL, form.apiKey], () => {
                     type="button"
                     class="model-option"
                     role="option"
-                    :aria-selected="form.model === model"
-                    @click="selectModel(model)"
+                    :aria-selected="form.models.includes(model)"
+                    @click="toggleFetchedModel(model)"
                   >
                     <span>{{ model }}</span>
-                    <AppIcon v-if="form.model === model" name="check" :size="13" />
+                    <AppIcon v-if="form.models.includes(model)" name="check" :size="13" />
                   </button>
                   <p v-if="!filteredModels.length" class="model-empty">{{ t('presets.noMatchingModels') }}</p>
                 </div>
@@ -489,7 +580,7 @@ watch(() => [form.baseURL, form.apiKey], () => {
         <div class="spacer" />
         <button v-if="form.id" class="btn btn-sm btn-danger" @click="askRemoveCurrent">{{ t('common.delete') }}</button>
         <button class="btn" @click="cancelEdit">{{ t('common.cancel') }}</button>
-        <button class="btn btn-primary" @click="save" :disabled="!form.baseURL || !form.model">
+        <button class="btn btn-primary" @click="save" :disabled="!form.baseURL || !form.models.length">
           {{ t('presets.saveAndUse') }}
         </button>
       </footer>
@@ -629,6 +720,31 @@ watch(() => [form.baseURL, form.apiKey], () => {
 .key-input { display: flex; gap: var(--space-2); }
 .key-input input { flex: 1; min-width: 0; }
 .model-field { position: relative; z-index: 2; }
+.model-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px; }
+.model-chip {
+  display: inline-flex; align-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.model-chip.default { border-color: var(--color-ink); background: var(--color-surface-2); }
+.chip-name {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 24px; max-width: 240px; padding: 0 2px 0 7px;
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--color-fg-muted);
+}
+.model-chip.default .chip-name { color: var(--color-fg); }
+.chip-dot { width: 5px; height: 5px; flex-shrink: 0; background: var(--color-ink); }
+.chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-remove {
+  width: 20px; height: 24px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--color-fg-subtle);
+}
+.chip-remove:hover { color: var(--color-fg); background: var(--color-surface-2); }
+.model-helper { margin: 6px 0 0; }
 .model-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .model-input-row input { min-width: 0; }
 .model-fetch { white-space: nowrap; min-width: 94px; font-size: 10.5px; }
@@ -666,9 +782,8 @@ watch(() => [form.baseURL, form.apiKey], () => {
   font-family: var(--font-mono); font-size: 10.5px;
 }
 .model-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-option:hover, .model-option[aria-selected='true'] {
-  color: var(--color-primary); background: var(--color-primary-soft);
-}
+.model-option:hover { color: var(--color-fg); background: var(--color-surface-2); }
+.model-option[aria-selected='true'] { color: var(--color-primary); background: var(--color-primary-soft); }
 .model-empty { margin: 0; padding: 12px 6px; color: var(--color-fg-subtle); font-family: var(--font-mono); font-size: 9.5px; text-align: center; }
 .req {
   font-family: var(--font-mono); font-size: 8.5px; font-weight: 500;

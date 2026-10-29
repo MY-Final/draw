@@ -73,4 +73,29 @@ describe('savePreset preserveExistingKey', () => {
     clearAllKeys()
     expect(loadPresets()[0][AK]).toBe('')
   })
+
+  it('旧数据只有 model 时自动补齐 models', () => {
+    map.set('workbench.presets.v1', JSON.stringify([preset({ id: 'legacy' })]))
+    const [loaded] = loadPresets()
+    expect(loaded.models).toEqual(['m'])
+    expect(loaded.model).toBe('m')
+  })
+
+  it('保存多个模型:去重去空,默认模型必须在列表内', () => {
+    const saved = savePreset(preset({ models: ['a', 'b', 'a', '  '], model: 'b' }))
+    expect(saved.models).toEqual(['a', 'b'])
+    expect(saved.model).toBe('b')
+    expect(loadPresets()[0].models).toEqual(['a', 'b'])
+  })
+
+  it('默认模型不在列表内时退回第一个', () => {
+    const saved = savePreset(preset({ models: ['a', 'b'], model: 'c' }))
+    expect(saved.model).toBe('a')
+  })
+
+  it('models 为空时退回旧的单个 model 字段', () => {
+    const saved = savePreset(preset({ models: [], model: 'only' }))
+    expect(saved.models).toEqual(['only'])
+    expect(saved.model).toBe('only')
+  })
 })

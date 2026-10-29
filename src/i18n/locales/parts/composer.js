@@ -82,6 +82,10 @@ export default {
       noModel: '未设模型',
       manage: '管理接口',
     },
+    model: {
+      switch: '切换模型',
+      selectAria: '选择生成模型',
+    },
     promptLib: {
       starTitleWithText: '收藏 / 打开 Prompt 库',
       starTitle: '打开 Prompt 库',
@@ -205,6 +209,10 @@ export default {
       switch: 'Switch endpoint',
       noModel: 'No model set',
       manage: 'Manage endpoints',
+    },
+    model: {
+      switch: 'Switch model',
+      selectAria: 'Choose the generation model',
     },
     promptLib: {
       starTitleWithText: 'Save / open prompt library',
