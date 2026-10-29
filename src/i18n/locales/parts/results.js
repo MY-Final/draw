@@ -42,6 +42,8 @@ export default {
       actionTitle: '编辑这条消息并重新生成',
       regenerate: '以此 Prompt 生成',
     },
+    expandPrompt: '展开全文',
+    collapsePrompt: '收起',
     referenceImage: '参考图',
     status: {
       success: '已完成',
@@ -133,6 +135,8 @@ export default {
       actionTitle: 'Edit this message and regenerate',
       regenerate: 'Generate with this prompt',
     },
+    expandPrompt: 'Show full prompt',
+    collapsePrompt: 'Show less',
     referenceImage: 'Reference image',
     status: {
       success: 'Completed',

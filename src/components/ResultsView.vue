@@ -1,6 +1,6 @@
 <script setup>
 // 中栏对话流:每条生成 = 用户请求气泡(右)+ AI 回复卡(左),左右明显错开。
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useWorkbenchStore } from '../stores/workbench.js'
 import AssetImage from './AssetImage.vue'
@@ -35,6 +35,58 @@ const feed = computed(() => [...store.canvasGenerations].reverse())
 const queuedHere = computed(() => store.generationQueue.filter(
   (q) => q.workspaceId === store.activeWorkspaceId && q.conversationId === store.conversationId,
 ))
+
+// 图注只有一栏宽,长 prompt 会堆成一堵字墙,把操作按钮挤出视口。
+// 默认只露 6 行(见 .bubble-text.clamped),真的溢出才给「展开全文」;展开状态逐条记住。
+const expandedPrompts = ref(new Set())
+const overflowingPrompts = ref(new Set())
+const promptEls = new Map()
+let promptMeasureRaf = 0
+let promptResizeObserver = null
+
+function setPromptRef(el, id) {
+  if (el) promptEls.set(id, el)
+  else promptEls.delete(id)
+}
+function sameIdSet(a, b) {
+  if (a.size !== b.size) return false
+  for (const id of a) if (!b.has(id)) return false
+  return true
+}
+// 收起态下用 scrollHeight > clientHeight 判断是否被截断;
+// 展开态自身不再溢出,所以靠 expandedPrompts 把这一条保留在「可收起」集合里。
+function measurePromptOverflow() {
+  const next = new Set()
+  for (const [id, el] of promptEls) {
+    if (expandedPrompts.value.has(id) || el.scrollHeight > el.clientHeight + 1) next.add(id)
+  }
+  if (!sameIdSet(next, overflowingPrompts.value)) overflowingPrompts.value = next
+}
+function schedulePromptMeasure() {
+  cancelAnimationFrame(promptMeasureRaf)
+  promptMeasureRaf = requestAnimationFrame(measurePromptOverflow)
+}
+function togglePrompt(id) {
+  const next = new Set(expandedPrompts.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedPrompts.value = next
+  nextTick(schedulePromptMeasure)
+}
+onMounted(() => {
+  // 侧栏开合、窗口缩放都会改变图注宽度,换行数随之变化,需要重新量。
+  if (typeof ResizeObserver !== 'undefined' && scroller.value) {
+    promptResizeObserver = new ResizeObserver(schedulePromptMeasure)
+    promptResizeObserver.observe(scroller.value)
+  }
+  window.addEventListener('resize', schedulePromptMeasure)
+  schedulePromptMeasure()
+})
+onUnmounted(() => {
+  promptResizeObserver?.disconnect()
+  cancelAnimationFrame(promptMeasureRaf)
+  window.removeEventListener('resize', schedulePromptMeasure)
+})
 
 const assetsById = computed(() => new Map(
   store.assets
@@ -220,6 +272,18 @@ async function saveEdit(gen) {
   await store.editPromptAndRegenerate(gen.id, t)
 }
 
+// feed 内容变化(首次载入、编辑重生成)或退出编辑态时,重新判断哪些 prompt 溢出。
+watch(
+  () => [
+    feed.value.map((g) => `${g.id}\u0000${g.prompt}`).join('\u0001'),
+    editingGenId.value,
+  ],
+  async () => {
+    await nextTick()
+    schedulePromptMeasure()
+  },
+)
+
 function onFeedScroll() {
   const el = scroller.value
   if (!el) return
@@ -345,7 +409,18 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
               </div>
             </div>
             <template v-else>
-              <p class="bubble-text">{{ gen.prompt }}</p>
+              <p
+                :ref="(el) => setPromptRef(el, gen.id)"
+                class="bubble-text"
+                :class="{ clamped: !expandedPrompts.has(gen.id) }"
+              >{{ gen.prompt }}</p>
+              <button
+                v-if="overflowingPrompts.has(gen.id)"
+                type="button"
+                class="prompt-toggle"
+                :aria-expanded="expandedPrompts.has(gen.id)"
+                @click="togglePrompt(gen.id)"
+              >{{ expandedPrompts.has(gen.id) ? t('results.collapsePrompt') : t('results.expandPrompt') }}</button>
               <div v-if="refsOf(gen).length" class="bubble-refs">
                 <div v-for="a in refsOf(gen)" :key="a.id" class="bubble-ref">
                   <AssetImage :asset="a" :alt="t('results.referenceImage')" />
@@ -614,6 +689,18 @@ watch(() => [store.conversationId, store.activeWorkspaceId], () => {
   white-space: pre-wrap; word-break: break-word;
   letter-spacing: -0.01em;
 }
+.bubble-text.clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
+}
+.prompt-toggle {
+  align-self: flex-start; margin-top: -5px; padding: 1px 0;
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.03em;
+  color: var(--color-fg-muted);
+}
+.prompt-toggle:hover { color: var(--color-fg); }
 .bubble-refs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .bubble-ref {
   width: 40px; height: 40px; border-radius: var(--radius-sm); overflow: hidden;
