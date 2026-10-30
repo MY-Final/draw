@@ -6,6 +6,8 @@ dist/
 .qa/
 test-results/
 playwright-report/
+# 本地预览启动配置
+.claude/launch.json
 # Windows accidental redirect artifact
 /nul
 nul
