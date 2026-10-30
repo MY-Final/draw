@@ -32,7 +32,7 @@ function toggle() {
 .locale-toggle {
   width: 30px; height: 30px; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  font-family: var(--font-mono); font-size: 11.5px; font-weight: 600;
+  font-family: var(--font-mono); font-size: 13.5px; font-weight: 600;
   letter-spacing: 0.02em;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);

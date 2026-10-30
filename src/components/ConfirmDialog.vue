@@ -61,7 +61,7 @@ useDialogA11y(dialog, () => emit('cancel'))
   box-shadow: var(--shadow-pop);
   animation: pop var(--dur) var(--ease-out);
 }
-.dlg-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 16px; }
+.dlg-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 18px; }
 .dlg-head strong { font-weight: 700; letter-spacing: -0.02em; }
 .dlg-icon.danger {
   width: 28px; height: 28px; flex-shrink: 0;
@@ -70,7 +70,7 @@ useDialogA11y(dialog, () => emit('cancel'))
   border: 1px solid color-mix(in srgb, var(--color-destructive) 35%, transparent);
   background: color-mix(in srgb, var(--color-destructive) 8%, transparent);
 }
-.dlg-msg { margin: 0 0 18px; font-size: 14px; color: var(--color-fg-muted); line-height: 1.65; }
+.dlg-msg { margin: 0 0 18px; font-size: 16px; color: var(--color-fg-muted); line-height: 1.65; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 .dlg-actions .btn { min-width: 76px; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }

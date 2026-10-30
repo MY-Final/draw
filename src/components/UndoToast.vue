@@ -27,7 +27,7 @@ const emit = defineEmits(['undo'])
   color: var(--color-on-ink);
   border: 1px solid var(--color-ink);
   box-shadow: var(--shadow-pop);
-  font-size: 14px;
+  font-size: 16px;
 }
 .undo-toast.fixed {
   position: fixed; bottom: calc(var(--composer-height, 240px) + 16px);
@@ -35,7 +35,7 @@ const emit = defineEmits(['undo'])
 }
 .undo-toast span { min-width: 0; }
 .undo-btn {
-  flex-shrink: 0; font-family: var(--font-mono); font-size: 12.5px; font-weight: 600;
+  flex-shrink: 0; font-family: var(--font-mono); font-size: 14.5px; font-weight: 600;
   color: inherit; padding: 2px 0;
   text-decoration: underline; text-underline-offset: 3px;
   opacity: 0.82;

@@ -313,7 +313,7 @@ const vFocus = { mounted: (el) => el.focus() }
   background: var(--color-ink);
   color: var(--color-on-ink);
   border: 1px solid var(--color-ink);
-  font-size: 14px; font-weight: 650; letter-spacing: 0.01em;
+  font-size: 16px; font-weight: 650; letter-spacing: 0.01em;
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
     color var(--dur) var(--ease);
 }
@@ -322,7 +322,7 @@ const vFocus = { mounted: (el) => el.focus() }
 .new-btn-kbd {
   border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
   background: transparent; color: inherit; opacity: 0.62;
-  font-size: 11px; letter-spacing: 0.06em; padding: 1px 4px;
+  font-size: 13px; letter-spacing: 0.06em; padding: 1px 4px;
 }
 .new-btn:hover .new-btn-kbd { opacity: 0.9; }
 
@@ -358,7 +358,7 @@ const vFocus = { mounted: (el) => el.focus() }
 }
 .ws-icon { display: none; }
 .ws-name {
-  flex: 1; font-size: 14px; font-weight: 600;
+  flex: 1; font-size: 16px; font-weight: 600;
   letter-spacing: -0.01em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -366,7 +366,7 @@ const vFocus = { mounted: (el) => el.focus() }
 
 .ws-menu-toggle {
   flex-shrink: 0; width: 20px; height: 20px; border-radius: var(--radius-sm);
-  color: var(--color-fg-subtle); font-size: 14px; line-height: 1;
+  color: var(--color-fg-subtle); font-size: 16px; line-height: 1;
   opacity: 0; transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .ws-header:hover .ws-menu-toggle,
@@ -387,7 +387,7 @@ const vFocus = { mounted: (el) => el.focus() }
 .hist-label {
   display: flex; align-items: center; gap: 6px;
   font-family: var(--font-mono);
-  font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
+  font-size: 13px; font-weight: 600; letter-spacing: 0.12em;
   color: var(--color-fg-subtle);
   padding: 7px 8px 3px 10px;
 }
@@ -407,10 +407,10 @@ const vFocus = { mounted: (el) => el.focus() }
 .hist-row:hover .hist-item, .hist-row.active .hist-item { color: var(--color-fg); }
 .hist-row.active .hist-item { font-weight: 600; }
 .hist-row.active .hist-item :deep(svg) { color: var(--color-fg-muted); }
-.hist-title { flex: 1; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hist-draft { font-size: 12px; color: var(--color-fg-subtle); flex-shrink: 0; }
+.hist-title { flex: 1; font-size: 15.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-draft { font-size: 14px; color: var(--color-fg-subtle); flex-shrink: 0; }
 .hist-count {
-  font-size: 11px; color: var(--color-fg-subtle); flex-shrink: 0;
+  font-size: 13px; color: var(--color-fg-subtle); flex-shrink: 0;
   min-width: 17px; height: 16px;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--radius-sm);
@@ -421,7 +421,7 @@ const vFocus = { mounted: (el) => el.focus() }
 .hist-menu {
   flex-shrink: 0; width: 22px; height: 22px; margin-right: 2px;
   border-radius: var(--radius-sm); color: var(--color-fg-subtle);
-  font-size: 14px; line-height: 1; opacity: 0;
+  font-size: 16px; line-height: 1; opacity: 0;
   transition: opacity var(--dur) var(--ease);
 }
 .hist-row:hover .hist-menu, .hist-row:focus-within .hist-menu, .hist-row.active .hist-menu { opacity: 1; }
@@ -443,7 +443,7 @@ const vFocus = { mounted: (el) => el.focus() }
 .menu-item {
   display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
   padding: 7px 8px; border-radius: var(--radius-sm);
-  font-size: 13.5px; color: var(--color-fg-muted);
+  font-size: 15.5px; color: var(--color-fg-muted);
 }
 .menu-item:hover { background: var(--color-surface-2); color: var(--color-fg); }
 .menu-item.danger { color: var(--color-destructive); }
@@ -452,7 +452,7 @@ const vFocus = { mounted: (el) => el.focus() }
 .rename-input {
   width: 100%; padding: 4px 6px; border-radius: var(--radius-sm);
   border: 1px solid var(--color-primary);
-  background: var(--color-elevated); color: var(--color-fg); font-size: 13.5px;
+  background: var(--color-elevated); color: var(--color-fg); font-size: 15.5px;
 }
 
 .new-ws-btn {
@@ -463,11 +463,11 @@ const vFocus = { mounted: (el) => el.focus() }
   border-radius: var(--radius);
   color: var(--color-fg-subtle);
   background: transparent;
-  font-size: 13px; font-weight: 600;
+  font-size: 15px; font-weight: 600;
 }
 .new-ws-btn:hover { color: var(--color-fg); border-color: var(--color-fg-muted); background: var(--color-surface-2); }
 
-.hist-empty { padding: 0 8px; font-size: 13px; font-family: var(--font-mono); }
+.hist-empty { padding: 0 8px; font-size: 15px; font-family: var(--font-mono); }
 .menu-backdrop { position: fixed; inset: 0; z-index: 15; }
 
 .side-bottom {
@@ -478,7 +478,7 @@ const vFocus = { mounted: (el) => el.focus() }
 .nav-item {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 7px 8px; border-radius: var(--radius);
-  font-size: 13.5px; color: var(--color-fg-muted); text-align: left;
+  font-size: 15.5px; color: var(--color-fg-muted); text-align: left;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .nav-item:hover { background: var(--color-surface-2); color: var(--color-fg); }
@@ -496,7 +496,7 @@ const vFocus = { mounted: (el) => el.focus() }
 .nav-icon:visited { color: var(--color-fg-subtle); }
 .nav-meta {
   margin-left: auto;
-  font-family: var(--font-mono); font-size: 11px; color: var(--color-fg-subtle);
+  font-family: var(--font-mono); font-size: 13px; color: var(--color-fg-subtle);
   min-width: 20px; height: 17px; padding: 0 4px;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--radius-sm); border: 1px solid var(--color-border);

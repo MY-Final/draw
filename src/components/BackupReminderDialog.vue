@@ -68,15 +68,15 @@ useDialogA11y(modal, () => emit('close'))
   display: flex; flex-direction: column; gap: var(--space-4);
 }
 .reminder-title {
-  margin: 0; font-size: 20px; font-weight: 750; color: var(--color-fg);
+  margin: 0; font-size: 22px; font-weight: 750; color: var(--color-fg);
   line-height: 1.3; letter-spacing: -0.03em;
 }
 .reminder-body {
-  margin: 0; font-size: 14px; line-height: 1.75; color: var(--color-fg-muted);
+  margin: 0; font-size: 16px; line-height: 1.75; color: var(--color-fg-muted);
 }
 .reminder-actions { display: flex; flex-direction: column; gap: var(--space-2); }
 .btn-ghost {
-  background: transparent; border: none; color: var(--color-fg-subtle); font-size: 13px;
+  background: transparent; border: none; color: var(--color-fg-subtle); font-size: 15px;
 }
 .btn-ghost:hover { color: var(--color-fg-muted); background: transparent; text-decoration: underline; }
 </style>

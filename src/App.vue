@@ -495,8 +495,8 @@ function openStorage() {
   width: min(340px, 100%); display: flex; flex-direction: column; align-items: center;
   gap: var(--space-2); text-align: center; color: var(--color-fg-muted);
 }
-.boot-panel strong { color: var(--color-fg); font-size: 16px; margin-top: var(--space-2); }
-.boot-panel p { margin: 0; font-size: 14px; line-height: 1.6; font-family: var(--font-mono); }
+.boot-panel strong { color: var(--color-fg); font-size: 18px; margin-top: var(--space-2); }
+.boot-panel p { margin: 0; font-size: 16px; line-height: 1.6; font-family: var(--font-mono); }
 .boot-mark { width: 40px; height: 40px; margin-bottom: var(--space-2); }
 
 /* ── 项目账簿 ── */
@@ -542,14 +542,14 @@ function openStorage() {
   line-height: 1.1;
 }
 .logo-text {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 800;
   letter-spacing: -0.03em;
   color: var(--color-fg);
 }
 .logo-sub {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -568,7 +568,7 @@ function openStorage() {
   border: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-fg-muted);
-  font-size: 13.5px;
+  font-size: 15.5px;
   flex-shrink: 0;
   transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
@@ -582,7 +582,7 @@ function openStorage() {
   border: none;
   background: transparent;
   padding: 0;
-  font-size: 11.5px;
+  font-size: 13.5px;
   letter-spacing: 0.06em;
 }
 
@@ -609,7 +609,7 @@ function openStorage() {
   align-items: baseline;
   gap: 8px;
   min-width: 0;
-  font-size: 14px;
+  font-size: 16px;
 }
 .studio-ws {
   font-weight: 700;
@@ -633,7 +633,7 @@ function openStorage() {
   flex-shrink: 0;
 }
 .studio-plate-index {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--color-fg);
 }
@@ -691,7 +691,7 @@ function openStorage() {
 .collapse-tab-label {
   writing-mode: vertical-rl;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 13.5px;
   letter-spacing: 0.18em;
   writing-mode: vertical-rl;
 }
@@ -738,7 +738,7 @@ function openStorage() {
 
 .mobile-assets-btn { width: auto; gap: 5px; padding: 0 8px; }
 .mobile-assets-count {
-  font-family: var(--font-mono); font-size: 12px; line-height: 1;
+  font-family: var(--font-mono); font-size: 14px; line-height: 1;
   color: var(--color-fg-subtle);
 }
 .mobile-assets-scrim {
@@ -804,7 +804,7 @@ function openStorage() {
   }
   .mobile-logo { width: 26px; height: 26px; }
   .mobile-title {
-    font-size: 15px; font-weight: 800; color: var(--color-fg);
+    font-size: 17px; font-weight: 800; color: var(--color-fg);
     letter-spacing: -0.03em;
   }
   .assets { display: none; }
