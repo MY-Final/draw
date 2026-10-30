@@ -267,7 +267,7 @@ async function deleteSingle(asset) {
 .lib-head-main { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
 .lib-head-actions { display: flex; align-items: center; gap: 6px; }
 .lib-title {
-  font-size: 13px; font-weight: 700; letter-spacing: -0.015em;
+  font-size: 14px; font-weight: 700; letter-spacing: -0.015em;
   color: var(--color-fg);
 }
 .filter-btn {
@@ -280,7 +280,7 @@ async function deleteSingle(asset) {
 .filter-btn.on { color: var(--color-heart); }
 .filter-btn.on :deep(svg) { fill: var(--color-heart); }
 .lib-count {
-  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.03em;
+  font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.03em;
   color: var(--color-fg-muted);
 }
 
@@ -288,7 +288,7 @@ async function deleteSingle(asset) {
 .src-filter {
   display: inline-flex; align-items: center;
   padding: 4px 8px; border-radius: var(--radius-sm);
-  font-family: var(--font-sans); font-size: 11px;
+  font-family: var(--font-sans); font-size: 13px;
   color: var(--color-fg-muted);
   border: 0; background: transparent;
   transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
@@ -301,7 +301,7 @@ async function deleteSingle(asset) {
 .delete-notice {
   display: flex; align-items: flex-start; gap: 7px;
   padding: 7px 9px; border-radius: var(--radius-sm);
-  font-size: 10.5px; line-height: 1.45; color: var(--color-warning);
+  font-size: 12.5px; line-height: 1.45; color: var(--color-warning);
   background: color-mix(in srgb, var(--color-warning) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
 }
@@ -318,11 +318,11 @@ async function deleteSingle(asset) {
   margin-bottom: 2px;
 }
 .lib-empty-title {
-  margin: 0; font-size: 12.5px; font-weight: 600;
+  margin: 0; font-size: 14px; font-weight: 600;
   color: var(--color-fg-muted);
 }
 .lib-empty-desc {
-  margin: 0; font-size: 11px; line-height: 1.65; max-width: 22em;
+  margin: 0; font-size: 13px; line-height: 1.65; max-width: 22em;
   color: var(--color-fg-subtle);
 }
 
@@ -350,7 +350,7 @@ async function deleteSingle(asset) {
 .fav-dot :deep(svg) { fill: var(--color-heart); }
 .src-badge {
   position: absolute; left: 5px; bottom: 5px;
-  font-family: var(--font-mono); font-size: 8px; font-weight: 500;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
   letter-spacing: 0.06em; line-height: 1;
   padding: 3px 4px; border-radius: 1px;
   color: #fff; background: rgba(15, 14, 10, 0.66);
@@ -359,7 +359,7 @@ async function deleteSingle(asset) {
   position: absolute; right: 5px; bottom: 5px;
   max-width: calc(100% - 52px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   padding: 3px 4px; border-radius: 1px;
-  font-family: var(--font-mono); font-size: 8px; line-height: 1;
+  font-family: var(--font-mono); font-size: 10.5px; line-height: 1;
   color: #f0b45a; background: rgba(15, 14, 10, 0.72);
 }
 .cell-actions {
@@ -387,7 +387,7 @@ async function deleteSingle(asset) {
   border-radius: var(--radius-sm);
   border: 1px dashed var(--color-border-strong);
   color: var(--color-fg-muted);
-  font-family: var(--font-mono); font-size: 9.5px;
+  font-family: var(--font-mono); font-size: 11.5px;
   background: transparent;
 }
 .load-more:hover { color: var(--color-fg); background: var(--color-surface-2); }

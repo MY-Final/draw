@@ -324,7 +324,7 @@ async function download() {
 }
 .stage-zoom button:hover:not(:disabled) { color: var(--lb-fg); background: rgba(255, 255, 255, 0.06); }
 .stage-zoom button:disabled { opacity: 0.3; cursor: not-allowed; }
-.zoom-value { min-width: 50px; font-family: var(--font-mono); font-size: 9.5px; }
+.zoom-value { min-width: 50px; font-family: var(--font-mono); font-size: 11.5px; }
 
 /* 展签 */
 .viewer-rail {
@@ -340,8 +340,8 @@ async function download() {
   padding: 0 36px 13px 0;               /* 给右上角关闭按钮让位 */
   border-bottom: 1px solid var(--lb-line);
 }
-.rail-title { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
-.rail-count { font-family: var(--font-mono); font-size: 9.5px; color: var(--lb-subtle); }
+.rail-title { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+.rail-count { font-family: var(--font-mono); font-size: 11.5px; color: var(--lb-subtle); }
 .rail-count-sep { padding: 0 3px; opacity: 0.5; }
 
 .viewer-prompt { padding-top: 16px; }
@@ -350,19 +350,19 @@ async function download() {
   margin-bottom: 9px;
 }
 .rail-label {
-  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.06em;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em;
   color: var(--lb-subtle);
 }
 .rail-copy {
   display: inline-flex; align-items: center; gap: 5px;
-  padding: 2px 0; font-size: 10px;
+  padding: 2px 0; font-size: 12px;
   color: var(--lb-muted); background: transparent; border: 0;
 }
 .rail-copy:hover { color: var(--lb-fg); }
 .viewer-prompt-text {
   margin: 0; padding-right: 4px;
   max-height: 42vh; overflow-y: auto;
-  font-size: 13px; line-height: 1.7;
+  font-size: 14px; line-height: 1.7;
   color: var(--lb-fg);
   white-space: pre-wrap; word-break: break-word;
 }
@@ -371,17 +371,17 @@ async function download() {
 .viewer-prompt + .rail-foot { margin-top: 16px; border-top: 1px solid var(--lb-line); }
 .rail-meta {
   display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
-  font-family: var(--font-mono); font-size: 9px; color: var(--lb-subtle);
+  font-family: var(--font-mono); font-size: 11px; color: var(--lb-subtle);
 }
 .src-chip {
-  padding: 2px 6px; font-size: 8.5px; letter-spacing: 0.04em;
+  padding: 2px 6px; font-size: 11px; letter-spacing: 0.04em;
   color: color-mix(in srgb, var(--lb-fg) 65%, transparent);
   border: 1px solid color-mix(in srgb, var(--lb-fg) 18%, transparent);
 }
 .flash {
   align-self: flex-start; margin: 0;
   padding: 4px 8px;
-  font-family: var(--font-mono); font-size: 9.5px;
+  font-family: var(--font-mono); font-size: 11.5px;
   color: var(--color-on-primary);
   background: var(--color-primary);
 }
@@ -389,7 +389,7 @@ async function download() {
 .rail-btn {
   display: flex; align-items: center; gap: 7px; min-width: 0;
   height: 34px; padding: 0 9px;
-  font-size: 10.5px; text-align: left;
+  font-size: 12.5px; text-align: left;
   color: var(--lb-muted); background: transparent;
   border: 1px solid var(--lb-line); border-radius: var(--radius-sm);
   white-space: nowrap; overflow: hidden;

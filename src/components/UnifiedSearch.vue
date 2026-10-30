@@ -285,7 +285,7 @@ buildIndex()
 .search-icon { flex-shrink: 0; color: var(--color-fg-subtle); }
 .search-input {
   flex: 1; border: none; outline: none; background: transparent;
-  font-family: var(--font-sans); font-size: 17px; font-weight: 500;
+  font-family: var(--font-sans); font-size: 18px; font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--color-fg); padding: 0; border-radius: 0;
 }
@@ -296,7 +296,7 @@ buildIndex()
   min-width: 30px; height: 20px;
   padding: 0 5px;
   border-radius: var(--radius-sm);
-  font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.08em;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em;
   color: var(--color-fg-subtle);
   border: 1px solid var(--color-border);
 }
@@ -304,7 +304,7 @@ buildIndex()
 .result-group-label {
   display: flex; align-items: center; gap: 8px;
   padding: 9px 10px 4px;
-  font-family: var(--font-mono); font-size: 9px; font-weight: 500;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
   letter-spacing: 0.1em;
   color: var(--color-fg-subtle);
   position: sticky; top: 0;
@@ -316,7 +316,7 @@ buildIndex()
   display: flex; align-items: center; gap: 9px;
   width: 100%; text-align: left;
   padding: 7px 10px;
-  font-size: 12.5px; color: var(--color-fg-muted);
+  font-size: 14px; color: var(--color-fg-muted);
 }
 .result-item:hover, .result-item.focused {
   background: var(--color-surface-2); color: var(--color-fg);
@@ -330,12 +330,12 @@ buildIndex()
 .result-thumb :deep(.asset-img) { width: 100%; height: 100%; object-fit: cover; }
 .result-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .result-subtitle {
-  font-family: var(--font-mono); font-size: 9px;
+  font-family: var(--font-mono); font-size: 11px;
   color: var(--color-fg-subtle); flex-shrink: 0; margin-left: auto;
 }
 .search-empty, .search-hint {
   padding: var(--space-8) var(--space-6); text-align: center;
-  font-family: var(--font-mono); font-size: 10.5px; line-height: 1.7;
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7;
   color: var(--color-fg-subtle);
 }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }

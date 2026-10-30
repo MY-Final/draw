@@ -59,8 +59,8 @@
   --color-surface-2: #e9e5da;
   --color-elevated: #fcfbf7;
   --color-fg: #17150f;
-  --color-fg-muted: #5f5b4e;
-  --color-fg-subtle: #8b8576;
+  --color-fg-muted: #514d42;
+  --color-fg-subtle: #726c5e;
   --color-border: #d7d2c4;
   --color-border-strong: #b5ae9c;
   --color-ring: #1d3fd8;
@@ -122,8 +122,8 @@
   --color-surface-2: #24221a;
   --color-elevated: #2b2920;
   --color-fg: #f2efe4;
-  --color-fg-muted: #b5b0a1;
-  --color-fg-subtle: #827d6e;
+  --color-fg-muted: #bdb8a9;
+  --color-fg-subtle: #9a9484;
   --color-border: #343026;
   --color-border-strong: #4d4739;
   --color-ring: #7c93ff;
@@ -148,7 +148,7 @@ body,
 
 body {
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.55;
   letter-spacing: -0.005em;
   color: var(--color-fg);
@@ -177,9 +177,9 @@ strong {
 /* 等宽小标签:图号、参数、计数。中文也走等宽,形成「图注」语气。 */
 .mono-label {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
   color: var(--color-fg-subtle);
 }
 
@@ -204,7 +204,7 @@ button {
   min-height: 36px;
   padding: 0 14px;
   border-radius: var(--radius);
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.01em;
   border: 1px solid var(--color-border-strong);
@@ -256,14 +256,14 @@ button {
 .btn-sm {
   min-height: 28px;
   padding: 0 10px;
-  font-size: 11.5px;
+  font-size: 13px;
 }
 
 input,
 textarea,
 select {
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--color-fg);
   background: var(--color-elevated);
   border: 1px solid var(--color-border-strong);
@@ -289,9 +289,9 @@ textarea {
 label {
   display: block;
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
   color: var(--color-fg-muted);
   margin-bottom: var(--space-1);
 }
@@ -301,8 +301,9 @@ label {
 }
 .helper {
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  line-height: 1.5;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.55;
   color: var(--color-fg-subtle);
   margin-top: var(--space-1);
 }
@@ -312,9 +313,9 @@ label {
   align-items: center;
   gap: 4px;
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
   padding: 2px 7px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border-strong);
@@ -337,7 +338,7 @@ label {
 }
 
 .note {
-  font-size: 12px;
+  font-size: 13.5px;
   padding: 10px 12px;
   border-radius: var(--radius);
   border: 1px solid var(--color-border-strong);
@@ -360,7 +361,7 @@ label {
 
 kbd {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.02em;
   padding: 1px 5px;
   border-radius: var(--radius-sm);
