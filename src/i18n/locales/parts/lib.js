@@ -37,6 +37,8 @@ export default {
       api: '接口返回错误(HTTP {status})。',
       imageTimeout: '图片外链下载超过 {seconds}s(已超时)。',
       imageDownload: '图片外链下载失败(可能已过期或不允许跨域)。',
+      invalidJson: '接口返回的不是有效 JSON,无法解析响应。',
+      invalidImageData: '接口返回的图片数据无法解码。',
     },
     models: {
       needBaseURL: '请先填写 Base URL。',
@@ -149,6 +151,8 @@ export default {
       api: 'Endpoint returned an error (HTTP {status}).',
       imageTimeout: 'Downloading the external image exceeded {seconds}s (timed out).',
       imageDownload: 'Failed to download the external image (it may have expired or blocked cross-origin access).',
+      invalidJson: 'The endpoint returned invalid JSON, so the response could not be parsed.',
+      invalidImageData: 'The image data returned by the endpoint could not be decoded.',
     },
     models: {
       needBaseURL: 'Please fill in the Base URL first.',

@@ -634,7 +634,6 @@ function enqueueCurrentDraft() {
   }
   const r = store.enqueueGeneration({
     prompt: text,
-    fullPrompt: text,
     refImageIds: [...refImageIds.value],
     params: currentParams(),
   })
@@ -676,7 +675,6 @@ async function submit() {
   try {
     result = await store.generate({
       prompt: text,
-      fullPrompt: text,
       refImageIds: refs,
       params,
     })

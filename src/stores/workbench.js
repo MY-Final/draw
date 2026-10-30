@@ -228,6 +228,9 @@ export const useWorkbenchStore = defineStore('workbench', {
       if (this.pendingWorkspaceDelete) await this.commitWorkspaceDelete(this.pendingWorkspaceDelete.batchId)
       if (this.pendingAssetDelete) await this.commitAssetDelete(this.pendingAssetDelete.batchId)
 
+      // 先作废该工作区的排队任务,再取消进行中的请求:
+      // 取消会同步触发队列续跑,若先等取消完成,排队项可能已经开跑并写回已删工作区。
+      this.generationQueue = this.generationQueue.filter((item) => item.workspaceId !== id)
       // 属于该工作区的进行中请求先收口,否则删完还会写回结果。
       if (this.activeGeneration?.workspaceId === id) await this.cancelAndWaitActiveGeneration()
 
@@ -237,8 +240,6 @@ export const useWorkbenchStore = defineStore('workbench', {
 
       this.workspaces = this.workspaces.filter((w) => w.id !== id)
       this.generations = this.generations.filter((g) => g.workspaceId !== id)
-      // 该工作区的排队任务随工作区一起作废,否则删完工作区还会继续往后写结果。
-      this.generationQueue = this.generationQueue.filter((item) => item.workspaceId !== id)
 
       const wait = Math.max(0, Number(delayMs) || 0)
       const batchId = newId('ws-delete')
@@ -426,7 +427,7 @@ export const useWorkbenchStore = defineStore('workbench', {
     },
 
     // context 允许队列把结果写回「发起排队时」的工作区/会话,而不是当前正在看的上下文。
-    async generate({ prompt, fullPrompt, refImageIds = [], params = {} }, context = null) {
+    async generate({ prompt, refImageIds = [], params = {} }, context = null) {
       if (!this.activePreset) {
         this.setError(tl('lib.store.noPreset'), 'settings')
         return { ok: false }
@@ -457,7 +458,6 @@ export const useWorkbenchStore = defineStore('workbench', {
         // 把当前会话 id 和 workspace id 记进这次生成。
         const gen = await runGeneration({
           preset: this.activePreset, prompt, refImageIds,
-          fullPrompt: fullPrompt || prompt,
           params: { ...params, conversationId },
           workspaceId,
           signal: controller.signal,
@@ -508,7 +508,6 @@ export const useWorkbenchStore = defineStore('workbench', {
       const item = {
         id: newId('queue'),
         prompt: text,
-        fullPrompt: payload.fullPrompt || text,
         refImageIds: [...(payload.refImageIds || [])],
         params: { ...(payload.params || {}) },
         workspaceId: this.activeWorkspaceId,
@@ -545,7 +544,6 @@ export const useWorkbenchStore = defineStore('workbench', {
       await this.generate(
         {
           prompt: next.prompt,
-          fullPrompt: next.fullPrompt,
           refImageIds: next.refImageIds,
           params: next.params,
         },
@@ -559,7 +557,6 @@ export const useWorkbenchStore = defineStore('workbench', {
       if (!g || (this.activeWorkspaceId && g.workspaceId !== this.activeWorkspaceId)) return { ok: false }
       return this.generate({
         prompt: g.prompt,
-        fullPrompt: g.fullPrompt,
         refImageIds: [...(g.refImageIds || [])],
         params: {
           size: g.params?.size,
@@ -578,7 +575,6 @@ export const useWorkbenchStore = defineStore('workbench', {
       if (!g || (this.activeWorkspaceId && g.workspaceId !== this.activeWorkspaceId) || !t || this.generating) return { ok: false }
       return this.generate({
         prompt: t,
-        fullPrompt: t,
         refImageIds: [...(g.refImageIds || [])],
         params: {
           size: g.params?.size,
@@ -667,16 +663,17 @@ export const useWorkbenchStore = defineStore('workbench', {
         || this.activeGeneration?.workspaceId
         || this.generations.find((g) => convIdOf(g) === id)?.workspaceId
       let records = this.generations.filter((g) => g.workspaceId === targetWorkspaceId && convIdOf(g) === id)
+      // 该会话排队中的任务先作废,再取消进行中的请求:
+      // 取消会同步触发队列续跑,过滤放在 await 之后,下一单可能已经跑进已删会话。
+      this.generationQueue = this.generationQueue.filter(
+        (item) => !(item.workspaceId === targetWorkspaceId && item.conversationId === id),
+      )
       // 删除包含活跃生成的会话时先中止并等待；随后重新取列表，覆盖 pending 刚落库的窗口。
       if (this.activeGeneration?.conversationId === id
         || (this.activeGeneration && records.some((g) => g.id === this.activeGeneration.genId))) {
         await this.cancelAndWaitActiveGeneration()
         records = this.generations.filter((g) => g.workspaceId === targetWorkspaceId && convIdOf(g) === id)
       }
-      // 该会话排队中的任务一并作废
-      this.generationQueue = this.generationQueue.filter(
-        (item) => !(item.workspaceId === targetWorkspaceId && item.conversationId === id),
-      )
 
       const title = this.titleOverrides[id]
         || records[0]?.prompt?.slice(0, 24)
@@ -783,6 +780,8 @@ export const useWorkbenchStore = defineStore('workbench', {
 
     // ── 清空全部(删所有生成 + 素材,保留预设/Key)──
     async resetWorkbench() {
+      // 先清空队列再取消:取消会同步触发队列续跑,顺序反了下一单会趁清空时开跑。
+      this.generationQueue = []
       // 清空期间若仍有请求，先中止并等待其清理完成，防止与 clear 交错后又写回。
       await this.cancelAndWaitActiveGeneration()
       // 先落库任何待删项,避免定时器残留
@@ -794,7 +793,6 @@ export const useWorkbenchStore = defineStore('workbench', {
       this.pendingConversationDelete = null
       if (this.pendingWorkspaceDelete) clearTimeout(this.pendingWorkspaceDelete.timer)
       this.pendingWorkspaceDelete = null
-      this.generationQueue = []
       await clearAllGenerations()
       await clearAllAssets()
       this.titleOverrides = {}
@@ -804,8 +802,9 @@ export const useWorkbenchStore = defineStore('workbench', {
     },
 
     // 仅清理本机图片,保留生成记录 / Prompt / 工作区 / 接口配置。
-    // 先收口进行中的生成,避免清空后请求完成又写入新图片。
+    // 先清空队列再收口进行中的生成:否则取消会续跑下一单,清空期间又写入新图。
     async clearStoredImages() {
+      this.generationQueue = []
       await this.cancelAndWaitActiveGeneration()
       if (this.pendingAssetDelete) clearTimeout(this.pendingAssetDelete.timer)
       this.pendingAssetDelete = null

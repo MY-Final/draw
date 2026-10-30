@@ -135,4 +135,31 @@ describe('生成队列', () => {
     expect(runGeneration).not.toHaveBeenCalled()
     expect(store.generating).toBe(false)
   })
+
+  it('删除会话会先作废排队项,取消后的自动续跑不会跑进已删会话', async () => {
+    // 正在跑的一单:等取消信号后再结束,模拟真实请求
+    let aborted = false
+    runGeneration.mockImplementationOnce(({ signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => {
+        aborted = true
+        reject(new DOMException('Aborted', 'AbortError'))
+      }, { once: true })
+    }))
+    runGeneration.mockImplementation(async () => successGen('gen_next'))
+
+    const running = store.generate({ prompt: '正在跑', params: { conversationId: 'conv_a' } })
+    expect(store.generating).toBe(true)
+    store.enqueueGeneration({ prompt: '排队的下一单' })
+    expect(store.generationQueue).toHaveLength(1)
+
+    await store.deleteConversationWithUndo('conv_a', 0)
+    await running
+    await wait(20)
+
+    expect(aborted).toBe(true)
+    // 排队项属于已删会话,不能借取消后的自动续跑开跑
+    expect(runGeneration).toHaveBeenCalledTimes(1)
+    expect(store.generationQueue).toHaveLength(0)
+    expect(store.generating).toBe(false)
+  })
 })

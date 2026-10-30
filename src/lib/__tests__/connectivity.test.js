@@ -1,6 +1,9 @@
 // 连通性检查:只 GET /v1/models,绝不打 images 计费端点。
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { checkConnectivity, isBillingPath } from '../connectivity.js'
+import { checkConnectivity } from '../connectivity.js'
+
+// 测试专用断言:连通性检查绝不能碰计费端点。
+const isBillingPath = (url) => /\/v1\/images\//.test(String(url || ''))
 
 const KEY = 'test-key'
 const AK = 'api' + 'Key'
@@ -33,6 +36,17 @@ describe('checkConnectivity', () => {
     expect(calls[0].url).toBe('https://api.test/v1/models')
     expect(calls[0].method).toBe('GET')
     expect(isBillingPath(calls[0].url)).toBe(false)
+  })
+
+  it('Base URL 带 /v1 时不重复拼接', async () => {
+    let calledUrl = ''
+    global.fetch = vi.fn(async (url) => {
+      calledUrl = url
+      return { ok: true, status: 200, text: async () => '{}' }
+    })
+    const r = await checkConnectivity(p('https://api.test/v1/', KEY))
+    expect(r.ok).toBe(true)
+    expect(calledUrl).toBe('https://api.test/v1/models')
   })
 
   it('/v1/models 404 时不回退到 images/generations', async () => {

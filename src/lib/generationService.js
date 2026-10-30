@@ -2,7 +2,7 @@
 // Task 5.3 / 5.4:失败标记、不产生残缺素材;支持 AbortSignal 取消。
 
 import { generate } from './adapters.js'
-import { toBlob, ApiError } from './http.js'
+import { toBlob, ApiError, responseSnippet } from './http.js'
 import { putAsset, getAssets, deleteAssets } from './assetRepo.js'
 import { createGeneration, updateGeneration } from './generationRepo.js'
 import { PROTOCOL_IMAGES } from './presets.js'
@@ -26,16 +26,6 @@ function isAbortError(e, signal) {
     || (e && e.name === 'AbortError' && !e.category)
 }
 
-// 截断的响应片段(诊断用):适配层仅在无图时返回 snippet,partial 场景由服务层自行兜底。
-function snippetOf(raw) {
-  try {
-    const s = JSON.stringify(raw)
-    return s.length > 2000 ? s.slice(0, 2000) + '…(truncated)' : s
-  } catch {
-    return String(raw)
-  }
-}
-
 // 安全更新:记录可能已被用户删除(取消/软删),不因 missing 再抛二次错误。
 async function safeUpdate(id, patch) {
   try {
@@ -46,14 +36,14 @@ async function safeUpdate(id, patch) {
 }
 
 export async function runGeneration({
-  preset, prompt, fullPrompt, refImageIds = [], params = {}, signal, onPending, workspaceId,
+  preset, prompt, refImageIds = [], params = {}, signal, onPending, workspaceId,
 }) {
   // 1. 先落一条 pending 记录(即使失败也留痕,便于诊断)
   const statusMessage = tl(`lib.generation.status.${STATUS_MESSAGE_KEYS[Math.floor(Math.random() * STATUS_MESSAGE_KEYS.length)]}`)
   const gen = await createGeneration({
     prompt,
     refImageIds,
-    params: { ...params, prompt: fullPrompt || prompt, model: preset.model, protocol: PROTOCOL_IMAGES },
+    params: { ...params, model: preset.model, protocol: PROTOCOL_IMAGES },
     statusMessage,
     workspaceId,
   })
@@ -74,10 +64,9 @@ export async function runGeneration({
     }
     const refImages = refAssets.map((a) => ({ blob: a.blob, mime: a.mime }))
 
-    // 3. 适配调用(用 fullPrompt 发送,保持 prompt 原始存储)
-    const apiPrompt = fullPrompt || prompt
+    // 3. 适配调用;记录里存的就是发给接口的原文,二者不再有第二份副本。
     const { images, snippet, raw } = await generate({
-      preset, prompt: apiPrompt, refImages, params, signal,
+      preset, prompt, refImages, params, signal,
     })
 
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -114,7 +103,7 @@ export async function runGeneration({
       elapsedMs: Date.now() - gen.createdAt,
       ...(partial ? {
         partialNote: tl('lib.generation.partialNote', { requested, returned: images.length }),
-        rawResponseSnippet: snippet || snippetOf(raw),
+        rawResponseSnippet: snippet || responseSnippet(raw),
       } : {}),
     })
     // 记录在请求期间已被删除（删会话/清空）时，产物不能成为孤儿或重新出现。

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { combineAbortSignals, callApi } from '../http.js'
+import { combineAbortSignals, callApi, apiUrl } from '../http.js'
+import { tl } from '../../i18n/translate.js'
 
 describe('callApi 请求生命周期', () => {
   it('生图请求不创建客户端超时，并原样使用用户 signal', async () => {
@@ -97,5 +98,54 @@ describe('callApi 请求超时', () => {
     })
     controller.abort()
     await expect(request).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('超时覆盖响应体读取:响应头已回但 body 卡住时也会中止', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url, { signal }) => ({
+      ok: true,
+      status: 200,
+      json: () => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      }),
+    })))
+
+    await expect(callApi('https://api.test/v1/images/generations', {
+      body: { prompt: 'slow body' }, timeoutMs: 5,
+    })).rejects.toMatchObject({ category: 'timeout' })
+  })
+
+  it('响应不是 JSON 时归类为 api,而不是网络错误', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError('Unexpected token <') },
+    })))
+
+    await expect(callApi('https://api.test/v1/images/generations', {
+      body: { prompt: 'html body' },
+    })).rejects.toMatchObject({
+      name: 'ApiError', category: 'api', message: tl('lib.http.invalidJson'),
+    })
+  })
+})
+
+describe('apiUrl 路径拼装', () => {
+  it('裸域名补 /v1,带 /v1 的 Base URL 不重复拼接', () => {
+    expect(apiUrl('https://api.test')).toBe('https://api.test/v1')
+    expect(apiUrl('https://api.test/')).toBe('https://api.test/v1')
+    expect(apiUrl('https://api.test/v1')).toBe('https://api.test/v1')
+    expect(apiUrl('https://api.test/v1/')).toBe('https://api.test/v1')
+  })
+
+  it('拼接具体端点时统一处理斜杠', () => {
+    expect(apiUrl('https://api.test', '/images/generations')).toBe('https://api.test/v1/images/generations')
+    expect(apiUrl('https://api.test/v1', 'images/edits')).toBe('https://api.test/v1/images/edits')
+    expect(apiUrl('  https://api.test/proxy/  ', '/models')).toBe('https://api.test/proxy/v1/models')
+  })
+
+  it('空 Base URL 返回空串', () => {
+    expect(apiUrl('')).toBe('')
+    expect(apiUrl(null)).toBe('')
+    expect(apiUrl(undefined, '/models')).toBe('')
   })
 })

@@ -5,7 +5,7 @@
 //   无参考图 → images/generations(文生图);带参考图 → images/edits(改图)
 // 上层拿到 images 后统一交给 http.toBlob 落库。
 
-import { callApi, DEFAULT_REQUEST_TIMEOUT_MS } from './http.js'
+import { apiUrl, callApi, responseSnippet, DEFAULT_REQUEST_TIMEOUT_MS } from './http.js'
 import { tl } from '../i18n/translate.js'
 
 // 从各种响应形态中提取图片,尽量不丢图:
@@ -42,9 +42,20 @@ function extractImages(raw) {
   return images
 }
 
+// 两个图像端点(JSON / multipart)只有请求体不同,响应解析与超时策略共用。
+async function requestImages({ preset, url, body, signal }) {
+  const raw = await callApi(url, {
+    apiKey: preset.apiKey,
+    body,
+    signal,
+    timeoutMs: preset.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS,
+  })
+  const images = extractImages(raw)
+  return { images, raw, snippet: images.length ? null : responseSnippet(raw) }
+}
+
 // ImagesAdapter —— POST /v1/images/generations
 async function generateViaImages({ preset, prompt, params, signal }) {
-  const url = `${preset.baseURL}/v1/images/generations`
   const body = {
     model: preset.model || params.model,
     prompt,
@@ -59,19 +70,18 @@ async function generateViaImages({ preset, prompt, params, signal }) {
   // 不指定时由服务端默认(通常返回 url),url 再由 http.toBlob 下载落库(有超时兜底)。
   if (params.responseFormat) body.response_format = params.responseFormat
 
-  const raw = await callApi(url, {
-    apiKey: preset.apiKey, body, signal, timeoutMs: preset.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS,
+  return requestImages({
+    preset,
+    url: apiUrl(preset.baseURL, '/images/generations'),
+    body,
+    signal,
   })
-
-  const images = extractImages(raw)
-  return { images, raw, snippet: images.length ? null : safeSnippet(raw) }
 }
 
 // ImagesEditAdapter —— POST /v1/images/edits(multipart)。images 协议带参考图时改图。
 // 官方 edits 端点(GPT Image 系)支持最多 16 张源图:多图场景每张以 image[] 字段重复
 // 发送;单图沿用 image 字段,兼容 DALL·E 2 与旧中转站。
 async function generateViaImagesEdit({ preset, prompt, refImages, params, signal }) {
-  const url = `${preset.baseURL}/v1/images/edits`
   const form = new FormData()
   form.append('model', preset.model || params.model)
   form.append('prompt', prompt)
@@ -89,12 +99,12 @@ async function generateViaImagesEdit({ preset, prompt, refImages, params, signal
     form.append(field, img.blob, `image-${i + 1}.${ext}`)
   })
 
-  const raw = await callApi(url, {
-    apiKey: preset.apiKey, body: form, signal, timeoutMs: preset.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS,
+  return requestImages({
+    preset,
+    url: apiUrl(preset.baseURL, '/images/edits'),
+    body: form,
+    signal,
   })
-
-  const images = extractImages(raw)
-  return { images, raw, snippet: images.length ? null : safeSnippet(raw) }
 }
 
 export async function generate({ preset, prompt, refImages = [], params = {}, signal } = {}) {
@@ -105,13 +115,4 @@ export async function generate({ preset, prompt, refImages = [], params = {}, si
     return generateViaImagesEdit({ preset, prompt, refImages, params, signal })
   }
   return generateViaImages({ preset, prompt, params, signal })
-}
-
-function safeSnippet(raw) {
-  try {
-    const s = JSON.stringify(raw)
-    return s.length > 2000 ? s.slice(0, 2000) + '…(truncated)' : s
-  } catch {
-    return String(raw)
-  }
 }

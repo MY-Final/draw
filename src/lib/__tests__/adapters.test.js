@@ -23,6 +23,15 @@ describe('generate 端点分派', () => {
     expect(typeof calls[0].opts.body).toBe('string') // JSON
   })
 
+  it('Base URL 自带 /v1 时不重复拼接', async () => {
+    install()
+    await generate({
+      preset: { ...preset('images'), baseURL: 'https://api.test/v1/' },
+      prompt: '猫', refImages: [], params: {},
+    })
+    expect(calls[0].url).toBe('https://api.test/v1/images/generations')
+  })
+
   it('images 带参考图 → images/edits(multipart FormData)', async () => {
     install()
     const blob = new Blob(['img'], { type: 'image/png' })

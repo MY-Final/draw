@@ -8,13 +8,15 @@
 // 关键不变量(design D8):导出分享时必须剥离 apiKey。见 share.js 的 stripKey。
 
 import { tl } from '../i18n/translate.js'
+import { DEFAULT_REQUEST_TIMEOUT_MS } from './http.js'
 
 export const PRESETS_STORAGE_KEY = 'workbench.presets.v1'
 export const ACTIVE_PRESET_KEY = 'workbench.activePresetId.v1'
 
 export const PROTOCOL_IMAGES = 'images'
 
-export const DEFAULT_REQUEST_TIMEOUT_MS = 180000
+// 请求超时的唯一默认值来自网络层;预设置只负责范围收敛与持久化。
+export { DEFAULT_REQUEST_TIMEOUT_MS }
 export const MIN_REQUEST_TIMEOUT_MS = 30000
 export const MAX_REQUEST_TIMEOUT_MS = 1800000
 

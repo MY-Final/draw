@@ -25,6 +25,17 @@ describe('fetchModels', () => {
     expect(modelsUrl('https://api.test/v1/')).toBe('https://api.test/v1/models')
   })
 
+  it('fetchModels 对带 /v1 的 Base URL 也只请求一次 /v1/models', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      expect(url).toBe('https://api.test/v1/models')
+      return { ok: true, status: 200, json: async () => ({ data: [{ id: 'image-alpha' }] }) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await fetchModels({ baseURL: 'https://api.test/v1' })
+    expect(result.models).toEqual(['image-alpha'])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('把 401 和接口错误归类,保留截断 detail', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: false, status: 500, text: async () => 'server detail',
